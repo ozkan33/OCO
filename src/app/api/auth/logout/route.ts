@@ -1,11 +1,21 @@
 import { NextResponse } from 'next/server';
 
 export async function POST() {
-  // Clear the token cookie
-  return new NextResponse(null, {
-    status: 200,
-    headers: {
-      'Set-Cookie': 'token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax',
-    },
-  });
+  // Create response
+  const response = NextResponse.json({ success: true });
+  
+  // Clear all authentication cookies
+  const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: 0, // Expire immediately
+  };
+  
+  response.cookies.set('supabase-access-token', '', cookieOptions);
+  response.cookies.set('supabase-refresh-token', '', cookieOptions);
+  response.cookies.set('supabase-user', '', cookieOptions);
+  
+  return response;
 } 

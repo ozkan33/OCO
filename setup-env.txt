@@ -1,0 +1,20 @@
+# Copy this content to .env.local
+
+# Supabase Configuration
+# Get these values from Supabase dashboard > Settings > API
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url_here
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+
+# JWT Secret for authentication (generate a long random string)
+JWT_SECRET=your_jwt_secret_here
+
+# Database URL (from Supabase dashboard > Settings > Database)
+DATABASE_URL=postgresql://postgres.[PROJECT_REF]:[YOUR_PASSWORD]@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+
+# Instructions:
+# 1. Create a new file named .env.local in the project root
+# 2. Copy the content above (excluding these instruction lines) into the .env.local file
+# 3. Replace all placeholder values with your actual Supabase project values
+# 4. Save the file
+# 5. Restart your development server (npm run dev)

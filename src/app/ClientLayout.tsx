@@ -8,24 +8,32 @@ const inter = Inter({ subsets: ['latin'] });
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname() || '';
 
   useEffect(() => {
-    // Fetch user info from /api/auth/me to determine login state
+    // Fetch user info from /api/auth/me using cookies
     const fetchUser = async () => {
       try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' });
-        if (!res.ok) {
+        const res = await fetch('/api/auth/me', { 
+          credentials: 'include', // Include cookies in request
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          setUser(data.user);
+        } else {
           setUser(null);
-          return;
         }
-        const data = await res.json();
-        setUser(data.user);
-      } catch {
+      } catch (error) {
+        console.error('Failed to fetch user:', error);
         setUser(null);
+      } finally {
+        setLoading(false);
       }
     };
+    
     fetchUser();
   }, []);
 
@@ -39,8 +47,23 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   };
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    window.location.href = '/';
+    try {
+      // Call logout endpoint to clear cookies
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      
+      // Clear user state
+      setUser(null);
+      
+      // Redirect to home
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Fallback - still redirect to home
+      window.location.href = '/';
+    }
   };
 
   // Hide header on all /admin/* and /vendor/* pages
