@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DataGrid, type Column, type RowsChangeData, type SortColumn, type RenderEditCellProps } from 'react-data-grid';
-import { FaLock, FaLockOpen, FaSort, FaSortUp, FaSortDown, FaRegListAlt, FaPlus, FaTrash, FaEdit, FaRegCommentDots, FaInfoCircle, FaChevronDown, FaChevronRight, FaPlusSquare, FaColumns, FaRegStickyNote } from 'react-icons/fa';
+import { FaLock, FaLockOpen, FaSort, FaSortUp, FaSortDown, FaRegListAlt, FaPlus, FaTrash, FaEdit, FaRegCommentDots, FaInfoCircle, FaChevronDown, FaChevronRight, FaPlusSquare, FaColumns, FaRegStickyNote, FaTachometerAlt } from 'react-icons/fa';
 import 'react-data-grid/lib/styles.css';
 import * as XLSX from 'xlsx';
 import { useRouter } from 'next/navigation';
@@ -10,6 +10,9 @@ import DatePickerOrig from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { format, parseISO, isToday } from 'date-fns';
 import { Toaster, toast } from 'sonner';
+import { useScoreCardAutoSave } from '../../hooks/useAutoSave';
+import { SaveStatus, SaveStatusCompact } from '../ui/SaveStatus';
+import MasterScorecard from './MasterScorecard';
 
 interface Row {
   id: number | string;
@@ -33,6 +36,7 @@ interface ScoreCard {
   columns: MyColumn[];
   rows: Row[];
   createdAt: Date;
+  lastModified?: Date;
 }
 
 interface AdminDataGridProps {
@@ -40,6 +44,41 @@ interface AdminDataGridProps {
 }
 
 const DatePicker = DatePickerOrig as unknown as React.FC<any>;
+
+// --- Robust prevention of save on scorecard switch ---
+// Move auto-save logic into a wrapper component keyed by editingScoreCard?.id
+function ScorecardAutoSaveWrapper({ scorecard, onSaveSuccess, onSaveError }: { scorecard: any, onSaveSuccess: any, onSaveError: (error: any) => void }) {
+  const currentScoreCardData = React.useMemo(() => {
+    if (!scorecard) return null;
+    return {
+      id: scorecard.id,
+      name: scorecard.name,
+      columns: scorecard.columns,
+      rows: scorecard.rows,
+      data: scorecard,
+    };
+  }, [scorecard?.id, scorecard?.name, scorecard?.columns, scorecard?.rows]);
+
+  const {
+    status,
+    lastSaved,
+    error,
+    forceSave,
+    isOnline,
+    hasUnsavedChanges,
+  } = useScoreCardAutoSave(
+    scorecard?.id || null,
+    currentScoreCardData,
+    {
+      debounceMs: 3000,
+      enableOfflineBackup: true,
+      onSaveSuccess,
+      onSaveError,
+    }
+  );
+  // Expose these to parent via a ref or context if needed
+  return null;
+}
 
 export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   const router = useRouter();
@@ -65,23 +104,39 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       renderCell: ({ row }) => <PriorityLabel value={row['priority']} />, 
       renderEditCell: (props: RenderEditCellProps<Row>) => <PriorityDropdownEditCell {...props} />
     },
-    { key: 'retail_price', name: 'Retail Price', editable: true, sortable: true, isDefault: true, renderEditCell: ({ row, column, onRowChange }) => (
-      <input
-        type="number"
-        step="0.01"
-        min="0"
-        defaultValue={row[column.key] !== undefined ? String(row[column.key]) : ''}
-        onChange={e => {
-          const value = e.target.value;
-          if (/^\d*\.?\d*$/.test(value)) {
-            onRowChange({ ...row, [column.key]: value === '' ? '' : parseFloat(value) });
-          }
-        }}
-        className="w-full h-full px-2 py-1"
-        autoFocus
-        placeholder="Enter retail price (number)"
-      />
-    ) },
+    { key: 'retail_price', name: 'Retail Price', editable: true, sortable: true, isDefault: true, 
+      renderCell: ({ row }) => {
+        const value = row['retail_price'];
+        // Debug logging
+        console.log('Retail price value:', value, 'type:', typeof value);
+        
+        if (value === undefined || value === null || value === '') {
+          return '';
+        }
+        const numValue = typeof value === 'string' ? parseFloat(value) : value;
+        return isNaN(numValue) ? '' : `$${numValue.toFixed(2)}`;
+      },
+      renderEditCell: ({ row, column, onRowChange }) => (
+        <div className="relative w-full h-full">
+          <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-500 z-10">$</span>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            defaultValue={row[column.key] !== undefined && row[column.key] !== null ? String(row[column.key]) : ''}
+            onChange={e => {
+              const value = e.target.value;
+              if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                onRowChange({ ...row, [column.key]: value === '' ? '' : parseFloat(value) });
+              }
+            }}
+            className="w-full h-full pl-6 pr-2 py-1 border-none outline-none"
+            autoFocus
+            placeholder="0.00"
+          />
+        </div>
+      ) 
+    },
     // CategoryReviewDate column
     { key: 'category_review_date', name: 'CategoryReviewDate', editable: false, sortable: true, isDefault: true,
       renderCell: ({ row }) => {
@@ -180,6 +235,9 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   const [showCreateScoreCardModal, setShowCreateScoreCardModal] = useState(false);
   const [newScoreCardName, setNewScoreCardName] = useState('');
   const [editingScoreCard, setEditingScoreCard] = useState<ScoreCard | null>(null);
+  const [showEditScoreCardModal, setShowEditScoreCardModal] = useState(false);
+
+
 
   // Store both columns and rows per category
   const [categoryData, setCategoryData] = useState(() => {
@@ -208,7 +266,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     console.log('Initial categoryData:', initial);
     return initial;
   });
-  const [selectedCategory, setSelectedCategory] = useState<string>(dataCategories[0]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('master-scorecard');
   const [editColumns, setEditColumns] = useState(false);
   const [rowEditEnabled, setRowEditEnabled] = useState(true);
   const [sortColumns, setSortColumns] = useState<SortColumn[]>([]);
@@ -220,14 +278,8 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   const [openCommentRowId, setOpenCommentRowId] = useState<number | null>(null);
   const [commentInput, setCommentInput] = useState('');
   const [user, setUser] = useState<any>(null);
-  // Comments are now keyed by scorecardId and rowId
-  const [comments, setComments] = useState<Record<string, Record<number, {text: string, timestamp: string, username: string}[]>>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('scorecardComments') || '{}');
-    } catch {
-      return {};
-    }
-  });
+  // Comments are now stored in database - structure: { scorecardId: { rowId: Comment[] } }
+  const [comments, setComments] = useState<Record<string, Record<number, any[]>>>({});
 
   // Add state and modal for the advanced retailer drawer if not present
   const [openRetailerDrawer, setOpenRetailerDrawer] = useState<number | null>(null);
@@ -253,12 +305,32 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   const [expandedRows, setExpandedRows] = useState<Record<number|string, boolean>>({});
 
   // Subgrid state: per parent row, store columns and rows only
-  const [subGrids, setSubGrids] = useState<{ [parentId: string]: { columns: MyColumn[]; rows: Row[] } }>({});
+  const [subGrids, setSubGrids] = useState<{ [parentId: string]: { columns: MyColumn[]; rows: Row[] } }>(() => {
+    // On mount, try to initialize from loaded scorecards (if any)
+    const initial: { [parentId: string]: { columns: MyColumn[]; rows: Row[] } } = {};
+    const scorecards = (() => {
+      try { return JSON.parse(localStorage.getItem('scorecards') || '[]'); } catch { return []; }
+    })();
+    for (const sc of scorecards) {
+      if (sc.rows && Array.isArray(sc.rows)) {
+        for (const row of sc.rows) {
+          if (row.subgrid && row.subgrid.columns && row.subgrid.rows) {
+            initial[row.id] = { columns: row.subgrid.columns, rows: row.subgrid.rows };
+          }
+        }
+      }
+    }
+    return initial;
+  });
   // Only one expanded row at a time
   const [expandedRowId, setExpandedRowId] = useState<string | number | null>(null);
+  // Reset expandedRowId when switching scorecards
+  useEffect(() => {
+    setExpandedRowId(null);
+  }, [selectedCategory]);
 
   // Add state for custom delete confirmation modal
-  const [confirmDelete, setConfirmDelete] = useState<null | { type: 'row' | 'column' | 'scorecard', id: string | number }>(null);
+  const [confirmDelete, setConfirmDelete] = useState<null | { type: 'row' | 'column' | 'scorecard' | 'template', id: string | number, name?: string }>(null);
 
   // 1. Add state for Priority picker
   const [priorityPicker, setPriorityPicker] = React.useState<null | { rowIdx: number; colIdx: number; top: number; left: number; width: number; value: string; columnKey: string }>(null);
@@ -275,17 +347,211 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   const [importWithRows, setImportWithRows] = useState(true);
   const [templateError, setTemplateError] = useState('');
 
-  function loadTemplates() {
+  // Helper function to check if a category is a scorecard
+  const isScorecard = (categoryId: string) => {
+    return scorecards.some(sc => sc.id === categoryId);
+  };
+
+  // --- Robust prevention of save on scorecard switch ---
+  // Track last saved serialized data for each scorecard
+  const lastSavedDataByIdRef = React.useRef<{ [id: string]: string }>({});
+
+  // --- Robust auto-save logic in main component ---
+  const lastScorecardIdRef = React.useRef<string | null>(null);
+  const skipNextSaveRef = React.useRef(false);
+  React.useEffect(() => {
+    if (editingScoreCard?.id !== lastScorecardIdRef.current) {
+      skipNextSaveRef.current = true;
+      lastScorecardIdRef.current = editingScoreCard?.id || null;
+    }
+  }, [editingScoreCard?.id]);
+
+  const currentScoreCardData = React.useMemo(() => {
+    if (!editingScoreCard) return null;
+    return {
+      id: editingScoreCard.id,
+      name: editingScoreCard.name,
+      columns: editingScoreCard.columns,
+      rows: editingScoreCard.rows,
+      data: editingScoreCard,
+    };
+  }, [editingScoreCard?.id, editingScoreCard?.name, editingScoreCard?.columns, editingScoreCard?.rows]);
+
+  const {
+    status: saveStatus,
+    lastSaved,
+    error: saveError,
+    forceSave,
+    isOnline,
+    hasUnsavedChanges,
+  } = useScoreCardAutoSave(
+    editingScoreCard?.id || null,
+    currentScoreCardData,
+    {
+      debounceMs: 3000,
+      enableOfflineBackup: true,
+      onSaveSuccess: (savedData?: any) => {
+        if (savedData && savedData.id && editingScoreCard && editingScoreCard.id !== savedData.id) {
+          const oldId = editingScoreCard.id;
+          const newId = savedData.id;
+          setScorecards(prev => prev.map(sc =>
+            sc.id === oldId ? { ...sc, id: newId, ...savedData } : sc
+          ));
+          if (selectedCategory === oldId) {
+            setSelectedCategory(newId);
+          }
+          setEditingScoreCard(prev => prev ? { ...prev, id: newId } : null);
+        }
+        // No toast needed
+      },
+      onSaveError: (error) => {
+        // No toast needed
+      },
+    },
+    editingScoreCard?.id, // resetKey
+    editingScoreCard // resetValue
+  );
+  // Patch: skip first save after scorecard switch
+  React.useEffect(() => {
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false;
+      return;
+    }
+    // No-op: the useScoreCardAutoSave hook already handles debounced save on data change
+  }, [currentScoreCardData]);
+
+  // Replace localStorage template logic with API calls
+  // Templates state
+  const [templates, setTemplates] = useState<any[]>([]);
+
+  // Load templates from API
+  async function fetchTemplates() {
     try {
-      return JSON.parse(localStorage.getItem('scorecardTemplates') || '[]');
-    } catch {
-      return [];
+      console.log('🔍 Fetching templates from API...');
+      const res = await fetch('/api/templates', { credentials: 'include' });
+      if (!res.ok) {
+        console.error('❌ Failed to fetch templates:', res.status, res.statusText);
+        throw new Error('Failed to load templates');
+      }
+      const data = await res.json();
+      console.log('✅ Templates loaded:', data.length, 'templates found');
+      setTemplates(data);
+    } catch (e) {
+      console.error('❌ Error fetching templates:', e);
+      setTemplates([]);
     }
   }
-  function saveTemplates(templates: any[]) {
-    localStorage.setItem('scorecardTemplates', JSON.stringify(templates));
+  useEffect(() => { fetchTemplates(); }, []);
+
+  // Save template to API
+  async function saveTemplateToAPI(template: { name: string; columns: any; rows?: any }) {
+    console.log('💾 Saving template to API:', template.name);
+    const res = await fetch('/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(template),
+    });
+    if (!res.ok) {
+      console.error('❌ Failed to save template:', res.status, res.statusText);
+      throw new Error('Failed to save template');
+    }
+    const data = await res.json();
+    console.log('✅ Template saved successfully:', data);
+    // Refetch templates to ensure consistency
+    await fetchTemplates();
+    return data;
   }
-  const [templates, setTemplates] = useState<any[]>(() => loadTemplates());
+
+  // Delete template from API
+  async function deleteTemplateFromAPI(id: string) {
+    console.log('🗑️ Deleting template with ID:', id);
+    const res = await fetch(`/api/templates/${id}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    console.log('Delete response status:', res.status);
+    if (!res.ok) {
+      console.error('❌ Failed to delete template:', res.status, res.statusText);
+      throw new Error('Failed to delete template');
+    }
+    console.log('✅ Template deleted successfully');
+    // Refetch templates to ensure consistency
+    await fetchTemplates();
+  }
+
+  // Save Template logic
+  async function handleSaveTemplate() {
+    if (!templateName.trim()) {
+      setTemplateError('Template name is required.');
+      return;
+    }
+    // Prevent duplicate template names
+    if (templates.some(t => t.name.trim().toLowerCase() === templateName.trim().toLowerCase())) {
+      setTemplateError('A template with this name already exists.');
+      return;
+    }
+    const currentData = getCurrentData();
+    if (!currentData) {
+      setTemplateError('No scorecard selected.');
+      return;
+    }
+    const newTemplate = {
+      name: templateName.trim(),
+      columns: currentData.columns,
+      rows: includeRowsInTemplate ? currentData.rows : undefined
+    };
+    
+    try {
+      await saveTemplateToAPI(newTemplate);
+      setShowSaveTemplateModal(false);
+      setTemplateName('');
+      setIncludeRowsInTemplate(true);
+      setTemplateError('');
+      toast.success('Template saved successfully!');
+    } catch (error) {
+      setTemplateError('Failed to save template.');
+      console.error('Save template error:', error);
+    }
+  }
+
+  // Import Template logic
+  function handleImportTemplate() {
+    const template = templates.find(t => t.name === selectedTemplateName);
+    if (!template) {
+      setTemplateError('Please select a template.');
+      return;
+    }
+    // Replace columns and optionally rows
+    updateCurrentData({
+      columns: template.columns,
+      rows: importWithRows && template.rows ? template.rows : getCurrentData()?.rows
+    });
+    setShowImportTemplateModal(false);
+    setSelectedTemplateName('');
+    setImportWithRows(true);
+    setTemplateError('');
+    toast.success('Template imported!');
+  }
+
+  // Remove template delete from localStorage, add API delete
+  async function handleDeleteTemplate(id: string) {
+    try {
+      await deleteTemplateFromAPI(id);
+      toast.success('Template deleted successfully!');
+      setSelectedTemplateName('');
+      setImportWithRows(true);
+      setConfirmDelete(null);
+      // Check if no templates remain after deletion
+      if (templates.length <= 1) {
+        setShowImportTemplateModal(false);
+        toast.info('No templates remaining. Please save a template first.');
+      }
+    } catch (error) {
+      toast.error('Failed to delete template.');
+      console.error('Delete template error:', error);
+    }
+  }
 
   // Helper to initialize a subgrid if it doesn't exist
   function ensureSubGrid(parentId: string | number | undefined) {
@@ -335,7 +601,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     const colKey = `col_${Date.now()}`;
     setSubGrids(prev => {
       const grid = prev[parentId] || { columns: [], rows: [], expanded: true };
-      return {
+      const updated = {
         ...prev,
         [parentId]: {
           ...grid,
@@ -346,6 +612,8 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
           rows: grid.rows.map((row: Row) => ({ ...row, [colKey]: '' }))
         }
       };
+      updateParentRowSubgrid(parentId, updated[parentId]);
+      return updated;
     });
   }
   function handleSubGridAddRow(parentId: string | number | undefined) {
@@ -366,13 +634,18 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   }
   function handleSubGridRowsChange(parentId: string | number | undefined, newRows: Row[]) {
     if (parentId === undefined) return;
-    setSubGrids(prev => ({
-      ...prev,
-      [parentId]: {
-        ...prev[parentId],
-        rows: newRows.filter((r: Row) => !r.isAddRow)
-      }
-    }));
+    setSubGrids(prev => {
+      const updated = {
+        ...prev,
+        [parentId]: {
+          ...prev[parentId],
+          rows: newRows.filter((r: Row) => !r.isAddRow)
+        }
+      };
+      // Also update the parent row in the main grid
+      updateParentRowSubgrid(parentId, updated[parentId]);
+      return updated;
+    });
   }
   function handleSubGridColumnNameChange(parentId: string | number | undefined, idx: number, newName: string) {
     if (parentId === undefined) return;
@@ -380,13 +653,15 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       const grid = prev[parentId];
       if (!grid) return prev;
       const updatedColumns = grid.columns.map((col: MyColumn, i: number) => i === idx ? { ...col, name: newName } : col);
-      return {
+      const updated = {
         ...prev,
         [parentId]: {
           ...grid,
           columns: updatedColumns
         }
       };
+      updateParentRowSubgrid(parentId, updated[parentId]);
+      return updated;
     });
   }
   function handleSubGridDeleteRow(parentId: string | number | undefined, rowId: number | string | undefined) {
@@ -394,13 +669,15 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     setSubGrids(prev => {
       const grid = prev[parentId];
       if (!grid) return prev;
-      return {
+      const updated = {
         ...prev,
         [parentId]: {
           ...grid,
           rows: grid.rows.filter((row: Row) => row.id !== rowId)
         }
       };
+      updateParentRowSubgrid(parentId, updated[parentId]);
+      return updated;
     });
   }
   function handleSubGridDeleteColumn(parentId: string | number | undefined, colKey: string) {
@@ -408,7 +685,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     setSubGrids(prev => {
       const grid = prev[parentId];
       if (!grid) return prev;
-      return {
+      const updated = {
         ...prev,
         [parentId]: {
           ...grid,
@@ -420,18 +697,156 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
           })
         }
       };
+      updateParentRowSubgrid(parentId, updated[parentId]);
+      return updated;
     });
   }
+  // Helper to update the parent row's subgrid property and trigger save
+  function updateParentRowSubgrid(parentId: string | number, subgrid: { columns: MyColumn[]; rows: Row[] }) {
+    // Only for scorecards
+    if (!selectedCategory || !isScorecard(selectedCategory)) return;
+    const currentData = getCurrentData();
+    if (!currentData) return;
+    const updatedRows = currentData.rows.map(row =>
+      row.id === parentId ? { ...row, subgrid: { columns: subgrid.columns, rows: subgrid.rows } } : row
+    );
+    updateCurrentData({ rows: updatedRows });
+  }
+  // On scorecard load, initialize subGrids from any subgrid data in rows
+  useEffect(() => {
+    if (!selectedCategory || !isScorecard(selectedCategory)) return;
+    const currentData = getCurrentData();
+    if (!currentData) return;
+    const newSubGrids: { [parentId: string]: { columns: MyColumn[]; rows: Row[] } } = {};
+    for (const row of currentData.rows) {
+      if (row.subgrid && row.subgrid.columns && row.subgrid.rows) {
+        newSubGrids[row.id] = { columns: row.subgrid.columns, rows: row.subgrid.rows };
+      }
+    }
+    setSubGrids(newSubGrids);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategory]);
 
-  function loadScorecardComments() {
+  // Load comments from database for a specific scorecard
+  async function loadScorecardComments(scorecardId: string) {
     try {
-      return JSON.parse(localStorage.getItem('scorecardComments') || '{}');
-    } catch {
-      return {};
+      console.log('📥 Loading comments for scorecard:', scorecardId);
+      
+      // Skip loading for local scorecards (they don't have database comments)
+      if (scorecardId.startsWith('scorecard_')) {
+        console.log('📝 Skipping comment load for local scorecard');
+        setComments(prev => ({
+          ...prev,
+          [scorecardId]: {}
+        }));
+        return;
+      }
+      
+      const response = await fetch(`/api/comments?scorecard_id=${scorecardId}`, {
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        console.error('❌ Failed to load comments:', response.status);
+        const errorData = await response.json().catch(() => ({}));
+        console.error('❌ Error details:', errorData);
+        return;
+      }
+      
+      const commentsData = await response.json();
+      console.log('✅ Comments loaded:', commentsData.length, 'comments');
+      
+      // Group comments by row_id
+      const groupedComments: Record<number, any[]> = {};
+      commentsData.forEach((comment: any) => {
+        const rowId = parseInt(comment.row_id);
+        if (!groupedComments[rowId]) {
+          groupedComments[rowId] = [];
+        }
+        groupedComments[rowId].push(comment);
+      });
+      
+      setComments(prev => ({
+        ...prev,
+        [scorecardId]: groupedComments
+      }));
+    } catch (error) {
+      console.error('❌ Error loading comments:', error);
     }
   }
-  function saveScorecardComments(newComments: Record<string, Record<number, {text: string, timestamp: string, username: string}[]>>) {
-    localStorage.setItem('scorecardComments', JSON.stringify(newComments));
+
+  // Update a comment in the database
+  async function updateComment(commentId: string, newText: string) {
+    try {
+      const response = await fetch(`/api/comments/${commentId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ text: newText }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update comment');
+      }
+
+      const updatedComment = await response.json();
+      
+      // Update local state
+      setComments(prev => {
+        const updated = { ...prev };
+        const scorecardComments = updated[selectedCategory] || {};
+        
+        // Find and update the comment
+        Object.keys(scorecardComments).forEach(rowId => {
+          const rowIdNum = parseInt(rowId);
+          const commentIndex = scorecardComments[rowIdNum]?.findIndex(c => c.id === commentId);
+          if (commentIndex !== -1) {
+            scorecardComments[rowIdNum][commentIndex] = updatedComment;
+          }
+        });
+        
+        return updated;
+      });
+      
+      return updatedComment;
+    } catch (error) {
+      console.error('Error updating comment:', error);
+      throw error;
+    }
+  }
+
+  // Delete a comment from the database
+  async function deleteComment(commentId: string, rowId: number) {
+    try {
+      const response = await fetch(`/api/comments/${commentId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete comment');
+      }
+
+      // Update local state
+      setComments(prev => {
+        const updated = { ...prev };
+        const scorecardComments = updated[selectedCategory] || {};
+        
+        if (scorecardComments[rowId]) {
+          scorecardComments[rowId] = scorecardComments[rowId].filter(c => c.id !== commentId);
+        }
+        
+        return updated;
+      });
+      
+      toast.success('Comment deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting comment:', error);
+      toast.error('Failed to delete comment');
+      throw error;
+    }
   }
 
   function handleOpenCommentModal(rowId: number) {
@@ -442,25 +857,118 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     setOpenCommentRowId(null);
     setCommentInput('');
   }
-  function handleAddComment() {
-    if (!commentInput.trim() || openCommentRowId == null || !selectedCategory.startsWith('scorecard_')) return;
-    const newComment = {
-      text: commentInput.trim(),
-      timestamp: new Date().toLocaleString(),
-      username: user?.name || user?.username || 'Anonymous',
-    };
-    setComments(prev => {
-      const updated = {
-        ...prev,
-        [selectedCategory]: {
-          ...(prev[selectedCategory] || {}),
-          ...(typeof openCommentRowId === 'number' ? { [openCommentRowId]: [...((prev[selectedCategory] || {})[openCommentRowId] || []), newComment] } : {}),
-        }
+  async function handleAddComment() {
+    if (!commentInput.trim() || openCommentRowId == null || !isScorecard(selectedCategory) || !user) return;
+    
+    try {
+      console.log('💬 Adding comment to scorecard:', selectedCategory);
+      
+      // Get current scorecard data for potential migration
+      const currentScorecard = editingScoreCard;
+      const requestBody = {
+        scorecard_id: selectedCategory,
+        user_id: openCommentRowId, // This is actually the row_id (API will rename it)
+        text: commentInput.trim(),
+        // Include scorecard data for auto-migration if it's a local scorecard
+        scorecard_data: selectedCategory.startsWith('scorecard_') ? {
+          name: currentScorecard?.name || 'Untitled Scorecard',
+          columns: currentScorecard?.columns || [],
+          rows: currentScorecard?.rows || []
+        } : undefined
       };
-      saveScorecardComments(updated);
-      return updated;
-    });
-    setCommentInput('');
+      
+      console.log('📤 Sending comment request:', requestBody);
+      
+      const response = await fetch('/api/comments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('❌ Comment creation failed:', errorData);
+        throw new Error(errorData.error || 'Failed to add comment');
+      }
+
+      const newComment = await response.json();
+      console.log('✅ Comment created successfully:', newComment);
+      
+      // Handle scorecard migration if it occurred
+      if (newComment.migrated_scorecard) {
+        console.log('🔄 Scorecard was migrated:', newComment.migrated_scorecard);
+        
+        const { old_id, new_id, title } = newComment.migrated_scorecard;
+        
+        // Update the scorecard in our state
+        const migratedScorecard: ScoreCard = {
+          ...currentScorecard!,
+          id: new_id,
+          name: title,
+          columns: currentScorecard?.columns || [],
+          rows: currentScorecard?.rows || [],
+          createdAt: currentScorecard?.createdAt || new Date(),
+          lastModified: new Date()
+        };
+        
+        // Update scorecards list
+        setScorecards(prev => prev.map(sc => 
+          sc.id === old_id ? migratedScorecard : sc
+        ));
+        
+        // Update current editing scorecard
+        setEditingScoreCard(migratedScorecard);
+        
+        // Update selected category
+        setSelectedCategory(new_id);
+        
+        // Update localStorage
+        const allScorecards = JSON.parse(localStorage.getItem('scorecards') || '[]');
+        const updatedLocalScorecards = allScorecards.map((sc: any) => 
+          sc.id === old_id ? migratedScorecard : sc
+        );
+        localStorage.setItem('scorecards', JSON.stringify(updatedLocalScorecards));
+        
+        toast.success('Scorecard migrated to database and comment added!');
+        
+        // Use the new scorecard ID for comment grouping
+        const actualScorecardId = new_id;
+        
+        // Update local comment state
+        setComments(prev => {
+          const updated = {
+            ...prev,
+            [actualScorecardId]: {
+              ...(prev[actualScorecardId] || {}),
+              [openCommentRowId]: [...((prev[actualScorecardId] || {})[openCommentRowId] || []), newComment],
+            }
+          };
+          return updated;
+        });
+      } else {
+        // Normal comment addition (no migration)
+        setComments(prev => {
+          const updated = {
+            ...prev,
+            [selectedCategory]: {
+              ...(prev[selectedCategory] || {}),
+              [openCommentRowId]: [...((prev[selectedCategory] || {})[openCommentRowId] || []), newComment],
+            }
+          };
+          return updated;
+        });
+        
+        toast.success('Comment added successfully!');
+      }
+      
+      setCommentInput('');
+    } catch (error) {
+      console.error('❌ Error adding comment:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to add comment');
+    }
   }
 
   // Save scorecards to localStorage whenever they change
@@ -477,34 +985,71 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       toast.error('A ScoreCard with this name already exists. Please choose a different name.');
       return;
     }
-    // Use the current Retailers columns as the initial columns for the new ScoreCard
     const retailersCols = categoryData['Retailers']?.columns || retailersColumns;
-    const newScoreCard: ScoreCard = {
-      id: `scorecard_${Date.now()}`,
-      name: newScoreCardName.trim(),
-      columns: retailersCols.map(col => ({ ...col })),
-      rows: [
-        { id: 1, name: 'Item 1' },
-        { id: 2, name: 'Item 2' },
-      ],
-      createdAt: new Date()
+    const newScoreCard = {
+      title: newScoreCardName.trim(),
+      data: {
+        columns: retailersCols.map(col => ({ ...col })),
+        rows: [
+          { id: 1, name: 'Item 1' },
+          { id: 2, name: 'Item 2' },
+        ],
+      },
     };
-    setScorecards(prev => [...prev, newScoreCard]);
-    setNewScoreCardName('');
-    setShowCreateScoreCardModal(false);
+    fetch('/api/scorecards', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(newScoreCard),
+    })
+      .then(async (response) => {
+        if (response.ok) {
+          const created = await response.json();
+          const formatted = {
+            id: created.id,
+            name: created.title,
+            columns: created.data.columns,
+            rows: created.data.rows,
+            createdAt: new Date(created.created_at),
+            lastModified: new Date(created.last_modified),
+            data: created.data,
+          };
+          setScorecards(prev => [...prev, formatted]);
+          setEditingScoreCard(formatted);
+          setSelectedCategory(formatted.id);
+          setNewScoreCardName('');
+          setShowCreateScoreCardModal(false);
+          toast.success('ScoreCard created successfully');
+        } else {
+          toast.error('Failed to create ScoreCard');
+        }
+      })
+      .catch(() => toast.error('Failed to create ScoreCard'));
   }
 
   function deleteScoreCard(scorecardId: string) {
-    setScorecards(prev => prev.filter(sc => sc.id !== scorecardId));
-    if (selectedCategory === scorecardId) {
-      setSelectedCategory(dataCategories[0]);
-    }
+    fetch(`/api/scorecards/${scorecardId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+      .then((response) => {
+        if (response.ok) {
+          setScorecards(prev => prev.filter(sc => sc.id !== scorecardId));
+          if (selectedCategory === scorecardId) {
+            setSelectedCategory(dataCategories[0]);
+          }
+          toast.success('ScoreCard deleted successfully');
+        } else {
+          toast.error('Failed to delete ScoreCard');
+        }
+      })
+      .catch(() => toast.error('Failed to delete ScoreCard'));
   }
 
   function updateScoreCard(scorecardId: string, updates: Partial<ScoreCard>) {
     setScorecards(prev => prev.map(sc =>
       sc.id === scorecardId
-        ? { ...sc, ...updates, rows: updates.rows ? [...updates.rows] : sc.rows }
+        ? { ...sc, ...updates, rows: updates.rows ? [...updates.rows] : sc.rows, lastModified: new Date() }
         : sc
     ));
   }
@@ -512,10 +1057,20 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   // Get current data based on selected category
   function getCurrentData() {
     if (!selectedCategory) return null;
-    if (selectedCategory.startsWith('scorecard_')) {
-      const scorecard = scorecards.find(sc => sc.id === selectedCategory);
-      return scorecard ? { columns: scorecard.columns, rows: scorecard.rows } : null;
+    
+    // Check if it's a scorecard (either local with 'scorecard_' prefix or database with numeric ID)
+    const scorecard = scorecards.find(sc => sc.id === selectedCategory);
+    if (scorecard) {
+      console.log('📊 Found scorecard data:', scorecard.name, 'with', scorecard.rows.length, 'rows');
+      return { columns: scorecard.columns, rows: scorecard.rows };
     }
+    
+    // If not a scorecard, check regular categories
+    if (selectedCategory in categoryData) {
+      return categoryData[selectedCategory];
+    }
+    
+    console.log('❌ No data found for category:', selectedCategory);
     return null;
   }
 
@@ -526,9 +1081,23 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         col.key === 'comments' ? { ...col, name: '', renderHeaderCell: () => null } : col
       );
     }
-    if (selectedCategory.startsWith('scorecard_')) {
+    
+    // Check if it's a scorecard (either local or database)
+    const scorecard = scorecards.find(sc => sc.id === selectedCategory);
+    if (scorecard) {
       updateScoreCard(selectedCategory, updates);
+      
+      // CRITICAL: Update editingScoreCard state for auto-save
+      if (editingScoreCard) {
+        const updatedScorecard = {
+          ...editingScoreCard,
+          ...updates,
+          lastModified: new Date(),
+        };
+        setEditingScoreCard(updatedScorecard);
+      }
     } else {
+      // Handle regular categories
       setCategoryData(prev => ({
         ...prev,
         [selectedCategory]: {
@@ -602,59 +1171,97 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   function handleCategoryChange(category: string) {
     setSelectedCategory(category);
     setSortColumns([]);
-    console.log('Switching to', category, 'categoryData:', categoryData);
+    
+    // Check if it's the master scorecard
+    if (category === 'master-scorecard') {
+      setEditingScoreCard(null);
+      console.log('🎯 Auto-save DISABLED for master scorecard');
+      return;
+    }
+    
+    // Check if it's a scorecard (either local or database)
+    const scorecard = scorecards.find(sc => sc.id === category);
+    if (scorecard) {
+      setEditingScoreCard(scorecard);
+      console.log('🎯 Auto-save ENABLED for scorecard:', scorecard.name, 'ID:', scorecard.id);
+      // Load comments for this scorecard
+      loadScorecardComments(scorecard.id);
+    } else {
+      setEditingScoreCard(null);
+      console.log('🎯 Auto-save DISABLED for regular category:', category);
+    }
+    
+    console.log('Switching to', category, 'found scorecard:', !!scorecard);
   }
 
-  function onRowsChange(newRows: Row[]) {
-    updateCurrentData({ rows: [...newRows] });
-    
-    // Save to appropriate storage
-      if (selectedCategory === 'Retailers') {
-      saveRetailersToStorage(newRows);
-      }
-  }
+  // Update current scorecard
+  const updateCurrentScorecard = useCallback((updates: Partial<ScoreCard>) => {
+    if (!editingScoreCard) return;
+    const updatedScorecard = {
+      ...editingScoreCard,
+      ...updates,
+      lastModified: new Date(),
+    };
+    setEditingScoreCard(updatedScorecard);
+    setScorecards(prev => prev.map(sc =>
+      sc.id === editingScoreCard.id ? updatedScorecard : sc
+    ));
+  }, [editingScoreCard]);
 
-  // Handle column name change for both Retailers and ScoreCards
-  function handleColumnNameChange(idx: number, newName: string) {
-    const currentData = getCurrentData();
-    if (!currentData) return;
-    const updatedColumns = currentData.columns.map((col, i) =>
-          i === idx ? { ...col, name: newName } : col
-    );
-    updateCurrentData({ columns: updatedColumns });
-  }
+  // Handle rows change
+  const onRowsChange = useCallback((newRows: Row[]) => {
+    updateCurrentScorecard({ rows: [...newRows] });
+  }, [updateCurrentScorecard]);
 
-  function handleAddRow() {
-    const currentData = getCurrentData();
-    if (!currentData) return;
-    
-    const newId = currentData.rows.length > 0 ? Math.max(...currentData.rows.map(r => typeof r.id === 'number' ? r.id : 0)) + 1 : 1;
-    const newRow: Row = { id: newId, name: '' };
-    currentData.columns.forEach(col => {
-      if (col.key !== 'id' && col.key !== 'delete' && !(col.key in newRow)) newRow[col.key] = '';
-    });
-    
-    const updatedRows = [...currentData.rows, newRow];
-    updateCurrentData({ rows: updatedRows });
-    
-    // Save to appropriate storage
-      if (selectedCategory === 'Retailers') {
-      saveRetailersToStorage(updatedRows);
-      }
-  }
+  // Handle column name change
+  const handleColumnNameChange = useCallback((idx: number, newName: string) => {
+    if (!editingScoreCard) return;
+    const newColumns = [...editingScoreCard.columns];
+    newColumns[idx] = { ...newColumns[idx], name: newName };
+    updateCurrentScorecard({ columns: newColumns });
+  }, [editingScoreCard, updateCurrentScorecard]);
 
-  function handleDeleteRow(rowId: number) {
-    const currentData = getCurrentData();
-    if (!currentData) return;
-    
-    const updatedRows = currentData.rows.filter(row => row.id !== rowId);
-    updateCurrentData({ rows: updatedRows });
-    
-    // Save to appropriate storage
-      if (selectedCategory === 'Retailers') {
-      saveRetailersToStorage(updatedRows);
-      }
-  }
+  // Add new row
+  const handleAddRow = useCallback(() => {
+    if (!editingScoreCard) return;
+    const newRow: Row = {
+      id: Date.now(),
+      name: '',
+      priority: 'Medium',
+      retail_price: 0,
+      buyer: '',
+      store_count: 0,
+      hq_location: '',
+      notes: '',
+    };
+    updateCurrentScorecard({ rows: [...editingScoreCard.rows, newRow] });
+  }, [editingScoreCard, updateCurrentScorecard]);
+
+  // Delete row
+  const handleDeleteRow = useCallback((rowId: number | string) => {
+    if (!editingScoreCard) return;
+    const newRows = editingScoreCard.rows.filter(row => row.id !== rowId);
+    updateCurrentScorecard({ rows: newRows });
+  }, [editingScoreCard, updateCurrentScorecard]);
+
+  // Add new column
+  const handleAddColumn = useCallback(() => {
+    if (!newColName.trim()) {
+      setColError('Column name cannot be empty');
+      return;
+    }
+    if (!editingScoreCard) return;
+    const newColumn: MyColumn = {
+      key: newColName.toLowerCase().replace(/\s+/g, '_'),
+      name: newColName,
+      editable: true,
+      sortable: true,
+    };
+    updateCurrentScorecard({ columns: [...editingScoreCard.columns, newColumn] });
+    setNewColName('');
+    setShowAddColModal(false);
+    setColError('');
+  }, [newColName, editingScoreCard, updateCurrentScorecard]);
 
   function openAddColModal() {
     setNewColName('');
@@ -677,8 +1284,8 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     const newColumn = {
       key,
       name: newColName, // Ensure name is always set
-            editable: userRole === 'ADMIN',
-            sortable: true,
+      editable: userRole === 'ADMIN',
+      sortable: true,
       isDefault: false, // Mark as user-added
       renderHeaderCell: undefined // Let columnsWithDelete logic handle header rendering
     };
@@ -921,22 +1528,33 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     return {
       ...col,
         editable: true,
+        renderCell: ({ row }: { row: Row }) => {
+          const value = row['retail_price'];
+          if (value === undefined || value === null || value === '') {
+            return '';
+          }
+          const numValue = typeof value === 'string' ? parseFloat(value) : value;
+          return isNaN(numValue) ? '' : `$${numValue.toFixed(2)}`;
+        },
         renderEditCell: ({ row, column, onRowChange }: RenderEditCellProps<Row>) => (
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            defaultValue={row[column.key] !== undefined ? String(row[column.key]) : ''}
-            onChange={e => {
-              const value = e.target.value;
-              if (/^\d*\.?\d*$/.test(value)) {
-                onRowChange({ ...row, [column.key]: value === '' ? '' : parseFloat(value) });
-              }
-            }}
-            className="w-full h-full px-2 py-1"
-            autoFocus
-            placeholder="Enter retail price (number)"
-          />
+          <div className="relative w-full h-full">
+            <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-500 z-10">$</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={row[column.key] !== undefined && row[column.key] !== null ? String(row[column.key]) : ''}
+              onChange={e => {
+                const value = e.target.value;
+                if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                  onRowChange({ ...row, [column.key]: value === '' ? '' : parseFloat(value) });
+                }
+              }}
+              className="w-full h-full pl-6 pr-2 py-1 border-none outline-none"
+              autoFocus
+              placeholder="0.00"
+            />
+          </div>
         ),
       };
     }
@@ -1040,7 +1658,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
 
   let columnsWithDelete: MyColumn[] = [...editableColumns];
   // For ScoreCards, insert comment column and user-added columns after Retailer Name
-  if (selectedCategory && selectedCategory.startsWith('scorecard_')) {
+  if (selectedCategory && isScorecard(selectedCategory)) {
     const nameIdx = columnsWithDelete.findIndex(col => col.key === 'name');
     // Extract user-added columns (not isDefault)
     const userAddedCols = columnsWithDelete.filter(col => col.isDefault !== true && col.key !== 'comments' && col.key !== 'name');
@@ -1238,6 +1856,14 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
 
       // Update the grid with imported data
       updateCurrentData({ rows: formattedRows });
+      // Immediately force save after import
+      setTimeout(async () => {
+        try {
+          await forceSave();
+        } catch (err) {
+          toast.error('Failed to save imported data to backend.');
+        }
+      }, 0);
       toast.success('Import successful!');
     };
     reader.readAsArrayBuffer(file);
@@ -1697,11 +2323,11 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       };
     }
     // User-added columns: allow renaming (but not for 'name' column)
-    const isUserAdded = col.isDefault !== true && col.key !== 'priority' && col.key !== '_delete_row' && col.key !== 'comments' && col.key !== 'name';
+    const isUserAdded = col.isDefault === false && col.key !== 'priority' && col.key !== '_delete_row' && col.key !== 'comments' && col.key !== 'name';
     if (isUserAdded) {
         return {
           ...col,
-        renderHeaderCell: () => (
+        renderHeaderCell: (props?: any) => (
           <EditableColumnHeader
             col={col}
             idx={idx}
@@ -1954,55 +2580,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     return (name || '').toLowerCase().replace(/\s+/g, '').replace(/_/g, '').trim();
   }
 
-  // Save Template logic
-  function handleSaveTemplate() {
-    if (!templateName.trim()) {
-      setTemplateError('Template name is required.');
-      return;
-    }
-    // Prevent duplicate template names
-    if (templates.some(t => t.name.trim().toLowerCase() === templateName.trim().toLowerCase())) {
-      setTemplateError('A template with this name already exists.');
-      return;
-    }
-    const currentData = getCurrentData();
-    if (!currentData) {
-      setTemplateError('No scorecard selected.');
-      return;
-    }
-    const newTemplate = {
-      name: templateName.trim(),
-      columns: currentData.columns,
-      rows: includeRowsInTemplate ? currentData.rows : undefined
-    };
-    const newTemplates = [...templates, newTemplate];
-    setTemplates(newTemplates);
-    saveTemplates(newTemplates);
-    setShowSaveTemplateModal(false);
-    setTemplateName('');
-    setIncludeRowsInTemplate(true);
-    setTemplateError('');
-    toast.success('Template saved!');
-  }
-
-  // Import Template logic
-  function handleImportTemplate() {
-    const template = templates.find(t => t.name === selectedTemplateName);
-    if (!template) {
-      setTemplateError('Please select a template.');
-      return;
-    }
-    // Replace columns and optionally rows
-    updateCurrentData({
-      columns: template.columns,
-      rows: importWithRows && template.rows ? template.rows : getCurrentData()?.rows
-    });
-    setShowImportTemplateModal(false);
-    setSelectedTemplateName('');
-    setImportWithRows(true);
-    setTemplateError('');
-    toast.success('Template imported!');
-  }
+  
 
   // Subgrid template state and helpers (per subgrid)
   const [subgridTemplateModal, setSubgridTemplateModal] = useState<null | { parentId: string | number; mode: 'save' | 'import' }>(null);
@@ -2210,9 +2788,65 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     );
   }
 
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const response = await fetch('/api/scorecards', {
+          credentials: 'include',
+        });
+        if (response.ok) {
+          const scorecardsData = await response.json();
+          const formattedScorecards = scorecardsData.map((sc: any) => ({
+            id: sc.id,
+            name: sc.title,
+            columns: sc.data.columns || retailersColumns,
+            rows: sc.data.rows || [],
+            createdAt: new Date(sc.created_at),
+            lastModified: new Date(sc.last_modified),
+            data: sc.data,
+          }));
+          setScorecards(formattedScorecards);
+          if (formattedScorecards.length > 0) {
+            setEditingScoreCard(formattedScorecards[0]);
+            setSelectedCategory(formattedScorecards[0].id);
+          }
+        } else {
+          // Fall back to localStorage if API fails
+          const localScorecards = loadScoreCardsFromStorage();
+          setScorecards(localScorecards);
+          if (localScorecards.length > 0) {
+            setEditingScoreCard(localScorecards[0]);
+            setSelectedCategory(localScorecards[0].id);
+          }
+        }
+      } catch (error) {
+        // Fall back to localStorage on error
+        const localScorecards = loadScoreCardsFromStorage();
+        setScorecards(localScorecards);
+        if (localScorecards.length > 0) {
+          setEditingScoreCard(localScorecards[0]);
+          setSelectedCategory(localScorecards[0].id);
+        }
+      }
+    };
+    loadData();
+  }, []);
+
+  // --- Save before logout ---
+  async function handleLogout() {
+    if (hasUnsavedChanges) {
+      try {
+        await forceSave();
+      } catch (e) {
+        // Ignore save error, proceed with logout
+      }
+    }
+    // Proceed with logout
+    window.location.href = '/auth/logout';
+  }
+
   return (
     <>
-      {/* @ts-expect-error: Toaster type is compatible at runtime */}
       <Toaster position="top-right" richColors />
       <style jsx global>{`
         .rdg-cell:focus, .rdg-cell.rdg-cell-selected {
@@ -2271,6 +2905,20 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
               )}
             </div>
             
+            {/* Master Scorecard */}
+            <div className="mb-4">
+              <button
+                onClick={() => handleCategoryChange('master-scorecard')}
+                className={`w-full text-left px-3 py-2 rounded font-medium transition-all flex items-center gap-2 ${selectedCategory === 'master-scorecard' ? 'bg-blue-100 text-blue-800 border border-blue-300' : 'hover:bg-gray-100 text-gray-700 border border-transparent'}`}
+              >
+                <FaTachometerAlt size={14} />
+                <span>Master Scorecard</span>
+                <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                  Dashboard
+                </span>
+              </button>
+            </div>
+            
             {scorecards.map(scorecard => (
               <div key={scorecard.id} className="mb-2">
                 <div className="flex items-center justify-between group">
@@ -2278,12 +2926,27 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                     onClick={() => handleCategoryChange(scorecard.id)}
                     className={`flex-1 text-left px-3 py-2 rounded font-medium transition-all ${selectedCategory === scorecard.id ? 'bg-gray-200 text-black' : 'hover:bg-gray-100 text-gray-700'}`}
                   >
-                    {scorecard.name}
+                    <div className="flex items-center">
+                      {scorecard.name}
+                      {selectedCategory === scorecard.id && editingScoreCard?.id === scorecard.id && (
+                        <SaveStatusCompact
+                          status={saveStatus}
+                          lastSaved={lastSaved}
+                          error={saveError}
+                          hasUnsavedChanges={hasUnsavedChanges}
+                          isOnline={isOnline}
+                          className="ml-2"
+                        />
+                      )}
+                    </div>
           </button>
                   {userRole === 'ADMIN' && (
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
-                        onClick={() => setEditingScoreCard(scorecard)}
+                        onClick={() => {
+                          setEditingScoreCard(scorecard);
+                          setShowEditScoreCardModal(true);
+                        }}
                         className="p-1 text-gray-500 hover:text-blue-600"
                         title="Edit ScoreCard"
                       >
@@ -2312,8 +2975,33 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
 
         {/* Main Content */}
         <main className="flex-1 h-full flex flex-col p-8">
+          {/* Auto-save status indicator */}
+          {editingScoreCard && (
+            <ScorecardAutoSaveWrapper
+              key={editingScoreCard.id}
+              scorecard={editingScoreCard}
+              onSaveSuccess={(savedData?: any) => {
+                if (savedData && savedData.id && editingScoreCard && editingScoreCard.id !== savedData.id) {
+                  const oldId = editingScoreCard.id;
+                  const newId = savedData.id;
+                  setScorecards(prev => prev.map(sc => 
+                    sc.id === oldId ? { ...sc, id: newId, ...savedData } : sc
+                  ));
+                  if (selectedCategory === oldId) {
+                    setSelectedCategory(newId);
+                  }
+                  setEditingScoreCard(prev => prev ? { ...prev, id: newId } : null);
+                }
+                toast.success('ScoreCard saved successfully');
+              }}
+              onSaveError={(error) => {
+                toast.error(`Save failed: ${error.message}`);
+              }}
+            />
+          )}
+          
           {/* Row Edit Toggle Button and Import */}
-          {selectedCategory && selectedCategory.startsWith('scorecard_') && (
+          {selectedCategory && isScorecard(selectedCategory) && (
             <div className="flex items-center justify-between gap-4 mb-4">
               <div className="flex items-center gap-4">
           <button
@@ -2351,19 +3039,39 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                 >
                   💾 Save Template
                 </button>
-                <button
-                  onClick={() => setShowImportTemplateModal(true)}
-                  className="px-3 py-1 rounded text-sm font-medium border bg-cyan-600 text-white hover:bg-cyan-700 flex items-center gap-2"
-                  disabled={userRole !== 'ADMIN' || templates.length === 0}
-                >
-                  📂 Import Template
-                </button>
+                                  <button
+                    onClick={async () => {
+                      // Refresh templates before opening modal
+                      await fetchTemplates();
+                      // Check if templates are available after refresh
+                      if (templates.length === 0) {
+                        toast.error('No templates available. Please save a template first.');
+                        return;
+                      }
+                      setShowImportTemplateModal(true);
+                    }}
+                    className="px-3 py-1 rounded text-sm font-medium border bg-cyan-600 text-white hover:bg-cyan-700 flex items-center gap-2"
+                    disabled={userRole !== 'ADMIN'}
+                  >
+                    📂 Import Template
+                  </button>
               </div>
             </div>
           )}
 
+        {/* Master Scorecard */}
+        {selectedCategory === 'master-scorecard' && (
+          <MasterScorecard 
+            key={`master-${scorecards.length}-${scorecards.map(sc => sc.lastModified).join('-')}`} // Force refresh when scorecards change
+            onCustomerClick={(customerId) => {
+              // Switch to the customer's scorecard
+              handleCategoryChange(customerId);
+            }}
+          />
+        )}
+
         {/* DataGrid */}
-          {getCurrentData() && getCurrentData()?.columns && getCurrentData()?.rows ? (
+          {selectedCategory !== 'master-scorecard' && getCurrentData() && getCurrentData()?.columns && getCurrentData()?.rows ? (
             <div ref={gridContainerRef} className="flex-1 min-h-screen w-full flex flex-col" style={{ position: 'relative' }}>
               {getSortedRows().map((row, idx) => (
                 <React.Fragment key={row.id ?? idx}>
@@ -2478,7 +3186,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
           </div>
           ) : (
             <div className="flex-1 flex items-center justify-center text-gray-400 text-lg" style={{ minHeight: '60vh' }}>
-              {scorecards.length === 0 ? 'No ScoreCards yet. Please create one.' : 'Please select a ScoreCard.'}
+              {selectedCategory === 'master-scorecard' ? 'Loading Master Scorecard...' : scorecards.length === 0 ? 'No ScoreCards yet. Please create one.' : 'Please select a ScoreCard.'}
         </div>
           )}
           {statusPicker && (
@@ -2609,7 +3317,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
           )}
 
           {/* Edit ScoreCard Modal */}
-          {editingScoreCard && (
+          {showEditScoreCardModal && editingScoreCard && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
               <div className="bg-white p-6 rounded-lg shadow-xl w-96">
                 <h3 className="text-lg font-bold mb-4">Edit ScoreCard</h3>
@@ -2626,7 +3334,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                   </div>
                 <div className="flex justify-end gap-2">
                   <button
-                      onClick={() => setEditingScoreCard(null)}
+                      onClick={() => setShowEditScoreCardModal(false)}
                     className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
                   >
                     Cancel
@@ -2641,7 +3349,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                             return;
                           }
                           updateScoreCard(editingScoreCard.id, { name: editingScoreCard.name });
-                          setEditingScoreCard(null);
+                          setShowEditScoreCardModal(false);
                         }
                       }}
                     className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
@@ -2655,7 +3363,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         )}
 
           {/* Comment Modal */}
-          {openCommentRowId !== null && selectedCategory.startsWith('scorecard_') && (() => {
+          {openCommentRowId !== null && isScorecard(selectedCategory) && (() => {
             const row: Partial<Row> = getCurrentData()?.rows.find(r => r.id === openCommentRowId) || {};
             return (
               <div className="fixed inset-0 z-50 flex">
@@ -2672,16 +3380,18 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                     <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-1" style={{ maxHeight: '40vh' }}>
                       {typeof row.id === 'number' && comments[selectedCategory]?.[row.id] && comments[selectedCategory][row.id].length > 0 ? (
                         comments[selectedCategory][row.id].map((c, i) => {
-                          const isAuthor = (user?.name || user?.username || 'Anonymous') === (c.username || 'Anonymous');
+                          const isAuthor = user?.id === c.user_id;
+                          const displayName = user?.name || user?.email || 'Anonymous';
+                          const createdAt = new Date(c.created_at).toLocaleString();
                           return (
-                            <li key={i} className="flex items-start gap-4 bg-white rounded-2xl shadow border border-gray-200 p-4">
+                            <li key={c.id || i} className="flex items-start gap-4 bg-white rounded-2xl shadow border border-gray-200 p-4">
                               <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">
-                                {c.username?.[0]?.toUpperCase() || 'A'}
+                                {displayName[0]?.toUpperCase() || 'A'}
                               </div>
                               <div className="flex-1">
                                 <div className="flex justify-between items-center mb-1">
-                                  <span className="font-semibold text-gray-800">{c.username || 'Anonymous'}</span>
-                                  <span className="text-xs text-gray-400 ml-2 whitespace-nowrap">{c.timestamp}</span>
+                                  <span className="font-semibold text-gray-800">{displayName}</span>
+                                  <span className="text-xs text-gray-400 ml-2 whitespace-nowrap">{createdAt}</span>
                                 </div>
                                 {editCommentIdx === i ? (
                                   <div className="flex flex-col gap-2 mt-1">
@@ -2694,17 +3404,19 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                                     />
                                     <div className="flex gap-2 mt-1">
                                       <button
-                                        onClick={() => {
+                                        onClick={async () => {
                                           // Save edited comment
-                                          const updated = { ...comments };
                                           if (typeof row.id === 'number') {
-                                            updated[selectedCategory][row.id][i].text = editCommentText;
+                                            try {
+                                              const comment = comments[selectedCategory][row.id][i];
+                                              await updateComment(comment.id, editCommentText);
+                                              setEditCommentIdx(null);
+                                              setEditCommentText('');
+                                              toast.success('Comment updated!');
+                                            } catch (error) {
+                                              toast.error('Failed to update comment');
+                                            }
                                           }
-                                          setComments(updated);
-                                          saveScorecardComments(updated);
-                                          setEditCommentIdx(null);
-                                          setEditCommentText('');
-                                          toast.success('Comment updated!');
                                         }}
                                         className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-semibold"
                                       >Save</button>
@@ -2778,7 +3490,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
           })()}
 
           {/* Render the advanced drawer for ScoreCard rows */}
-          {openRetailerDrawer !== null && selectedCategory && selectedCategory.startsWith('scorecard_') && (() => {
+          {openRetailerDrawer !== null && selectedCategory && isScorecard(selectedCategory) && (() => {
             const currentData = getCurrentData();
             const row: Partial<Row> = currentData?.rows.find(r => r.id === openRetailerDrawer) || {};
             return (
@@ -2812,16 +3524,18 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                     <div className="flex-1 overflow-y-auto mb-2 space-y-4 pr-1" style={{ maxHeight: '40vh' }}>
                       {typeof row.id === 'number' && comments[selectedCategory]?.[row.id]
                         ? comments[selectedCategory][row.id].map((c, i) => {
-                            const isAuthor = (user?.name || user?.username || 'Anonymous') === (c.username || 'Anonymous');
+                            const isAuthor = user?.id === c.user_id;
+                            const displayName = user?.name || user?.email || 'Anonymous';
+                            const createdAt = new Date(c.created_at).toLocaleString();
                             return (
-                              <li key={i} className="flex items-start gap-3 bg-white rounded-xl shadow border border-gray-200 p-4">
+                              <li key={c.id || i} className="flex items-start gap-3 bg-white rounded-xl shadow border border-gray-200 p-4">
                                 <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">
-                                  {c.username?.[0]?.toUpperCase() || 'A'}
+                                  {displayName[0]?.toUpperCase() || 'A'}
                                 </div>
                                 <div className="flex-1">
                                   <div className="flex justify-between items-center mb-1">
-                                    <span className="font-semibold text-gray-800">{c.username || 'Anonymous'}</span>
-                                    <span className="text-xs text-gray-400 ml-2 whitespace-nowrap">{c.timestamp}</span>
+                                    <span className="font-semibold text-gray-800">{displayName}</span>
+                                    <span className="text-xs text-gray-400 ml-2 whitespace-nowrap">{createdAt}</span>
                                   </div>
                                   {/* Edit mode for comment */}
                                   {editCommentIdx === i ? (
@@ -2834,17 +3548,19 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                                         autoFocus
                                       />
                                       <button
-                                        onClick={() => {
+                                        onClick={async () => {
                                           // Save edited comment
-                                          const updated = { ...comments };
                                           if (typeof row.id === 'number') {
-                                            updated[selectedCategory][row.id][i].text = editCommentText;
+                                            try {
+                                              const comment = comments[selectedCategory][row.id][i];
+                                              await updateComment(comment.id, editCommentText);
+                                              setEditCommentIdx(null);
+                                              setEditCommentText('');
+                                              toast.success('Comment updated!');
+                                            } catch (error) {
+                                              toast.error('Failed to update comment');
+                                            }
                                           }
-                                          setComments(updated);
-                                          saveScorecardComments(updated);
-                                          setEditCommentIdx(null);
-                                          setEditCommentText('');
-                                          toast.success('Comment updated!');
                                         }}
                                         className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-semibold"
                                       >Save</button>
@@ -2864,17 +3580,18 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                                         className="text-xs text-blue-600 hover:underline px-1 py-0.5 rounded"
                                       >Edit</button>
                                       <button
-                                        onClick={() => {
+                                        onClick={async () => {
                                           // Delete comment
-                                          const updated = { ...comments };
                                           if (typeof row.id === 'number') {
-                                            updated[selectedCategory][row.id].splice(i, 1);
+                                            try {
+                                              const comment = comments[selectedCategory][row.id][i];
+                                              await deleteComment(comment.id, row.id);
+                                              setEditCommentIdx(null);
+                                              setEditCommentText('');
+                                            } catch (error) {
+                                              // Error already handled in deleteComment function
+                                            }
                                           }
-                                          setComments(updated);
-                                          saveScorecardComments(updated);
-                                          setEditCommentIdx(null);
-                                          setEditCommentText('');
-                                          toast.success('Comment deleted!');
                                         }}
                                         className="text-xs text-red-500 hover:underline px-1 py-0.5 rounded"
                                       >Delete</button>
@@ -2905,25 +3622,119 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                         />
                         <button
                           id="add-comment-btn"
-                          onClick={() => {
-                            if (!commentInput.trim() || openRetailerDrawer == null || !selectedCategory) return;
-                            const newComment = {
-                              text: commentInput.trim(),
-                              timestamp: new Date().toLocaleString(),
-                              username: user?.name || user?.username || 'Anonymous',
-                            };
-                            setComments(prev => {
-                              const updated = {
-                                ...prev,
-                                [selectedCategory]: {
-                                  ...(prev[selectedCategory] || {}),
-                                  ...(typeof row.id === 'number' ? { [row.id]: [...((prev[selectedCategory] || {})[row.id] || []), newComment] } : {}),
-                                }
+                          onClick={async () => {
+                            if (!commentInput.trim() || openRetailerDrawer == null || !selectedCategory || !user) return;
+                            
+                            try {
+                              console.log('💬 Adding comment to scorecard from drawer:', selectedCategory);
+                              
+                              // Get current scorecard data for potential migration
+                              const currentScorecard = editingScoreCard;
+                              const requestBody = {
+                                scorecard_id: selectedCategory,
+                                user_id: openRetailerDrawer, // This is actually the row_id (API will rename it)
+                                text: commentInput.trim(),
+                                // Include scorecard data for auto-migration if it's a local scorecard
+                                scorecard_data: selectedCategory.startsWith('scorecard_') ? {
+                                  name: currentScorecard?.name || 'Untitled Scorecard',
+                                  columns: currentScorecard?.columns || [],
+                                  rows: currentScorecard?.rows || []
+                                } : undefined
                               };
-                              saveScorecardComments(updated);
-                              return updated;
-                            });
-                            setCommentInput('');
+                              
+                              const response = await fetch('/api/comments', {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                },
+                                credentials: 'include',
+                                body: JSON.stringify(requestBody),
+                              });
+
+                              if (!response.ok) {
+                                const errorData = await response.json().catch(() => ({}));
+                                console.error('❌ Comment creation failed:', errorData);
+                                throw new Error(errorData.error || 'Failed to add comment');
+                              }
+
+                              const newComment = await response.json();
+                              console.log('✅ Comment created successfully:', newComment);
+                              
+                              // Handle scorecard migration if it occurred
+                              if (newComment.migrated_scorecard) {
+                                console.log('🔄 Scorecard was migrated:', newComment.migrated_scorecard);
+                                
+                                const { old_id, new_id, title } = newComment.migrated_scorecard;
+                                
+                                // Update the scorecard in our state
+                                const migratedScorecard: ScoreCard = {
+                                  ...currentScorecard!,
+                                  id: new_id,
+                                  name: title,
+                                  columns: currentScorecard?.columns || [],
+                                  rows: currentScorecard?.rows || [],
+                                  createdAt: currentScorecard?.createdAt || new Date(),
+                                  lastModified: new Date()
+                                };
+                                
+                                // Update scorecards list
+                                setScorecards(prev => prev.map(sc => 
+                                  sc.id === old_id ? migratedScorecard : sc
+                                ));
+                                
+                                // Update current editing scorecard
+                                setEditingScoreCard(migratedScorecard);
+                                
+                                // Update selected category
+                                setSelectedCategory(new_id);
+                                
+                                // Update localStorage
+                                const allScorecards = JSON.parse(localStorage.getItem('scorecards') || '[]');
+                                const updatedLocalScorecards = allScorecards.map((sc: any) => 
+                                  sc.id === old_id ? migratedScorecard : sc
+                                );
+                                localStorage.setItem('scorecards', JSON.stringify(updatedLocalScorecards));
+                                
+                                // Close the drawer since the row ID might have changed
+                                setOpenRetailerDrawer(null);
+                                
+                                toast.success('Scorecard migrated to database and comment added!');
+                                
+                                // Use the new scorecard ID for comment grouping
+                                const actualScorecardId = new_id;
+                                
+                                // Update local comment state
+                                setComments(prev => {
+                                  const updated = {
+                                    ...prev,
+                                    [actualScorecardId]: {
+                                      ...(prev[actualScorecardId] || {}),
+                                      [openRetailerDrawer]: [...((prev[actualScorecardId] || {})[openRetailerDrawer] || []), newComment],
+                                    }
+                                  };
+                                  return updated;
+                                });
+                              } else {
+                                // Normal comment addition (no migration)
+                                setComments(prev => {
+                                  const updated = {
+                                    ...prev,
+                                    [selectedCategory]: {
+                                      ...(prev[selectedCategory] || {}),
+                                      [openRetailerDrawer]: [...((prev[selectedCategory] || {})[openRetailerDrawer] || []), newComment],
+                                    }
+                                  };
+                                  return updated;
+                                });
+                                
+                                toast.success('Comment added successfully!');
+                              }
+                              
+                              setCommentInput('');
+                            } catch (error) {
+                              console.error('❌ Error adding comment:', error);
+                              toast.error(error instanceof Error ? error.message : 'Failed to add comment');
+                            }
                           }}
                           className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow transition-all float-right"
                           style={{ minWidth: 120 }}
@@ -3027,34 +3838,57 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
               <div className="bg-white p-6 rounded-lg shadow-xl w-96">
                 <h3 className="text-lg font-bold mb-4">Import Template</h3>
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Select Template</label>
-                    <select
-                      value={selectedTemplateName}
-                      onChange={e => {
-                        setSelectedTemplateName(e.target.value);
-                        // If template has rows, default to importWithRows true
-                        const t = templates.find(t => t.name === e.target.value);
-                        setImportWithRows(!!(t && t.rows));
-                      }}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    >
-                      <option value="">-- Select --</option>
-                      {templates.map(t => (
-                        <option key={t.name} value={t.name}>{t.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {selectedTemplateName && templates.find(t => t.name === selectedTemplateName)?.rows && (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={importWithRows}
-                        onChange={e => setImportWithRows(e.target.checked)}
-                        id="importWithRows"
-                      />
-                      <label htmlFor="importWithRows" className="text-sm">Import with row data</label>
+                  {templates.length === 0 ? (
+                    <div className="text-center text-gray-500 text-sm mb-4">
+                      No templates available. Please save a template first.
                     </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Select Template</label>
+                        <div className="flex gap-2 items-center">
+                          <select
+                            value={selectedTemplateName}
+                            onChange={e => {
+                              setSelectedTemplateName(e.target.value);
+                              const t = templates.find(t => t.name === e.target.value);
+                              setImportWithRows(!!(t && t.rows));
+                            }}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          >
+                            <option value="">-- Select --</option>
+                            {templates.map(t => (
+                              <option key={t.id || t.name} value={t.name}>{t.name}</option>
+                            ))}
+                          </select>
+                          {/* Delete button for selected template */}
+                          {selectedTemplateName && (
+                            <button
+                              type="button"
+                              className="ml-2 px-2 py-1 bg-red-500 text-white rounded hover:bg-red-700 text-xs"
+                              onClick={() => {
+                                const template = templates.find(t => t.name === selectedTemplateName);
+                                if (!template) return;
+                                setConfirmDelete({ type: 'template', id: template.id, name: template.name });
+                              }}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {selectedTemplateName && templates.find(t => t.name === selectedTemplateName)?.rows && (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={importWithRows}
+                            onChange={e => setImportWithRows(e.target.checked)}
+                            id="importWithRows"
+                          />
+                          <label htmlFor="importWithRows" className="text-sm">Import with row data</label>
+                        </div>
+                      )}
+                    </>
                   )}
                   {templateError && <p className="text-red-500 text-sm">{templateError}</p>}
                   <div className="flex justify-end gap-2">
@@ -3065,9 +3899,15 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                       Cancel
                     </button>
                     <button
-                      onClick={handleImportTemplate}
+                      onClick={() => {
+                        if (templates.length === 0) {
+                          toast.info('No templates available. Please save a template first.');
+                          return;
+                        }
+                        handleImportTemplate();
+                      }}
                       className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-md hover:bg-cyan-700"
-                      disabled={!selectedTemplateName}
+                      disabled={!selectedTemplateName || templates.length === 0}
                     >
                       Import Template
                     </button>
@@ -3187,16 +4027,40 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                   >Cancel</button>
                   <button
                     className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
-                    onClick={() => {
+                    onClick={async () => {
                       if (confirmDeleteComment) {
                         const { rowId, commentIdx } = confirmDeleteComment;
-                        const updated = { ...comments };
-                        updated[selectedCategory][rowId].splice(commentIdx, 1);
-                        setComments(updated);
-                        saveScorecardComments(updated);
-                        setConfirmDeleteComment(null);
-                        toast.success('Comment deleted!');
+                        try {
+                          const comment = comments[selectedCategory][rowId][commentIdx];
+                          await deleteComment(comment.id, rowId);
+                          setConfirmDeleteComment(null);
+                        } catch (error) {
+                          // Error already handled in deleteComment function
+                        }
                       }
+                    }}
+                  >Delete</button>
+                </div>
+              </div>
+            </div>
+          )}
+          {confirmDelete && confirmDelete.type === 'template' && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xs flex flex-col items-center">
+                <h2 className="text-lg font-bold mb-2">Confirm Deletion</h2>
+                <p className="mb-4 text-center text-gray-700">
+                  Are you sure you want to delete the template '{confirmDelete.name}'?
+                </p>
+                <div className="flex gap-4 w-full justify-center">
+                  <button
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                    onClick={() => setConfirmDelete(null)}
+                  >Cancel</button>
+                  <button
+                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
+                    onClick={() => {
+                      handleDeleteTemplate(confirmDelete.id as string);
+                      // Do not update UI here; let handleDeleteTemplate do it on success
                     }}
                   >Delete</button>
                 </div>

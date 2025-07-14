@@ -23,7 +23,9 @@ async function getUserFromToken(request: Request) {
 }
 
 // PUT /api/comments/[id] - Update a comment
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: Request, context: unknown) {
+  const { params } = context as { params: { id: string } };
+
   try {
     const user = await getUserFromToken(request);
     const { id } = params;
@@ -70,7 +72,14 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 }
 
 // DELETE /api/comments/[id] - Delete a comment
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(
+  request: Request,
+  context: { params: { id: string } }
+) {
+  const { params } = context;
+  // ... rest of your logic
+
+
   try {
     const user = await getUserFromToken(request);
     const { id } = params;
