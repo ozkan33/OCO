@@ -1,4 +1,7 @@
 [build]
+  base = "vendor-portal"
+  publish = "vendor-portal/out"
   command = "npm run build"
-  publish = "out"
-  environment = { PHP_VERSION = "7.4" }
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
