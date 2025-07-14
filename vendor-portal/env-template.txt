@@ -1,0 +1,19 @@
+# Copy this content to vendor-portal/.env.local
+
+# Supabase Configuration
+# Replace these with your actual Supabase project values
+
+# Your Supabase project URL (found in Supabase dashboard > Settings > API)
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url_here
+
+# Your Supabase anon key (found in Supabase dashboard > Settings > API)
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+
+# Your Supabase service role key (found in Supabase dashboard > Settings > API)
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+
+# JWT Secret for authentication (can be any secure random string)
+JWT_SECRET=your_jwt_secret_here
+
+# Database URL (PostgreSQL connection string from Supabase dashboard > Settings > Database)
+DATABASE_URL=your_database_url_here 

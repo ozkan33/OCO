@@ -1,0 +1,20 @@
+# COPY THIS CONTENT TO .env.local (replace the existing file)
+
+# Supabase Configuration
+NEXT_PUBLIC_SUPABASE_URL=https://nwhdvbysalfyysncjqbz.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im53aGR2YnlzYWxmeXlzbmNqcWJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzODU5MjcsImV4cCI6MjA2Nzk2MTkyN30.cvY1XoNEuVGUToMCJ9Ud6
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im53aGR2YnlzYWxmeXlzbmNqcWJ6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MjM4NTkyNywiZXhwIjoyMDY3OTYxOTI3fQ.6IQOM0aXrx8KaqZ2aJ5LMK7DfCRt-PnJhkHbze8NFw0
+
+# JWT Secret for token signing (single line)
+JWT_SECRET=khsdhjdf3024890hjkdslkg0-0klasdaooasdoportnmv029838308948902348dhfkjdsfh91-123jhdkjhfasdhjahsjld01100281hhpksdxwza
+
+# Database URL - GET THIS FROM YOUR SUPABASE DASHBOARD
+# Go to: Settings -> Database -> Connection string -> URI
+# Replace [YOUR_PASSWORD] with your actual database password
+DATABASE_URL=postgresql://postgres:[YOUR_PASSWORD]@db.nwhdvbysalfyysncjqbz.supabase.co:5432/postgres
+
+# IMPORTANT NOTES:
+# 1. No spaces around the = sign
+# 2. No quotes around values
+# 3. Each variable on a single line
+# 4. You MUST add the DATABASE_URL with your actual password 
