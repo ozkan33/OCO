@@ -1,7 +1,0 @@
-[build]
-  base = "vendor-portal"
-  publish = "vendor-portal/out"
-  command = "npm run build"
-
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
