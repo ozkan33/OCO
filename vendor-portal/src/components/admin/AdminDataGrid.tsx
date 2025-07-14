@@ -2847,7 +2847,6 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
 
   return (
     <>
-      {/* @ts-expect-error: Toaster type is compatible at runtime */}
       <Toaster position="top-right" richColors />
       <style jsx global>{`
         .rdg-cell:focus, .rdg-cell.rdg-cell-selected {
