@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Vendor {
+  id       Int     @id @default(autoincrement())
+  username String  @unique
+  password String
+  role     String
+  name     String
+  email    String  @unique
+  emailVerified Boolean @default(false)
+  brands   Brand[]
+  notes    Note[]
+  orders   Order[]
+  retailers Retailer[]
+  verificationTokens VerificationToken[]
+  feedbacks Feedback[]
+}
+
+model Retailer {
+  id       Int     @id @default(autoincrement())
+  name     String
+  location String
+  vendorId Int
+  vendor   Vendor  @relation(fields: [vendorId], references: [id])
+  notes    Note[]
+  orders   Order[]
+}
+
+model Order {
+  id           Int      @id @default(autoincrement())
+  vendorId     Int
+  retailerId   Int
+  brandId      Int
+  unitQuantity Int
+  name         String
+  brand        Brand    @relation(fields: [brandId], references: [id])
+  retailer     Retailer @relation(fields: [retailerId], references: [id])
+  vendor       Vendor   @relation(fields: [vendorId], references: [id])
+}
+
+model Brand {
+  id          Int     @id @default(autoincrement())
+  description String
+  size        String
+  pack        String
+  upc         String
+  vendorId    Int
+  vendor      Vendor  @relation(fields: [vendorId], references: [id])
+  orders      Order[]
+}
+
+model Note {
+  id         Int      @id @default(autoincrement())
+  content    String
+  createdAt  DateTime @default(now())
+  retailerId Int
+  vendorId   Int
+  retailer   Retailer @relation(fields: [retailerId], references: [id])
+  vendor     Vendor   @relation(fields: [vendorId], references: [id])
+}
+
+model VerificationToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  vendorId  Int
+  vendor    Vendor   @relation(fields: [vendorId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model Feedback {
+  id        Int      @id @default(autoincrement())
+  message   String
+  vendorId  Int
+  vendor    Vendor   @relation(fields: [vendorId], references: [id])
+  createdAt DateTime @default(now())
+}
