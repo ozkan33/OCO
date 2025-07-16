@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.10.0",
+    "@supabase/supabase-js": "^2.51.0",
     "@types/react-select": "^5.0.0",
     "ag-grid-community": "^34.0.0",
     "ag-grid-react": "^34.0.0",

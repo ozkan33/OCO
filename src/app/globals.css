@@ -32,3 +32,79 @@ body {
   box-shadow: 0 0 0 2px #2563eb;
   border-radius: 6px;
 }
+
+/* Subgrid column separators */
+.subgrid-with-separators .rdg-cell {
+  border-right: 1px solid #e5e7eb !important;
+  border-bottom: 1px solid #f3f4f6 !important;
+}
+
+.subgrid-with-separators .rdg-header-cell {
+  border-right: 1px solid #d1d5db !important;
+  border-bottom: 2px solid #d1d5db !important;
+  background-color: #f9fafb !important;
+}
+
+.subgrid-with-separators .rdg-row:hover .rdg-cell {
+  background-color: #f8fafc !important;
+}
+
+.subgrid-with-separators .rdg-row:nth-child(even) .rdg-cell {
+  background-color: #fafbfc !important;
+}
+
+.subgrid-with-separators .rdg-row:nth-child(even):hover .rdg-cell {
+  background-color: #f1f5f9 !important;
+}
+
+/* Main grid column separators */
+.main-grid-with-separators .rdg-cell {
+  border-right: 1px solid #e5e7eb !important;
+  border-bottom: 1px solid #f3f4f6 !important;
+}
+
+.main-grid-with-separators .rdg-header-cell {
+  border-right: 1px solid #d1d5db !important;
+  border-bottom: 2px solid #d1d5db !important;
+  background-color: #f9fafb !important;
+}
+
+.main-grid-with-separators .rdg-row:hover .rdg-cell {
+  background-color: #f8fafc !important;
+}
+
+.main-grid-with-separators .rdg-row:nth-child(even) .rdg-cell {
+  background-color: #fafbfc !important;
+}
+
+.main-grid-with-separators .rdg-row:nth-child(even):hover .rdg-cell {
+  background-color: #f1f5f9 !important;
+}
+
+/* Remove separator between Retailer Name and Comments columns in main grid (robust) */
+.main-grid-with-separators .rdg-cell[data-col-key="name"],
+.main-grid-with-separators .rdg-cell[data-col-key="comments"] {
+  border-right: none !important;
+}
+
+/* Remove separator between Retailer Name and Comments columns in main grid using custom classes */
+.main-grid-with-separators .rdg-cell.retailer-col,
+.main-grid-with-separators .rdg-cell.comments-col {
+  border-right: none !important;
+}
+
+/* Aggressive fix: Remove separator between first and second columns in main grid */
+.main-grid-with-separators .rdg-row > .rdg-cell:first-child {
+  border-right: none !important;
+}
+.main-grid-with-separators .rdg-row > .rdg-cell:nth-child(2) {
+  border-left: none !important;
+}
+
+/* Aggressive: Remove separator between first and second header columns in main grid for all header rows */
+.main-grid-with-separators .rdg-header-cell:first-child {
+  border-right: none !important;
+}
+.main-grid-with-separators .rdg-header-cell:nth-child(2) {
+  border-left: none !important;
+}
