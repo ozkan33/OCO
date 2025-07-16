@@ -67,11 +67,10 @@ function calculatePenetration(rows: any[], retailerColumn: string): number {
 // GET /api/master-scorecard - Get aggregated retailer penetration data
 export async function GET(request: Request) {
   console.log('📊 GET /api/master-scorecard called');
-  
   try {
     const user = await getUserFromToken(request);
     console.log('✅ User authenticated for master scorecard:', user.id);
-    
+
     // Fetch all scorecards for the user
     const { data: scorecards, error } = await supabaseAdmin
       .from('user_scorecards')
@@ -84,89 +83,55 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Failed to fetch scorecards' }, { status: 500 });
     }
 
-    console.log('📋 Found', scorecards?.length || 0, 'scorecards');
-
     if (!scorecards || scorecards.length === 0) {
       return NextResponse.json({
-        customers: [],
         retailers: [],
-        lastUpdated: new Date().toISOString()
+        items: [],
+        data: {},
+        lastUpdated: new Date().toISOString(),
       });
     }
 
-    // Collect all unique retailer columns across all scorecards
-    const allRetailerColumns = new Set<string>();
-    const customerData: any[] = [];
+    // --- NEW PIVOT AGGREGATION LOGIC ---
+    const retailerSet = new Set();
+    const itemSet = new Set();
+    const data: Record<string, Record<string, { authorized: number; total: number }>> = {};
 
     for (const scorecard of scorecards) {
-      const data = scorecard.data || {};
-      const columns = data.columns || [];
-      const rows = data.rows || [];
-
-      // Detect retailer columns for this scorecard
-      const retailerColumns = detectRetailerColumns(columns);
-      retailerColumns.forEach(col => allRetailerColumns.add(col));
-
-      // Calculate penetration for each retailer column
-      const penetrationData: Record<string, number> = {};
-      let totalPenetration = 0;
-      let retailerCount = 0;
-
-      for (const retailerCol of retailerColumns) {
-        const penetration = calculatePenetration(rows, retailerCol);
-        penetrationData[retailerCol] = penetration;
-        totalPenetration += penetration;
-        retailerCount++;
+      const columns = scorecard.data?.columns || [];
+      const rows = scorecard.data?.rows || [];
+      // Find the retailer name column key
+      const retailerCol = columns.find((col: any) => col.name === 'Retailer Name' || col.key === 'name');
+      if (!retailerCol) continue;
+      // User-added columns (items): not default, not retailer name
+      const itemCols = columns.filter((col: any) => col.key !== retailerCol.key && !col.isDefault);
+      for (const row of rows) {
+        const retailer = String(row[retailerCol.key]);
+        if (!retailer) continue;
+        retailerSet.add(retailer);
+        for (const itemCol of itemCols) {
+          const item = itemCol.name;
+          itemSet.add(item);
+          const status = row[itemCol.key];
+          if (!data[retailer]) data[retailer] = {};
+          if (!data[retailer][item]) data[retailer][item] = { authorized: 0, total: 0 };
+          if (status !== undefined && status !== null && status !== '') {
+            data[retailer][item].total++;
+            if (typeof status === 'string' && status.toLowerCase() === 'authorized') {
+              data[retailer][item].authorized++;
+            }
+          }
+        }
       }
-
-      // Calculate average penetration across all retailers for this customer
-      const averagePenetration = retailerCount > 0 ? Math.round(totalPenetration / retailerCount) : 0;
-
-      customerData.push({
-        id: scorecard.id,
-        name: scorecard.title,
-        penetration: penetrationData,
-        totalPenetration: averagePenetration,
-        productCount: rows.length,
-        lastModified: scorecard.last_modified
-      });
     }
-
-    // Calculate retailer averages
-    const retailerAverages: Record<string, number> = {};
-    const retailerArray = Array.from(allRetailerColumns);
-    for (const retailer of retailerArray) {
-      const customerPenetrations = customerData
-        .map(customer => customer.penetration[retailer] || 0)
-        .filter(p => p !== undefined);
-      
-      const average = customerPenetrations.length > 0 
-        ? Math.round(customerPenetrations.reduce((sum, p) => sum + p, 0) / customerPenetrations.length)
-        : 0;
-      
-      retailerAverages[retailer] = average;
-    }
-
-    // Calculate overall average
-    const overallAverage = customerData.length > 0
-      ? Math.round(customerData.reduce((sum, customer) => sum + customer.totalPenetration, 0) / customerData.length)
-      : 0;
+    // --- END PIVOT AGGREGATION LOGIC ---
 
     const result = {
-      customers: customerData,
-      retailers: Array.from(allRetailerColumns),
-      retailerAverages,
-      overallAverage,
+      retailers: Array.from(retailerSet),
+      items: Array.from(itemSet),
+      data,
       lastUpdated: new Date().toISOString(),
-      totalCustomers: customerData.length,
-      totalRetailers: allRetailerColumns.size
     };
-
-    console.log('✅ Master scorecard data calculated:', {
-      customers: result.customers.length,
-      retailers: result.retailers.length,
-      overallAverage: result.overallAverage
-    });
 
     return NextResponse.json(result);
   } catch (error) {

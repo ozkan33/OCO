@@ -96,9 +96,10 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   // ContactCardModalButton and handleContactCardSave will be defined after all state and helpers
 
   // Now define the Retailers columns so the above are in scope
-  const defaultColumnKeys = ['name', 'retail_price', 'buyer', 'store_count', 'hq_location', 'cmg', 'brand_lead'];
+  const defaultColumnKeys = ['name', 'retail_price', 'buyer', 'store_count', 'hq_location', 'cmg'];
   const retailersColumns: MyColumn[] = [
-    { key: 'name', name: 'Retailer Name', editable: true, sortable: true, isDefault: true },
+    { key: 'name', name: 'Retailer Name', editable: true, sortable: true, isDefault: true, 
+      renderCell: (props) => <div className="retailer-col">{props.row["name"]}</div> },
     // Priority dropdown column
     { key: 'priority', name: 'Priority', editable: true, sortable: true, isDefault: true,
       renderCell: ({ row }) => <PriorityLabel value={row['priority']} />, 
@@ -199,11 +200,6 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     { key: 'cmg', name: '3B Contact', editable: false, sortable: false, isDefault: true, renderCell: ({ row }: { row: Row }) => (
       <button type="button" className="text-blue-600 underline" onClick={() => handleOpenContactModal(typeof row.id === 'number' ? row.id : 0, 'cmg', row.cmg)}>
         {row.cmg && typeof row.cmg === 'object' ? row.cmg.name : row.cmg || 'Add 3B Contact'}
-      </button>
-    ) },
-    { key: 'brand_lead', name: 'Brand Lead', editable: false, sortable: false, isDefault: true, renderCell: ({ row }: { row: Row }) => (
-      <button type="button" className="text-blue-600 underline" onClick={() => handleOpenContactModal(typeof row.id === 'number' ? row.id : 0, 'brand_lead', row.brand_lead)}>
-        {row.brand_lead && typeof row.brand_lead === 'object' ? row.brand_lead.name : row.brand_lead || 'Add Brand Lead'}
       </button>
     ) },
   ];
@@ -330,7 +326,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   }, [selectedCategory]);
 
   // Add state for custom delete confirmation modal
-  const [confirmDelete, setConfirmDelete] = useState<null | { type: 'row' | 'column' | 'scorecard' | 'template', id: string | number, name?: string }>(null);
+  const [confirmDelete, setConfirmDelete] = useState<null | { type: 'row' | 'column' | 'scorecard' | 'template' | 'subgrid-template', id: string | number, name?: string }>(null);
 
   // 1. Add state for Priority picker
   const [priorityPicker, setPriorityPicker] = React.useState<null | { rowIdx: number; colIdx: number; top: number; left: number; width: number; value: string; columnKey: string }>(null);
@@ -1577,13 +1573,13 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         ),
       };
     }
-    if (col.key === 'cmg' || col.key === 'brand_lead') {
+    if (col.key === 'cmg') {
       return {
         ...col,
         editable: false,
         renderCell: ({ row }: { row: Row }) => (
           <button type="button" className="text-blue-600 underline" onClick={() => handleOpenContactModal(typeof row.id === 'number' ? row.id : 0, col.key, row[col.key])}>
-            {row[col.key] && typeof row[col.key] === 'object' ? row[col.key].name : row[col.key] || (col.key === 'cmg' ? 'Add 3B Contact' : 'Add Brand Lead')}
+            {row[col.key] && typeof row[col.key] === 'object' ? row[col.key].name : row[col.key] || 'Add 3B Contact'}
           </button>
         ),
       };
@@ -1639,21 +1635,23 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       if (row.isAddRow) return null;
       const commentCount = typeof row.id === 'number' ? (comments[selectedCategory]?.[row.id]?.length ?? 0) : 0;
       return (
-            <button
-          onClick={e => {
-            e.stopPropagation();
-            setOpenCommentRowId(typeof row.id === 'number' ? row.id : null);
-          }}
-          title="View/Add Comments"
-          style={{ color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}
-        >
-          <FaRegCommentDots />
-          <span style={{ marginLeft: 2, fontSize: '0.85em', color: '#2563eb', fontWeight: 600 }}>
-            {commentCount}
-          </span>
-        </button>
+        <div className="comments-col">
+          <button
+            onClick={e => {
+              e.stopPropagation();
+              setOpenCommentRowId(typeof row.id === 'number' ? row.id : null);
+            }}
+            title="View/Add Comments"
+            style={{ color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}
+          >
+            <FaRegCommentDots />
+            <span style={{ marginLeft: 2, fontSize: '0.85em', color: '#2563eb', fontWeight: 600 }}>
+              {commentCount}
+            </span>
+          </button>
+        </div>
       );
-    }
+    },
   };
 
   let columnsWithDelete: MyColumn[] = [...editableColumns];
@@ -2048,7 +2046,15 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   // Update the openContactModal logic to initialize contactModalData
   function handleOpenContactModal(rowId: number, key: string, value: any) {
     let contact = { name: '', telephone: '', address: '', notes: '' };
-    if (value && typeof value === 'object') contact = value;
+    
+    if (value && typeof value === 'object') {
+      // If it's already an object with contact details
+      contact = value;
+    } else if (value && typeof value === 'string') {
+      // If it's a string (like "Jamie Chen"), use it as the name
+      contact = { name: value, telephone: '', address: '', notes: '' };
+    }
+    
     setContactModalData(contact);
     setOpenContactModal({ rowId, key, value });
   }
@@ -2062,7 +2068,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     contactCardModal = (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div className="bg-white p-6 rounded-lg shadow-xl w-96">
-          <h3 className="text-lg font-bold mb-4">Edit {key === 'cmg' ? 'CMG' : 'Brand Lead'} Contact</h3>
+          <h3 className="text-lg font-bold mb-4">Edit 3B Contact</h3>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700">Name</label>
@@ -2106,48 +2112,171 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     if (parentId === undefined) return null;
     const grid = subGrids[parentId];
     if (!grid || expandedRowId !== parentId) return null;
-    // Only render real rows and the add-row (remove dummy row)
+    
+    // Subgrid sorting state
+    const [subgridSortColumns, setSubgridSortColumns] = React.useState<SortColumn[]>([]);
+    
+    // Sort subgrid rows
+    const sortedSubgridRows = React.useMemo(() => {
+      if (subgridSortColumns.length === 0) return grid.rows;
+      
+      return [...grid.rows].sort((a, b) => {
+        for (const { columnKey, direction } of subgridSortColumns) {
+          const aValue = a[columnKey];
+          const bValue = b[columnKey];
+          
+          if (aValue === bValue) continue;
+          
+          const result = aValue < bValue ? -1 : 1;
+          return direction === 'ASC' ? result : -result;
+        }
+        return 0;
+      });
+    }, [grid.rows, subgridSortColumns]);
+    
+    // Only render real rows and the add-row
     let subgridRows = [
-      ...grid.rows,
+      ...sortedSubgridRows,
       { isAddRow: true, id: 'add-row' }
     ];
+    
+    // Calculate column widths based on content with dynamic algorithm
+    const calculateColumnWidth = (col: MyColumn) => {
+      const colNameLength = typeof col.name === 'string' ? col.name.length : 0;
+      const contentLengths = grid.rows.map(row => String(row[col.key] || '').length);
+      const maxContentLength = Math.max(colNameLength, ...contentLengths);
+      
+      // Dynamic width calculation based on content
+      const charWidth = 10; // Reduced from 14px to 10px per character
+      const padding = 20; // Reduced padding
+      const iconSpace = 60; // Space for icons (edit, delete, sort)
+      
+      const calculatedWidth = Math.max(maxContentLength * charWidth + padding + iconSpace, 100);
+      return Math.min(calculatedWidth, 300); // Reduced max width for better distribution
+    };
+    
     const subEditableColumns = grid.columns.map((col: MyColumn, idx: number) => ({
       ...col,
+      width: calculateColumnWidth(col),
       renderHeaderCell: () => {
-        // Use local state for the input value to prevent focus loss
+        const [isEditing, setIsEditing] = React.useState(false);
         const [inputValue, setInputValue] = React.useState(col.name as string);
-        // Update local state on prop change (e.g., after import)
-        React.useEffect(() => { setInputValue(col.name as string); }, [col.name]);
+        const inputRef = React.useRef<HTMLInputElement>(null);
+        
+        // Update local state on prop change
+        React.useEffect(() => { 
+          setInputValue(typeof col.name === 'string' ? col.name : ''); 
+        }, [col.name]);
+        
+        const startEditing = () => {
+          setIsEditing(true);
+          setTimeout(() => inputRef.current?.focus(), 0);
+        };
+        
         const commitChange = () => {
-          if (inputValue !== col.name) {
-            handleSubGridColumnNameChange(parentId, idx, inputValue);
+          setIsEditing(false);
+          if (inputValue !== col.name && inputValue.trim()) {
+            handleSubGridColumnNameChange(parentId, idx, inputValue.trim());
+          } else {
+            setInputValue(typeof col.name === 'string' ? col.name : '');
           }
         };
+        
         const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
           if (e.key === 'Enter') {
-            (e.target as HTMLInputElement).blur();
+            commitChange();
+          } else if (e.key === 'Escape') {
+            setIsEditing(false);
+            setInputValue(typeof col.name === 'string' ? col.name : '');
           }
         };
+        
+        // Get sort icon for this column
+        const sortColumn = subgridSortColumns.find(sc => sc.columnKey === col.key);
+        const sortIcon = sortColumn ? (sortColumn.direction === 'ASC' ? '↑' : '↓') : null;
+        
         return (
-        <div className="flex items-center gap-1">
-          <input
-              key={col.key}
-              value={inputValue}
-              onChange={e => setInputValue(e.target.value)}
-              onBlur={commitChange}
-              onKeyDown={handleKeyDown}
-              className="border px-1 py-0.5 rounded text-xs w-20"
-              style={{ fontSize: '12px', height: 22 }}
-          />
-          <button
-            onClick={e => { e.stopPropagation(); handleSubGridDeleteColumn(parentId, col.key); }}
-            className="ml-1 text-gray-400 hover:text-red-600"
-            title="Delete Column"
-              style={{ fontSize: 12, padding: 0 }}
-          >
-            🗑️
-          </button>
-        </div>
+          <div className="flex items-center justify-between w-full">
+            {isEditing ? (
+              <input
+                ref={inputRef}
+                value={inputValue}
+                onChange={e => setInputValue(e.target.value)}
+                onBlur={commitChange}
+                onKeyDown={handleKeyDown}
+                className="border border-blue-300 px-2 py-1 rounded text-xs bg-white"
+                style={{ 
+                  fontSize: '12px', 
+                  height: 24,
+                  width: '100%',
+                  minWidth: '80px'
+                }}
+                maxLength={20}
+              />
+            ) : (
+              <>
+                <div className="flex items-center gap-1 flex-1">
+                  <span className="text-xs font-medium text-gray-700 truncate">
+                    {typeof col.name === 'string' ? col.name : ''}
+                  </span>
+                  <button
+                    onClick={startEditing}
+                    className="text-gray-400 hover:text-blue-600 p-0.5"
+                    title="Edit Column Name"
+                    style={{ fontSize: 10 }}
+                  >
+                    ✏️
+                  </button>
+                </div>
+                <div className="flex items-center gap-1 ml-2">
+                  {!col.isDefault && 
+                   col.key !== 'name' && 
+                   col.key !== 'priority' && 
+                   col.key !== 'retailPrice' && 
+                   col.key !== 'categoryReviewDate' && 
+                   col.key !== 'buyer' && 
+                   col.key !== 'storeContact' && 
+                   col.key !== 'delete' && 
+                   col.key !== 'retailerName' &&
+                   typeof col.name === 'string' &&
+                   !col.name.toLowerCase().includes('retailer') &&
+                   !col.name.toLowerCase().includes('priority') &&
+                   !col.name.toLowerCase().includes('price') &&
+                   !col.name.toLowerCase().includes('category') &&
+                   !col.name.toLowerCase().includes('buyer') &&
+                   !col.name.toLowerCase().includes('contact') && (
+                    <button
+                      onClick={e => { 
+                        e.stopPropagation(); 
+                        handleSubGridDeleteColumn(parentId, col.key); 
+                      }}
+                      className="text-gray-400 hover:text-red-600 p-0.5"
+                      title="Delete Column"
+                      style={{ fontSize: 10 }}
+                    >
+                      🗑️
+                    </button>
+                  )}
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      const currentSort = subgridSortColumns.find(sc => sc.columnKey === col.key);
+                      const newDirection = currentSort?.direction === 'ASC' ? 'DESC' : 'ASC';
+                      setSubgridSortColumns(prev => {
+                        const filtered = prev.filter(sc => sc.columnKey !== col.key);
+                        return [...filtered, { columnKey: col.key, direction: newDirection }];
+                      });
+                    }}
+                    className="text-gray-400 hover:text-blue-600 p-0.5"
+                    title="Sort Column"
+                    style={{ fontSize: 10 }}
+                  >
+                    {sortIcon || '↕'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         );
       },
       renderCell: (props: { row: Row }) => {
@@ -2169,18 +2298,48 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             return null;
           }
         }
-        return <span style={{ fontSize: '13px' }}>{props.row[col.key]}</span>;
+        
+        const cellValue = props.row[col.key];
+        const displayValue = cellValue ? String(cellValue).substring(0, 20) : '';
+        const isTruncated = cellValue && String(cellValue).length > 20;
+        
+        return (
+          <div 
+            className="flex items-center px-2 py-1"
+            style={{ 
+              fontSize: '13px',
+              minHeight: '24px',
+              backgroundColor: 'transparent'
+            }}
+            title={isTruncated ? String(cellValue) : undefined}
+          >
+            <span className="text-gray-900">{displayValue}</span>
+            {isTruncated && <span className="text-gray-400 ml-1">...</span>}
+          </div>
+        );
       },
       renderEditCell: ({ row, column, onRowChange }: RenderEditCellProps<Row>) => (
         <input
           defaultValue={row[column.key] !== undefined ? String(row[column.key]) : ''}
-          onChange={e => onRowChange({ ...row, [column.key]: e.target.value })}
-          className="w-full h-full px-2 py-1"
+          onChange={e => {
+            const value = e.target.value;
+            // Limit to 20 characters
+            if (value.length <= 20) {
+              onRowChange({ ...row, [column.key]: value });
+            }
+          }}
+          className="w-full h-full px-2 py-1 border border-blue-300 rounded bg-white"
           autoFocus
-          style={{ fontSize: '13px', height: 22 }}
+          style={{ 
+            fontSize: '13px', 
+            height: '24px',
+            minHeight: '24px'
+          }}
+          maxLength={20}
         />
       )
     }));
+    
     // Add delete column button
     subEditableColumns.push({
       key: 'delete',
@@ -2188,28 +2347,36 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       width: 36,
       frozen: false,
       renderHeaderCell: () => <></>,
-      renderCell: ({ row }: { row: Row }) => (
-        <button
-          onClick={() => handleSubGridDeleteRow(parentId, row.id)}
-          className="text-red-500 hover:text-red-700 text-base"
-          style={{ fontSize: 14, padding: 0 }}
-        >
-          🗑️
-        </button>
-      ),
+      renderCell: ({ row }: { row: Row }) => {
+        // Don't show delete button for add-row
+        if (row.isAddRow) {
+          return null;
+        }
+        return (
+          <button
+            onClick={() => handleSubGridDeleteRow(parentId, row.id)}
+            className="text-red-500 hover:text-red-700 text-base"
+            style={{ fontSize: 14, padding: 0 }}
+          >
+            🗑️
+          </button>
+        );
+      },
       renderEditCell: () => <></>,
     });
+    
     return (
       <div
         style={{
           margin: '0 0 4px 32px',
-          background: '#f6f8fa',
+          background: 'transparent',
           border: '1px solid #e5e7eb',
           borderRadius: 6,
           padding: '8px 8px 4px 8px',
           fontSize: '13px',
-          maxWidth: '98%',
-          boxShadow: '0 1px 4px #0001',
+          width: '100%',
+          maxWidth: '100%',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
         }}
       >
         <div className="flex gap-2 mb-2 items-center">
@@ -2219,6 +2386,23 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             style={{ fontSize: '12px', height: 24, padding: '0 8px' }}
           >
             ➕ Add Column
+          </button>
+          {/* Subgrid Import/Export Buttons */}
+          <label className="px-2 py-1 rounded text-xs font-medium border bg-purple-600 text-white hover:bg-purple-700 cursor-pointer" style={{ fontSize: '12px', height: 24, padding: '0 8px' }}>
+            📥 Import Excel
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              style={{ display: 'none' }}
+              onChange={e => handleImportSubgridExcel(e, parentId)}
+            />
+          </label>
+          <button
+            onClick={() => handleExportSubgridExcel(parentId)}
+            className="px-2 py-1 rounded text-xs font-medium border bg-green-600 text-white hover:bg-green-700"
+            style={{ fontSize: '12px', height: 24, padding: '0 8px' }}
+          >
+            📤 Export Excel
           </button>
           <div className="flex gap-2 ml-auto">
             <button
@@ -2245,16 +2429,24 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             🗑️ Delete Subgrid
           </button>
         </div>
-        <div style={{ minWidth: 200 }}>
-        <DataGrid
-          key={parentId + '-' + grid.rows.length + '-' + grid.columns.length}
-          columns={subEditableColumns}
-          rows={subgridRows}
-          onRowsChange={newRows => handleSubGridRowsChange(parentId, newRows)}
-          className="fill-grid"
-          enableVirtualization={false}
-            style={{ fontSize: '13px', minHeight: 60 }}
-        />
+        <div style={{ width: '100%', overflow: 'auto', maxWidth: '100%' }}>
+          <DataGrid
+            key={parentId + '-' + grid.rows.length + '-' + grid.columns.length}
+            columns={subEditableColumns}
+            rows={subgridRows}
+            onRowsChange={newRows => handleSubGridRowsChange(parentId, newRows)}
+            sortColumns={subgridSortColumns}
+            onSortColumnsChange={setSubgridSortColumns}
+            className="fill-grid subgrid-with-separators"
+            enableVirtualization={false}
+            style={{ 
+              fontSize: '13px', 
+              minHeight: 60, 
+              width: '100%', 
+              minWidth: '100%',
+              maxWidth: '100%'
+            }}
+          />
         </div>
       </div>
     );
@@ -2799,7 +2991,15 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
           const formattedScorecards = scorecardsData.map((sc: any) => ({
             id: sc.id,
             name: sc.title,
-            columns: sc.data.columns || retailersColumns,
+            columns: (sc.data.columns || retailersColumns)
+              .filter((col: any) => col.key !== 'brand_lead')
+              .map((col: any) => {
+                // Update any old "Category Manager" column names to "3B Contact"
+                if (col.key === 'cmg' && col.name === 'Category Manager') {
+                  return { ...col, name: '3B Contact' };
+                }
+                return col;
+              }),
             rows: sc.data.rows || [],
             createdAt: new Date(sc.created_at),
             lastModified: new Date(sc.last_modified),
@@ -2813,19 +3013,43 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         } else {
           // Fall back to localStorage if API fails
           const localScorecards = loadScoreCardsFromStorage();
-          setScorecards(localScorecards);
-          if (localScorecards.length > 0) {
-            setEditingScoreCard(localScorecards[0]);
-            setSelectedCategory(localScorecards[0].id);
+          const filteredLocalScorecards = localScorecards.map(sc => ({
+            ...sc,
+            columns: sc.columns
+              .filter((col: any) => col.key !== 'brand_lead')
+              .map((col: any) => {
+                // Update any old "Category Manager" column names to "3B Contact"
+                if (col.key === 'cmg' && col.name === 'Category Manager') {
+                  return { ...col, name: '3B Contact' };
+                }
+                return col;
+              })
+          }));
+          setScorecards(filteredLocalScorecards);
+          if (filteredLocalScorecards.length > 0) {
+            setEditingScoreCard(filteredLocalScorecards[0]);
+            setSelectedCategory(filteredLocalScorecards[0].id);
           }
         }
       } catch (error) {
         // Fall back to localStorage on error
         const localScorecards = loadScoreCardsFromStorage();
-        setScorecards(localScorecards);
-        if (localScorecards.length > 0) {
-          setEditingScoreCard(localScorecards[0]);
-          setSelectedCategory(localScorecards[0].id);
+        const filteredLocalScorecards = localScorecards.map(sc => ({
+          ...sc,
+          columns: sc.columns
+            .filter((col: any) => col.key !== 'brand_lead')
+            .map((col: any) => {
+              // Update any old "Category Manager" column names to "3B Contact"
+              if (col.key === 'cmg' && col.name === 'Category Manager') {
+                return { ...col, name: '3B Contact' };
+              }
+              return col;
+            })
+        }));
+        setScorecards(filteredLocalScorecards);
+        if (filteredLocalScorecards.length > 0) {
+          setEditingScoreCard(filteredLocalScorecards[0]);
+          setSelectedCategory(filteredLocalScorecards[0].id);
         }
       }
     };
@@ -2846,42 +3070,32 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   }
 
   // Export Excel function with modern hierarchical table design
-  function handleExportExcel() {
+  function handleExportExcel(excludeSubgrid = false) {
     const currentData = getCurrentData();
     if (!currentData) {
       toast.error('No data to export');
       return;
     }
-
     const workbook = XLSX.utils.book_new();
-    
-    // Modern hierarchical table with enhanced parent indicators
     const modernRows: any[] = [];
-    
     currentData.rows.forEach(parentRow => {
       const subgrid = subGrids[parentRow.id];
       const hasChildren = subgrid && subgrid.rows.length > 0;
-      
-      // Add parent row with enhanced indicators
+      // Add parent row
       const parentRowData: any = {
         'Parent Indicator': hasChildren ? '🔵 PARENT' : '🟣 PARENT (No Children)',
         'Type': 'Parent',
         'Has Children': hasChildren ? 'Yes' : 'No',
         'Children Count': hasChildren ? subgrid.rows.length : 0
       };
-      
-      // Add main grid columns with proper indentation
       currentData.columns.forEach(col => {
         if (col.key !== 'comments' && col.key !== '_delete_row') {
           const colName = String(col.name || col.key);
           parentRowData[colName] = parentRow[col.key] || '';
         }
       });
-      
       modernRows.push(parentRowData);
-      
-      // Add child rows with enhanced indicators
-      if (hasChildren) {
+      if (!excludeSubgrid && hasChildren) {
         subgrid.rows.forEach((subRow, index) => {
           const isLastChild = index === subgrid.rows.length - 1;
           const childRowData: any = {
@@ -2890,34 +3104,141 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             'Child Number': index + 1,
             'Parent Name': parentRow.name || ''
           };
-          
-          // Add subgrid columns with indentation
           subgrid.columns.forEach(col => {
             if (col.key !== 'delete') {
               const colName = String(col.name || col.key);
               childRowData[colName] = subRow[col.key] || '';
             }
           });
-          
           modernRows.push(childRowData);
         });
       }
     });
-    
     const worksheet = XLSX.utils.json_to_sheet(modernRows);
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Modern Hierarchical Table');
-    
-    // Generate filename
     const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
     const filename = `scorecard_export_${timestamp}.xlsx`;
-    
-    // Save the file
     XLSX.writeFile(workbook, filename);
     toast.success(`Exported as ${filename}`);
   }
 
   // Export modal state
   const [showExportModal, setShowExportModal] = useState(false);
+
+  // Subgrid Export Excel
+  function handleExportSubgridExcel(parentId: string | number) {
+    const grid = subGrids[parentId];
+    if (!grid) {
+      toast.error('No subgrid data to export');
+      return;
+    }
+    const exportRows = grid.rows.map((row, idx) => {
+      const obj: any = {};
+      grid.columns.forEach(col => {
+        if (col.key !== 'delete') {
+          obj[String(col.name || col.key)] = row[col.key] ?? '';
+        }
+      });
+      return obj;
+    });
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Subgrid');
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+    const filename = `subgrid_export_${parentId}_${timestamp}.xlsx`;
+    XLSX.writeFile(workbook, filename);
+    toast.success(`Exported subgrid as ${filename}`);
+  }
+
+  // Subgrid Import Excel
+  function handleImportSubgridExcel(event: React.ChangeEvent<HTMLInputElement>, parentId: string | number) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const grid = subGrids[parentId];
+    if (!grid) {
+      toast.error('No subgrid found for import');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const data = new Uint8Array(e.target?.result as ArrayBuffer);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const rows2D: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+      if (rows2D.length === 0) return;
+      const headerRowIndex = 0;
+      const headers = rows2D[headerRowIndex];
+      if (!headers || headers.length === 0) {
+        toast.error('No headers found in Excel/CSV file!');
+        return;
+      }
+      function normalizeColName(name: string) {
+        return (name || '').toLowerCase().replace(/\s+/g, '').replace(/_/g, '').trim();
+      }
+      const gridColNames = grid.columns.filter(col => col.key !== 'delete').map(col => normalizeColName(String(col.name)));
+      const excelColNames = headers.map(h => normalizeColName(String(h)));
+      // Detect duplicates in Excel columns
+      const excelColNameCounts: Record<string, number> = {};
+      excelColNames.forEach(name => {
+        excelColNameCounts[name] = (excelColNameCounts[name] || 0) + 1;
+      });
+      const duplicateExcelCols = Object.entries(excelColNameCounts).filter(([_, count]) => count > 1).map(([name]) => name);
+      if (duplicateExcelCols.length > 0) {
+        toast.error(`Duplicate columns detected in Excel/CSV file after normalization: ${duplicateExcelCols.join(', ')}. Please remove or rename duplicates.`);
+        return;
+      }
+      const missingCols = gridColNames.filter(name => !excelColNames.includes(name));
+      const extraCols = excelColNames.filter(name => !gridColNames.includes(name));
+      if (
+        gridColNames.length !== excelColNames.length ||
+        missingCols.length > 0 ||
+        extraCols.length > 0
+      ) {
+        let msg = 'Column names in the Excel/CSV file do not match the current subgrid columns.';
+        if (missingCols.length > 0) {
+          msg += `\nMissing columns: ${missingCols.join(', ')}`;
+        }
+        if (extraCols.length > 0) {
+          msg += `\nExtra columns: ${extraCols.join(', ')}`;
+        }
+        toast.error(msg);
+        return;
+      }
+      // Build a mapping from grid column key to Excel column index
+      const colKeyToExcelIdx: Record<string, number> = {};
+      grid.columns.forEach((col) => {
+        if (col.key === 'delete') return;
+        const normName = normalizeColName(String(col.name));
+        const excelIdx = excelColNames.findIndex(name => name === normName);
+        if (excelIdx !== -1) {
+          colKeyToExcelIdx[col.key] = excelIdx;
+        }
+      });
+      const dataRows = rows2D.slice(headerRowIndex + 1).filter(row => row.some(cell => cell && String(cell).trim() !== ''));
+      const formattedRows = dataRows.map((rowArr: any[], idx: number) => {
+        const obj: any = {};
+        Object.entries(colKeyToExcelIdx).forEach(([colKey, excelIdx]) => {
+          obj[colKey] = rowArr[excelIdx] ?? '';
+        });
+        obj.id = idx + 1;
+        return obj;
+      });
+      setSubGrids(prev => ({
+        ...prev,
+        [parentId]: {
+          ...prev[parentId],
+          rows: formattedRows
+        }
+      }));
+      toast.success('Subgrid import successful!');
+    };
+    reader.readAsArrayBuffer(file);
+    event.target.value = '';
+  }
+
+  // Add state for exclude subgrid data in export modal
+  const [excludeSubgridExport, setExcludeSubgridExport] = useState(false);
 
   return (
     <>
@@ -3091,19 +3412,12 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                 To import data, columns and data types must match exactly.
               </div>
             </span>
-                <label className="px-3 py-1 rounded text-sm font-medium border bg-purple-600 text-white hover:bg-purple-700 flex items-center gap-2 cursor-pointer"
-                  onClick={() => {
-                    toast.warning('Importing an Excel file will overwrite all existing data in this scorecard.');
-                  }}
-                >
-            📥 Import Excel
-            <input
-              type="file"
-                    accept=".xlsx,.xls,.csv"
-              onChange={handleImportExcel}
-              style={{ display: 'none' }}
-            />
-          </label>
+                <label htmlFor="main-import-excel" className="px-3 py-1 rounded text-sm font-medium border bg-purple-600 text-white hover:bg-purple-700 flex items-center gap-2 cursor-pointer" style={{ fontSize: '14px', height: 32, padding: '0 12px' }} onClick={() => toast.warning('Importing an Excel file will overwrite all existing data in this scorecard.')}>  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+    <svg style={{ width: 16, height: 16, marginRight: 2 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><path d="M16 16l-4 4-4-4M12 12v8"/></svg>
+    Import Excel
+  </span>
+</label>
+<input id="main-import-excel" type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleImportExcel} />
                 <button
                   onClick={() => setShowExportModal(true)}
                   className="px-3 py-1 rounded text-sm font-medium border bg-green-600 text-white hover:bg-green-700 flex items-center gap-2"
@@ -3207,7 +3521,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                 }}
               sortColumns={sortColumns}
               onSortColumnsChange={setSortColumns}
-              className="fill-grid"
+              className="fill-grid main-grid-with-separators"
               enableVirtualization={false}
                 onCellClick={(args) => {
                   const { rowIdx, column, row } = args;
@@ -4045,20 +4359,42 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                     <div className="space-y-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Select Template</label>
-                        <select
-                          value={subgridSelectedTemplate}
-                          onChange={e => {
-                            setSubgridSelectedTemplate(e.target.value);
-                            const t = subgridTemplates.find(t => t.name === e.target.value);
-                            setSubgridImportWithRows(!!(t && t.rows));
-                          }}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                        >
-                          <option value="">-- Select --</option>
-                          {subgridTemplates.map(t => (
-                            <option key={t.name} value={t.name}>{t.name}</option>
-                          ))}
-                        </select>
+                        <div className="flex gap-2 items-center">
+                          <select
+                            value={subgridSelectedTemplate}
+                            onChange={e => {
+                              setSubgridSelectedTemplate(e.target.value);
+                              const t = subgridTemplates.find(t => t.name === e.target.value);
+                              setSubgridImportWithRows(!!(t && t.rows));
+                            }}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          >
+                            <option value="">-- Select --</option>
+                            {subgridTemplates.map(t => (
+                              <option key={t.name} value={t.name}>{t.name}</option>
+                            ))}
+                          </select>
+                          {/* Delete button for selected template */}
+                          {subgridSelectedTemplate && (
+                            <button
+                              type="button"
+                              className="ml-2 px-2 py-1 bg-red-500 text-white rounded hover:bg-red-700 text-xs"
+                              onClick={() => {
+                                const t = subgridTemplates.find(t => t.name === subgridSelectedTemplate);
+                                if (!t) return;
+                                if (window.confirm(`Delete template '${t.name}'? This cannot be undone.`)) {
+                                  const newTemplates = subgridTemplates.filter(st => st.name !== t.name);
+                                  setSubgridTemplates(newTemplates);
+                                  saveSubgridTemplates(newTemplates);
+                                  setSubgridSelectedTemplate('');
+                                  setSubgridImportWithRows(true);
+                                }
+                              }}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {subgridSelectedTemplate && subgridTemplates.find(t => t.name === subgridSelectedTemplate)?.rows && (
                         <div className="flex items-center gap-2">
@@ -4169,6 +4505,15 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                     </ul>
                   </div>
                   
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="excludeSubgridExport"
+                      checked={excludeSubgridExport}
+                      onChange={e => setExcludeSubgridExport(e.target.checked)}
+                    />
+                    <label htmlFor="excludeSubgridExport" className="text-sm">Exclude subgrid data (export only main grid)</label>
+                  </div>
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => setShowExportModal(false)}
@@ -4178,7 +4523,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                     </button>
                     <button
                       onClick={() => {
-                        handleExportExcel();
+                        handleExportExcel(excludeSubgridExport);
                         setShowExportModal(false);
                       }}
                       className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700"
@@ -4186,6 +4531,33 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                       Export
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+          {confirmDelete && confirmDelete.type === 'subgrid-template' && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xs flex flex-col items-center">
+                <h2 className="text-lg font-bold mb-2">Confirm Deletion</h2>
+                <p className="mb-4 text-center text-gray-700">
+                  Are you sure you want to delete the subgrid template '{confirmDelete.name}'?
+                </p>
+                <div className="flex gap-4 w-full justify-center">
+                  <button
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                    onClick={() => setConfirmDelete(null)}
+                  >Cancel</button>
+                  <button
+                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
+                    onClick={() => {
+                      const newTemplates = subgridTemplates.filter(st => st.name !== confirmDelete.id);
+                      setSubgridTemplates(newTemplates);
+                      saveSubgridTemplates(newTemplates);
+                      setSubgridSelectedTemplate('');
+                      setSubgridImportWithRows(true);
+                      setConfirmDelete(null);
+                    }}
+                  >Delete</button>
                 </div>
               </div>
             </div>

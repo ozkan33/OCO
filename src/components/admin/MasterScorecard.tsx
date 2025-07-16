@@ -10,6 +10,10 @@ interface MasterScorecardData {
     totalPenetration: number;
     productCount: number;
     lastModified: string;
+    data?: { // Added for pivot table data
+      columns: { key: string; name: string; isDefault: boolean }[];
+      rows: Record<string, string | number | null>[];
+    };
   }[];
   retailers: string[];
   retailerAverages: Record<string, number>;
@@ -17,6 +21,8 @@ interface MasterScorecardData {
   lastUpdated: string;
   totalCustomers: number;
   totalRetailers: number;
+  items: string[]; // Added for pivot table data
+  data: Record<string, Record<string, { authorized: number; total: number }>>; // Added for pivot table data
 }
 
 interface MasterScorecardProps {
@@ -97,6 +103,18 @@ export default function MasterScorecard({ onCustomerClick }: MasterScorecardProp
     }
   };
 
+  // --- NEW PIVOT TABLE LOGIC FOR UPDATED BACKEND ---
+  let sortedRetailers: string[] = [];
+  let sortedItems: string[] = [];
+  let retailerItemData: Record<string, Record<string, { authorized: number; total: number }>> = {};
+
+  if (data && Array.isArray(data.retailers) && Array.isArray(data.items) && typeof data.data === 'object') {
+    sortedRetailers = [...data.retailers].sort();
+    sortedItems = [...data.items].sort();
+    retailerItemData = data.data;
+  }
+  // --- END NEW PIVOT TABLE LOGIC ---
+
   if (loading) {
     return (
       <div className="p-6 bg-white rounded-lg shadow-lg">
@@ -129,12 +147,12 @@ export default function MasterScorecard({ onCustomerClick }: MasterScorecardProp
     );
   }
 
-  if (!data || data.customers.length === 0) {
+  if (!data || !Array.isArray(sortedRetailers) || !Array.isArray(sortedItems) || sortedRetailers.length === 0 || sortedItems.length === 0) {
     return (
       <div className="p-6 bg-white rounded-lg shadow-lg">
         <div className="flex items-center justify-center h-32">
           <div className="text-center text-gray-500">
-            <div className="mb-2">No customer data available</div>
+            <div className="mb-2">No data available</div>
             <div className="text-sm">Create some scorecards to see the master dashboard</div>
           </div>
         </div>
@@ -147,12 +165,12 @@ export default function MasterScorecard({ onCustomerClick }: MasterScorecardProp
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Master Scorecard</h2>
-          <p className="text-sm text-gray-600">Retailer Penetration Dashboard</p>
+          <h2 className="text-2xl font-bold text-gray-900">Master Scorecard (Pivot Table)</h2>
+          <p className="text-sm text-gray-600">% of Scorecards with 'Authorized' Status for Each Retailer & Item</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="text-sm text-gray-500">
-            Last updated: {new Date(data.lastUpdated).toLocaleString()}
+            Last updated: {data ? new Date(data.lastUpdated).toLocaleString() : ''}
           </div>
           <button
             onClick={handleRefresh}
@@ -163,108 +181,39 @@ export default function MasterScorecard({ onCustomerClick }: MasterScorecardProp
           </button>
         </div>
       </div>
-
-      {/* Summary Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <div className="bg-blue-50 p-4 rounded-lg">
-          <div className="text-2xl font-bold text-blue-600">{data.totalCustomers}</div>
-          <div className="text-sm text-gray-600">Total Customers</div>
-        </div>
-        <div className="bg-green-50 p-4 rounded-lg">
-          <div className="text-2xl font-bold text-green-600">{data.totalRetailers}</div>
-          <div className="text-sm text-gray-600">Total Retailers</div>
-        </div>
-        <div className="bg-purple-50 p-4 rounded-lg">
-          <div className="text-2xl font-bold text-purple-600">{data.overallAverage}%</div>
-          <div className="text-sm text-gray-600">Overall Average</div>
-        </div>
-        <div className="bg-orange-50 p-4 rounded-lg">
-          <div className="text-2xl font-bold text-orange-600">
-            {data.customers.reduce((sum, c) => sum + c.productCount, 0)}
-          </div>
-          <div className="text-sm text-gray-600">Total Products</div>
-        </div>
-      </div>
-
-      {/* Data Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse border border-gray-300">
+      {/* Pivot Table */}
+      <div className="overflow-x-auto relative">
+        {/* Visual cue for horizontal scroll on mobile */}
+        <div className="absolute left-0 top-0 h-full w-6 bg-gradient-to-r from-white/90 to-transparent pointer-events-none z-10 block md:hidden" />
+        <table className="w-full border-collapse border border-gray-300" style={{ tableLayout: 'fixed' }}>
           <thead>
             <tr className="bg-gray-50">
-              <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-700">
-                Customer Name
-              </th>
-              {data.retailers.map(retailer => (
-                <th key={retailer} className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-700">
-                  {retailer.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                </th>
+              <th className="border border-gray-300 px-2 py-2 md:px-4 md:py-3 text-left font-semibold text-gray-700 sticky left-0 bg-gray-50 z-20" style={{ minWidth: 120, fontSize: '0.9rem' }}>Retailer Name</th>
+              {sortedItems.map(item => (
+                <th key={item} className="border border-gray-300 px-2 py-2 md:px-4 md:py-3 text-center font-semibold text-gray-700" style={{ minWidth: 100, fontSize: '0.9rem' }}>{item}</th>
               ))}
-              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-700">
-                Total
-              </th>
             </tr>
           </thead>
           <tbody>
-            {data.customers.map(customer => (
-              <tr key={customer.id} className="hover:bg-gray-50">
-                <td className="border border-gray-300 px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleCustomerClick(customer.id)}
-                      className="text-blue-600 hover:text-blue-800 font-medium hover:underline"
-                    >
-                      {customer.name}
-                    </button>
-                    <span className="text-xs text-gray-500">
-                      ({customer.productCount} products)
-                    </span>
-                  </div>
-                </td>
-                {data.retailers.map(retailer => {
-                  const percentage = customer.penetration[retailer] || 0;
+            {sortedRetailers.map(retailer => (
+              <tr key={retailer} className="hover:bg-gray-50">
+                <td className="border border-gray-300 px-2 py-2 md:px-4 md:py-3 font-medium text-gray-900 sticky left-0 bg-white z-10" style={{ minWidth: 120, fontSize: '0.95rem' }}>{retailer}</td>
+                {sortedItems.map(item => {
+                  const cell = retailerItemData[retailer]?.[item];
+                  const percent = cell && cell.total > 0 ? Math.round((cell.authorized / cell.total) * 100) : 0;
                   return (
-                    <td key={retailer} className="border border-gray-300 px-4 py-3 text-center">
-                      <button
-                        onClick={() => handlePercentageClick(customer.id, retailer, percentage)}
-                        className={`px-3 py-1 rounded-full text-sm border ${getColorClass(percentage)} ${getColorIntensity(percentage)} hover:shadow-md transition-shadow`}
-                      >
-                        {percentage}%
-                      </button>
+                    <td key={item} className="border border-gray-300 px-2 py-2 md:px-4 md:py-3 text-center" style={{ minWidth: 100, fontSize: '0.95rem' }}>
+                      <span className={`px-2 py-1 md:px-3 md:py-1 rounded-full text-xs md:text-sm border ${getColorClass(percent)} ${getColorIntensity(percent)} select-none`} style={{ minWidth: 48, display: 'inline-block' }}>
+                        {cell && cell.total > 0 ? `${percent}%` : '-'}
+                      </span>
                     </td>
                   );
                 })}
-                <td className="border border-gray-300 px-4 py-3 text-center">
-                  <span className={`px-3 py-1 rounded-full text-sm border ${getColorClass(customer.totalPenetration)} ${getColorIntensity(customer.totalPenetration)}`}>
-                    {customer.totalPenetration}%
-                  </span>
-                </td>
               </tr>
             ))}
-            {/* Retailer Averages Row */}
-            <tr className="bg-gray-100 font-semibold">
-              <td className="border border-gray-300 px-4 py-3 text-gray-700">
-                Retailer Average
-              </td>
-              {data.retailers.map(retailer => {
-                const average = data.retailerAverages[retailer] || 0;
-                return (
-                  <td key={retailer} className="border border-gray-300 px-4 py-3 text-center">
-                    <span className={`px-3 py-1 rounded-full text-sm border ${getColorClass(average)} ${getColorIntensity(average)}`}>
-                      {average}%
-                    </span>
-                  </td>
-                );
-              })}
-              <td className="border border-gray-300 px-4 py-3 text-center">
-                <span className={`px-3 py-1 rounded-full text-sm border ${getColorClass(data.overallAverage)} ${getColorIntensity(data.overallAverage)}`}>
-                  {data.overallAverage}%
-                </span>
-              </td>
-            </tr>
           </tbody>
         </table>
       </div>
-
       {/* Legend */}
       <div className="mt-6 flex items-center gap-6">
         <div className="text-sm font-medium text-gray-700">Color Legend:</div>
@@ -287,13 +236,11 @@ export default function MasterScorecard({ onCustomerClick }: MasterScorecardProp
           </div>
         </div>
       </div>
-
       {/* Info Note */}
       <div className="mt-4 flex items-start gap-2 p-3 bg-blue-50 rounded-lg">
         <FaInfoCircle className="text-blue-500 mt-0.5 flex-shrink-0" />
         <div className="text-sm text-blue-700">
-          <strong>How to read:</strong> Percentages show how many products have "Authorized" status for each retailer. 
-          Click on customer names to view their detailed scorecard, or click on percentages to see product counts.
+          <strong>How to read:</strong> Each cell shows the percentage of scorecards where the retailer+item is marked as 'Authorized'.
         </div>
       </div>
     </div>

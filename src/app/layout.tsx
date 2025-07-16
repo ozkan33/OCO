@@ -3,8 +3,13 @@ import ClientLayout from './ClientLayout';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Vendor Portal',
-  description: 'Vendor Portal for managing orders and inventory',
+  title: '3Brothers',
+  description: '3Brothers Vendor Portal for managing orders and inventory',
+  icons: {
+    icon: 'https://i.hizliresim.com/rm69m47.png',
+    shortcut: 'https://i.hizliresim.com/rm69m47.png',
+    apple: 'https://i.hizliresim.com/rm69m47.png',
+  },
 };
 
 export default function RootLayout({
@@ -14,6 +19,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" href="https://i.hizliresim.com/rm69m47.png" />
+        <link rel="shortcut icon" href="https://i.hizliresim.com/rm69m47.png" />
+      </head>
       <body>
         <ClientLayout>{children}</ClientLayout>
       </body>
