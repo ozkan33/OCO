@@ -196,9 +196,9 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         />
       </div>
     ) },
-    { key: 'cmg', name: 'Category Manager', editable: false, sortable: false, isDefault: true, renderCell: ({ row }: { row: Row }) => (
+    { key: 'cmg', name: '3B Contact', editable: false, sortable: false, isDefault: true, renderCell: ({ row }: { row: Row }) => (
       <button type="button" className="text-blue-600 underline" onClick={() => handleOpenContactModal(typeof row.id === 'number' ? row.id : 0, 'cmg', row.cmg)}>
-        {row.cmg && typeof row.cmg === 'object' ? row.cmg.name : row.cmg || 'Add Category Manager'}
+        {row.cmg && typeof row.cmg === 'object' ? row.cmg.name : row.cmg || 'Add 3B Contact'}
       </button>
     ) },
     { key: 'brand_lead', name: 'Brand Lead', editable: false, sortable: false, isDefault: true, renderCell: ({ row }: { row: Row }) => (
@@ -394,7 +394,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         if (savedData && savedData.id && editingScoreCard && editingScoreCard.id !== savedData.id) {
           const oldId = editingScoreCard.id;
           const newId = savedData.id;
-          setScorecards(prev => prev.map(sc =>
+          setScorecards(prev => prev.map(sc => 
             sc.id === oldId ? { ...sc, id: newId, ...savedData } : sc
           ));
           if (selectedCategory === oldId) {
@@ -1583,7 +1583,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         editable: false,
         renderCell: ({ row }: { row: Row }) => (
           <button type="button" className="text-blue-600 underline" onClick={() => handleOpenContactModal(typeof row.id === 'number' ? row.id : 0, col.key, row[col.key])}>
-            {row[col.key] && typeof row[col.key] === 'object' ? row[col.key].name : row[col.key] || (col.key === 'cmg' ? 'Add Category Manager' : 'Add Brand Lead')}
+            {row[col.key] && typeof row[col.key] === 'object' ? row[col.key].name : row[col.key] || (col.key === 'cmg' ? 'Add 3B Contact' : 'Add Brand Lead')}
           </button>
         ),
       };
@@ -2845,6 +2845,80 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     window.location.href = '/auth/logout';
   }
 
+  // Export Excel function with modern hierarchical table design
+  function handleExportExcel() {
+    const currentData = getCurrentData();
+    if (!currentData) {
+      toast.error('No data to export');
+      return;
+    }
+
+    const workbook = XLSX.utils.book_new();
+    
+    // Modern hierarchical table with enhanced parent indicators
+    const modernRows: any[] = [];
+    
+    currentData.rows.forEach(parentRow => {
+      const subgrid = subGrids[parentRow.id];
+      const hasChildren = subgrid && subgrid.rows.length > 0;
+      
+      // Add parent row with enhanced indicators
+      const parentRowData: any = {
+        'Parent Indicator': hasChildren ? '🔵 PARENT' : '🟣 PARENT (No Children)',
+        'Type': 'Parent',
+        'Has Children': hasChildren ? 'Yes' : 'No',
+        'Children Count': hasChildren ? subgrid.rows.length : 0
+      };
+      
+      // Add main grid columns with proper indentation
+      currentData.columns.forEach(col => {
+        if (col.key !== 'comments' && col.key !== '_delete_row') {
+          const colName = String(col.name || col.key);
+          parentRowData[colName] = parentRow[col.key] || '';
+        }
+      });
+      
+      modernRows.push(parentRowData);
+      
+      // Add child rows with enhanced indicators
+      if (hasChildren) {
+        subgrid.rows.forEach((subRow, index) => {
+          const isLastChild = index === subgrid.rows.length - 1;
+          const childRowData: any = {
+            'Parent Indicator': isLastChild ? '└─ CHILD' : '├─ CHILD',
+            'Type': 'Child',
+            'Child Number': index + 1,
+            'Parent Name': parentRow.name || ''
+          };
+          
+          // Add subgrid columns with indentation
+          subgrid.columns.forEach(col => {
+            if (col.key !== 'delete') {
+              const colName = String(col.name || col.key);
+              childRowData[colName] = subRow[col.key] || '';
+            }
+          });
+          
+          modernRows.push(childRowData);
+        });
+      }
+    });
+    
+    const worksheet = XLSX.utils.json_to_sheet(modernRows);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Modern Hierarchical Table');
+    
+    // Generate filename
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+    const filename = `scorecard_export_${timestamp}.xlsx`;
+    
+    // Save the file
+    XLSX.writeFile(workbook, filename);
+    toast.success(`Exported as ${filename}`);
+  }
+
+  // Export modal state
+  const [showExportModal, setShowExportModal] = useState(false);
+
   return (
     <>
       <Toaster position="top-right" richColors />
@@ -3030,6 +3104,12 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
               style={{ display: 'none' }}
             />
           </label>
+                <button
+                  onClick={() => setShowExportModal(true)}
+                  className="px-3 py-1 rounded text-sm font-medium border bg-green-600 text-white hover:bg-green-700 flex items-center gap-2"
+                >
+                  📤 Export Excel
+                </button>
         </div>
               <div className="flex items-center gap-4">
                 <button
@@ -4063,6 +4143,49 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                       // Do not update UI here; let handleDeleteTemplate do it on success
                     }}
                   >Delete</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Export Modal */}
+          {showExportModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white p-6 rounded-lg shadow-xl w-96">
+                <h3 className="text-lg font-bold mb-4">Export to Excel</h3>
+                <div className="space-y-4">
+                  <div className="bg-blue-50 p-3 rounded text-sm text-blue-700">
+                    <strong>Modern Hierarchical Export</strong><br />
+                    This export will include all main grid data and any subgrid data that exists, with clear parent-child relationships using visual indicators.
+                  </div>
+                  
+                  <div className="bg-gray-50 p-3 rounded text-xs text-gray-600">
+                    <strong>Features:</strong>
+                    <ul className="mt-1 list-disc list-inside space-y-1">
+                      <li>🔵 PARENT - Rows with children</li>
+                      <li>🟣 PARENT (No Children) - Standalone parent rows</li>
+                      <li>├─ CHILD / └─ CHILD - Child rows with tree connectors</li>
+                      <li>Child counts and parent references</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setShowExportModal(false)}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleExportExcel();
+                        setShowExportModal(false);
+                      }}
+                      className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700"
+                    >
+                      Export
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
