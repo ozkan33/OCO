@@ -12,9 +12,10 @@ export async function POST(request: Request) {
     const response = NextResponse.json({ success: true });
     
     // Set HTTP-only cookies for secure authentication
+    // Mobile-friendly cookie settings
     const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: process.env.NODE_ENV === 'production' && typeof window !== 'undefined',
       sameSite: 'lax' as const,
       path: '/',
       maxAge: 60 * 60 * 24 * 7, // 7 days

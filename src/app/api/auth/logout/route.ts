@@ -5,9 +5,10 @@ export async function POST() {
   const response = NextResponse.json({ success: true });
   
   // Clear all authentication cookies
+  // Mobile-friendly cookie settings
   const cookieOptions = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production' && typeof window !== 'undefined',
     sameSite: 'lax' as const,
     path: '/',
     maxAge: 0, // Expire immediately

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
+import { handleMobileRedirect, getMobileBrowserInfo } from '@/utils/mobileDetection';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -27,6 +28,12 @@ export default function LoginPage() {
       
       console.log('Using Supabase URL:', supabaseUrl);
       
+      // Log mobile browser info for debugging
+      const mobileInfo = getMobileBrowserInfo();
+      if (mobileInfo?.isMobile) {
+        console.log('Mobile browser detected:', mobileInfo);
+      }
+      
       const supabase = createClient(supabaseUrl, supabaseKey);
       
       const { error, data } = await supabase.auth.signInWithPassword({
@@ -39,37 +46,58 @@ export default function LoginPage() {
       if (error) {
         console.error('Supabase auth error:', error);
         setError(`Login failed: ${error.message}`);
-      } else if (data?.session) {
-        console.log('Login successful, setting cookie-based session');
-        
-        // Send session to server to set HTTP-only cookies
-        const response = await fetch('/api/auth/set-session', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            access_token: data.session.access_token,
-            refresh_token: data.session.refresh_token,
-            user: data.user,
-          }),
-        });
-        
-        if (response.ok) {
-          console.log('Session cookie set successfully');
-          // Redirect to dashboard
-          window.location.href = '/admin/dashboard';
-        } else {
-          console.error('Failed to set session cookie');
-          setError('Authentication failed - please try again');
-        }
-      } else {
-        setError('Login failed - no session returned');
+        return;
       }
+      
+      if (!data?.session) {
+        setError('Login failed - no session returned');
+        return;
+      }
+      
+      console.log('Login successful, setting cookie-based session');
+      
+      // Send session to server to set HTTP-only cookies
+      const response = await fetch('/api/auth/set-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+          user: data.user,
+        }),
+      });
+      
+      if (!response.ok) {
+        console.error('Failed to set session cookie');
+        setError('Authentication failed - please try again');
+        return;
+      }
+      
+      console.log('Session cookie set successfully');
+      
+      // Use mobile-optimized redirect
+      try {
+        await router.push('/admin/dashboard');
+      } catch (routerError) {
+        console.error('Router error, falling back to mobile redirect:', routerError);
+        handleMobileRedirect('/admin/dashboard');
+      }
+      
     } catch (fetchError: any) {
       console.error('Login error:', fetchError);
       setLoading(false);
-      setError(`Error: ${fetchError.message}`);
+      setError(`Error: ${fetchError.message || 'An unexpected error occurred'}`);
+    }
+  };
+
+  const handleBackClick = () => {
+    try {
+      router.push('/');
+    } catch (routerError) {
+      console.error('Router error, falling back to mobile redirect:', routerError);
+      handleMobileRedirect('/');
     }
   };
 
@@ -80,7 +108,7 @@ export default function LoginPage() {
           src="https://i.hizliresim.com/rm69m47.png"
           alt="3 Brothers Marketing Logo"
           className="h-16 w-auto mb-4 cursor-pointer transition-transform hover:scale-105"
-          onClick={() => window.location.href = '/'}
+          onClick={handleBackClick}
         />
         <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Sign In</h2>
         <p className="text-gray-500 mb-6 text-center">Welcome back! Please enter your credentials to access your dashboard.</p>
@@ -106,6 +134,8 @@ export default function LoginPage() {
               className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder-gray-400"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              autoCapitalize="none"
             />
           </div>
           
@@ -123,6 +153,7 @@ export default function LoginPage() {
               className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder-gray-400"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
             />
           </div>
           
@@ -137,7 +168,7 @@ export default function LoginPage() {
         
         <button
           className="text-gray-600 hover:underline mt-4"
-          onClick={() => window.location.href = '/'}
+          onClick={handleBackClick}
         >
           Back
         </button>

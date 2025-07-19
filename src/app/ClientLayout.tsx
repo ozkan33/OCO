@@ -39,10 +39,22 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   const handleAccountClick = () => {
     if (!user) return;
-    if (user.role === 'ADMIN') {
-      router.push('/admin/dashboard');
-    } else if (user.role === 'VENDOR') {
-      router.push('/vendor/dashboard');
+    
+    try {
+      if (user.role === 'ADMIN') {
+        router.push('/admin/dashboard');
+      } else if (user.role === 'VENDOR') {
+        router.push('/vendor/dashboard');
+      }
+    } catch (routerError) {
+      console.error('Router error, falling back to window.location:', routerError);
+      if (typeof window !== 'undefined') {
+        if (user.role === 'ADMIN') {
+          window.location.href = '/admin/dashboard';
+        } else if (user.role === 'VENDOR') {
+          window.location.href = '/vendor/dashboard';
+        }
+      }
     }
   };
 
@@ -57,12 +69,25 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       // Clear user state
       setUser(null);
       
-      // Redirect to home
-      window.location.href = '/';
+      // Redirect to home with better mobile handling
+      try {
+        await router.push('/');
+      } catch (routerError) {
+        console.error('Router error, falling back to window.location:', routerError);
+        if (typeof window !== 'undefined') {
+          window.location.href = '/';
+        }
+      }
     } catch (error) {
       console.error('Logout error:', error);
       // Fallback - still redirect to home
-      window.location.href = '/';
+      try {
+        await router.push('/');
+      } catch (routerError) {
+        if (typeof window !== 'undefined') {
+          window.location.href = '/';
+        }
+      }
     }
   };
 
@@ -71,14 +96,10 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   return (
     <div className={inter.className}>
-      {!isDashboard && (
-        <Header
-          user={user}
-          onAccountClick={handleAccountClick}
-          onLogout={handleLogout}
-        />
-      )}
-      <main>{children}</main>
+      {!isDashboard && <Header user={user} onAccountClick={handleAccountClick} onLogout={handleLogout} />}
+      <main className="min-h-screen">
+        {children}
+      </main>
     </div>
   );
 } 
