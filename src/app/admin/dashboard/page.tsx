@@ -3,26 +3,32 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import AdminDataGrid from '@/components/admin/AdminDataGrid';
+import { SafariErrorBoundary } from '@/components/ui/SafariErrorBoundary';
 
 export default function AdminDashboard() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [loadingUser, setLoadingUser] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchUser = async () => {
       setLoadingUser(true);
+      setError(null);
       try {
         const res = await fetch('/api/auth/me', { credentials: 'include' });
         if (!res.ok) {
           setUser(null);
+          setError('Authentication failed');
           setLoadingUser(false);
           return;
         }
         const data = await res.json();
         setUser(data.user);
-      } catch {
+      } catch (err) {
+        console.error('Failed to fetch user:', err);
         setUser(null);
+        setError('Failed to load user data');
       }
       setLoadingUser(false);
     };
@@ -30,13 +36,43 @@ export default function AdminDashboard() {
   }, []);
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    window.location.href = '/';
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Logout error:', error);
+      window.location.href = '/';
+    }
   };
 
   if (loadingUser) {
-    return null; // or a spinner
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
   }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative max-w-md" role="alert">
+          <strong className="font-bold">Error: </strong>
+          <span className="block sm:inline">{error}</span>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-2 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!user || !user.role) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -65,7 +101,9 @@ export default function AdminDashboard() {
       {/* Full-width grid with sidebar */}
       <main className="w-full max-w-none px-0 py-12 flex justify-center">
         <div className="w-full">
-          <AdminDataGrid userRole={user.role} key={user.role} />
+          <SafariErrorBoundary>
+            <AdminDataGrid userRole={user.role} key={user.role} />
+          </SafariErrorBoundary>
         </div>
       </main>
     </div>
