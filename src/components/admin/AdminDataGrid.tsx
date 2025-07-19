@@ -197,11 +197,10 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         />
       </div>
     ) },
-    { key: 'cmg', name: '3B Contact', editable: false, sortable: false, isDefault: true, renderCell: ({ row }: { row: Row }) => (
-      <button type="button" className="text-blue-600 underline" onClick={() => handleOpenContactModal(typeof row.id === 'number' ? row.id : 0, 'cmg', row.cmg)}>
-        {row.cmg && typeof row.cmg === 'object' ? row.cmg.name : row.cmg || 'Add 3B Contact'}
-      </button>
-    ) },
+    { key: 'cmg', name: '3B Contact', editable: true, sortable: true, isDefault: true, 
+      renderCell: ({ row }: { row: Row }) => <ContactLabel value={row['cmg']} />, 
+      renderEditCell: (props: RenderEditCellProps<Row>) => <ContactDropdownEditCell {...props} />
+    },
   ];
 
   // Add RouteToMarket and Priority columns after Buyer
@@ -1510,6 +1509,51 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     );
   }
 
+  // --- Contact Dropdown Edit Cell ---
+  function ContactDropdownEditCell({ row, column, onRowChange }: RenderEditCellProps<Row>) {
+    const value = row[column.key] || '';
+    const options = contactOptions.map(opt => ({ value: opt.value, label: opt.label }));
+    const [menuOpen, setMenuOpen] = React.useState(true);
+    const selectRef = React.useRef<any>(null);
+
+    React.useEffect(() => {
+      setMenuOpen(true); // Open menu on mount
+      if (selectRef.current) {
+        selectRef.current.focus();
+      }
+    }, []);
+
+    return (
+      <Select
+        ref={selectRef}
+        autoFocus
+        tabIndex={0}
+        menuPortalTarget={typeof window !== 'undefined' ? document.body : null}
+        styles={{
+          menuPortal: base => ({ ...base, zIndex: 99999 }),
+          menu: base => ({ ...base, zIndex: 99999, minWidth: 120, fontSize: 14, padding: 0 }),
+          option: base => ({ ...base, padding: '2px 8px' }),
+          control: base => ({ ...base, minHeight: 32, height: 32, fontSize: 14 }),
+          valueContainer: base => ({ ...base, padding: '0 8px' }),
+          indicatorsContainer: base => ({ ...base, height: 32 }),
+          dropdownIndicator: base => ({ ...base, padding: 4 }),
+          input: base => ({ ...base, margin: 0, padding: 0 }),
+        }}
+        value={options.find(opt => opt.value === value) || null}
+        onChange={newValue => {
+          onRowChange({ ...row, [column.key]: newValue ? newValue.value : '' });
+          setMenuOpen(false); // Close menu after selection
+        }}
+        options={options}
+        components={{ Option: ContactOption, SingleValue: ContactSingleValue, Input: NoInput }}
+        isSearchable={false}
+        placeholder={null}
+        menuIsOpen={menuOpen}
+        onBlur={() => setMenuOpen(false)}
+      />
+    );
+  }
+
   // --- Column Mapping ---
   const currentData = getCurrentData();
   const editableColumns = (currentData?.columns.map((col: MyColumn, idx: number) => {
@@ -1585,12 +1629,9 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     if (col.key === 'cmg') {
       return {
         ...col,
-        editable: false,
-        renderCell: ({ row }: { row: Row }) => (
-          <button type="button" className="text-blue-600 underline" onClick={() => handleOpenContactModal(typeof row.id === 'number' ? row.id : 0, col.key, row[col.key])}>
-            {row[col.key] && typeof row[col.key] === 'object' ? row[col.key].name : row[col.key] || 'Add 3B Contact'}
-          </button>
-        ),
+        editable: true,
+        renderCell: ({ row }: { row: Row }) => <ContactLabel value={row['cmg']} />,
+        renderEditCell: (props: RenderEditCellProps<Row>) => <ContactDropdownEditCell {...props} />,
       };
     }
     if (col.key === 'store_count') {
@@ -2567,6 +2608,12 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     { value: 'Low', label: 'Low', bg: '#e0f2fe', color: '#0369a1' },
   ];
 
+  // 2. Add contactOptions for 3B Contact dropdown
+  const contactOptions = [
+    { value: 'Volkan', label: 'Volkan', bg: '#e0f2fe', color: '#0369a1' },
+    { value: 'Troy', label: 'Troy', bg: '#fef9c3', color: '#b45309' },
+  ];
+
   // 2. Add PriorityLabel and PriorityDropdownEditCell
   function PriorityLabel({ value }: { value: string }) {
     const selected = priorityOptions.find(opt => opt.value === value);
@@ -2576,6 +2623,19 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         style={{ background: selected ? selected.bg : '#f3f4f6', color: selected ? selected.color : '#6b7280', gap: 8 }}
       >
         <span style={{ color: selected?.color }}>{selected ? selected.label : <span className="text-gray-400">Select priority</span>}</span>
+      </div>
+    );
+  }
+
+  // 3. Add ContactLabel and ContactDropdownEditCell
+  function ContactLabel({ value }: { value: string }) {
+    const selected = contactOptions.find(opt => opt.value === value);
+    return (
+      <div
+        className="min-w-[90px] h-8 w-full flex items-center justify-center rounded font-medium text-base box-border border-none p-0 m-0"
+        style={{ background: selected ? selected.bg : '#f3f4f6', color: selected ? selected.color : '#6b7280', gap: 8 }}
+      >
+        <span style={{ color: selected?.color }}>{selected ? selected.label : <span className="text-gray-400">Select contact</span>}</span>
       </div>
     );
   }
@@ -2606,6 +2666,41 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   const PrioritySingleValue = (props: any) => {
     const { data } = props;
     const found = priorityOptions.find(opt => opt.value === data.value);
+    return (
+      <components.SingleValue {...props}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+          <span style={{ color: found?.color, fontWeight: 700 }}>{data.label}</span>
+        </div>
+      </components.SingleValue>
+    );
+  };
+
+  // Contact dropdown custom components
+  const ContactOption = (props: any) => {
+    const { data, isSelected, isFocused, innerProps } = props;
+    const found = contactOptions.find(opt => opt.value === data.value);
+    return (
+      <components.Option {...props} innerProps={innerProps}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 16px',
+          borderRadius: 8,
+          cursor: 'pointer',
+          background: isSelected ? (found?.bg || '#f3f4f6') : isFocused ? '#f3f4f6' : 'transparent',
+          fontWeight: isSelected ? 700 : 400,
+          color: found?.color,
+          boxShadow: isSelected ? '0 2px 8px #0001' : undefined,
+          transition: 'background 0.15s',
+        }}>
+          <span style={{ color: found?.color, fontWeight: isSelected ? 700 : 500 }}>{data.label}</span>
+          {isSelected && <span style={{ marginLeft: 'auto', color: found?.color, fontSize: 20 }}>&#10003;</span>}
+        </div>
+      </components.Option>
+    );
+  };
+  const ContactSingleValue = (props: any) => {
+    const { data } = props;
+    const found = contactOptions.find(opt => opt.value === data.value);
     return (
       <components.SingleValue {...props}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
@@ -3317,8 +3412,22 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       {/* Sidebar */}
       <aside className="w-56 h-full bg-white border-r border-gray-200 py-6 px-4 flex flex-col gap-2">
         <h3 className="text-lg font-bold text-black mb-4">Workspaces</h3>
+        
+        {/* Master Scorecard - Moved to top */}
+        <div className="mb-4">
+          <button
+            onClick={() => handleCategoryChange('master-scorecard')}
+            className={`w-full text-left px-3 py-2 rounded font-medium transition-all flex items-center gap-2 ${selectedCategory === 'master-scorecard' ? 'bg-blue-100 text-blue-800 border border-blue-300' : 'hover:bg-gray-100 text-gray-700 border border-transparent'}`}
+          >
+            <FaTachometerAlt size={14} />
+            <span>Master Scorecard</span>
+            <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+              Dashboard
+            </span>
+          </button>
+        </div>
           
-          {/* Regular Categories */}
+        {/* Regular Categories */}
         {dataCategories.map(cat => (
           <button
             key={cat}
@@ -3329,56 +3438,42 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
           </button>
         ))}
           
-          {/* ScoreCard Section */}
-          <div className="mt-6">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-md font-semibold text-gray-800">ScoreCards</h4>
-              {userRole === 'ADMIN' && (
-          <button
-                  onClick={() => setShowCreateScoreCardModal(true)}
-                  className="p-1 text-blue-600 hover:text-blue-800"
-                  title="Create New ScoreCard"
-                >
-                  <FaPlus size={14} />
-          </button>
-              )}
-            </div>
-            
-            {/* Master Scorecard */}
-            <div className="mb-4">
-              <button
-                onClick={() => handleCategoryChange('master-scorecard')}
-                className={`w-full text-left px-3 py-2 rounded font-medium transition-all flex items-center gap-2 ${selectedCategory === 'master-scorecard' ? 'bg-blue-100 text-blue-800 border border-blue-300' : 'hover:bg-gray-100 text-gray-700 border border-transparent'}`}
+        {/* ScoreCard Section */}
+        <div className="mt-6">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-md font-semibold text-gray-800">ScoreCards</h4>
+            {userRole === 'ADMIN' && (
+        <button
+                onClick={() => setShowCreateScoreCardModal(true)}
+                className="p-1 text-blue-600 hover:text-blue-800"
+                title="Create New ScoreCard"
               >
-                <FaTachometerAlt size={14} />
-                <span>Master Scorecard</span>
-                <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-                  Dashboard
-                </span>
-              </button>
-            </div>
-            
-            {scorecards.map(scorecard => (
-              <div key={scorecard.id} className="mb-2">
-                <div className="flex items-center justify-between group">
-          <button
-                    onClick={() => handleCategoryChange(scorecard.id)}
-                    className={`flex-1 text-left px-3 py-2 rounded font-medium transition-all ${selectedCategory === scorecard.id ? 'bg-gray-200 text-black' : 'hover:bg-gray-100 text-gray-700'}`}
-                  >
-                    <div className="flex items-center">
-                      {scorecard.name}
-                      {selectedCategory === scorecard.id && editingScoreCard?.id === scorecard.id && (
-                        <SaveStatusCompact
-                          status={saveStatus}
-                          lastSaved={lastSaved}
-                          error={saveError}
-                          hasUnsavedChanges={hasUnsavedChanges}
-                          isOnline={isOnline}
-                          className="ml-2"
-                        />
-                      )}
-                    </div>
-          </button>
+                <FaPlus size={14} />
+        </button>
+            )}
+          </div>
+          
+          {scorecards.map(scorecard => (
+            <div key={scorecard.id} className="mb-2">
+              <div className="flex items-center justify-between group">
+        <button
+                  onClick={() => handleCategoryChange(scorecard.id)}
+                  className={`flex-1 text-left px-3 py-2 rounded font-medium transition-all ${selectedCategory === scorecard.id ? 'bg-gray-200 text-black' : 'hover:bg-gray-100 text-gray-700'}`}
+                >
+                  <div className="flex items-center">
+                    {scorecard.name}
+                    {selectedCategory === scorecard.id && editingScoreCard?.id === scorecard.id && (
+                      <SaveStatusCompact
+                        status={saveStatus}
+                        lastSaved={lastSaved}
+                        error={saveError}
+                        hasUnsavedChanges={hasUnsavedChanges}
+                        isOnline={isOnline}
+                        className="ml-2"
+                      />
+                    )}
+                  </div>
+        </button>
                   {userRole === 'ADMIN' && (
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
