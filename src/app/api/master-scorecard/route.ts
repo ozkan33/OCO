@@ -141,7 +141,7 @@ export async function GET(request: Request) {
     // If no product columns found, return early with helpful message
     if (productCols.length === 0) {
       return NextResponse.json({
-        selectedScorecard: {
+        selectedScorecard: { 
           id: selectedScorecard.id,
           title: selectedScorecard.title
         },
