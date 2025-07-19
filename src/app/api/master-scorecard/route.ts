@@ -136,12 +136,12 @@ export async function GET(request: Request) {
       col.key !== '_delete_row'
     );
 
-    console.log('📦 Found product columns:', productCols.map(col => col.name));
+    console.log('📦 Found product columns:', productCols.map((col: { name?: string }) => col.name));
 
     // If no product columns found, return early with helpful message
     if (productCols.length === 0) {
       return NextResponse.json({
-        selectedScorecard: {
+        selectedScorecard: { 
           id: selectedScorecard.id,
           title: selectedScorecard.title
         },
