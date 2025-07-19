@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import ClientLayout from './ClientLayout';
+import { MobileErrorBoundary } from '@/components/ui/MobileErrorBoundary';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -25,7 +26,9 @@ export default function RootLayout({
         <link rel="shortcut icon" href="https://i.hizliresim.com/rm69m47.png" />
       </head>
       <body>
-        <ClientLayout>{children}</ClientLayout>
+        <MobileErrorBoundary>
+          <ClientLayout>{children}</ClientLayout>
+        </MobileErrorBoundary>
       </body>
     </html>
   );

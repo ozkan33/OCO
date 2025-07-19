@@ -39,7 +39,12 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     } catch (error) {
       console.error('Middleware auth error:', error);
-      return NextResponse.redirect(new URL('/auth/login', request.url));
+      // Clear cookies on error and redirect to login
+      const response = NextResponse.redirect(new URL('/auth/login', request.url));
+      response.cookies.delete('supabase-access-token');
+      response.cookies.delete('supabase-refresh-token');
+      response.cookies.delete('supabase-user');
+      return response;
     }
   }
   
