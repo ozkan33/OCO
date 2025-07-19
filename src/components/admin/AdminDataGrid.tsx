@@ -263,6 +263,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     return initial;
   });
   const [selectedCategory, setSelectedCategory] = useState<string>('master-scorecard');
+  const [lastSelectedScorecardId, setLastSelectedScorecardId] = useState<string | null>(null);
   const [editColumns, setEditColumns] = useState(false);
   const [rowEditEnabled, setRowEditEnabled] = useState(true);
   const [sortColumns, setSortColumns] = useState<SortColumn[]>([]);
@@ -1186,6 +1187,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     const scorecard = scorecards.find(sc => sc.id === category);
     if (scorecard) {
       setEditingScoreCard(scorecard);
+      setLastSelectedScorecardId(scorecard.id);
       console.log('🎯 Auto-save ENABLED for scorecard:', scorecard.name, 'ID:', scorecard.id);
       // Load comments for this scorecard
       loadScorecardComments(scorecard.id);
@@ -3499,6 +3501,24 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         {selectedCategory === 'master-scorecard' && (
           <MasterScorecard 
             key={`master-${scorecards.length}-${scorecards.map(sc => sc.lastModified).join('-')}`} // Force refresh when scorecards change
+            selectedScorecardId={lastSelectedScorecardId || (scorecards.length > 0 ? scorecards[0].id : undefined)}
+            availableScorecards={scorecards
+              .filter(sc => {
+                // Check if scorecard has product columns (user-added columns)
+                const columns = sc.columns || [];
+                const retailerCol = columns.find(col => col.name === 'Retailer Name' || col.key === 'name');
+                if (!retailerCol) return false;
+                
+                const productCols = columns.filter(col => 
+                  col.key !== retailerCol.key && 
+                  !col.isDefault && 
+                  col.key !== 'comments' && 
+                  col.key !== '_delete_row'
+                );
+                return productCols.length > 0;
+              })
+              .map(sc => ({ id: sc.id, title: sc.name }))
+            }
             onCustomerClick={(customerId) => {
               // Switch to the customer's scorecard
               handleCategoryChange(customerId);
