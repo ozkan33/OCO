@@ -3065,8 +3065,17 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         // Ignore save error, proceed with logout
       }
     }
-    // Proceed with logout
-    window.location.href = '/auth/logout';
+    // Proceed with logout with better mobile handling
+    try {
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/logout';
+      }
+    } catch (redirectError) {
+      console.error('Redirect error:', redirectError);
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/logout';
+      }
+    }
   }
 
   // Export Excel function with modern hierarchical table design
