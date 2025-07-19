@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Logo } from './Logo';
 import { AuthButtons } from '../auth/AuthButtons';
+import { getMobileBrowserInfo } from '@/utils/mobileDetection';
 
 interface HeaderProps {
   user: any;
@@ -14,9 +15,19 @@ interface HeaderProps {
 
 export function Header({ user, onAccountClick, onLogout }: HeaderProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSafari, setIsSafari] = useState(false);
   const router = useRouter();
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Detect Safari on mount
+  useEffect(() => {
+    const mobileInfo = getMobileBrowserInfo();
+    if (mobileInfo?.isSafari) {
+      setIsSafari(true);
+      console.log('Safari detected in Header');
+    }
+  }, []);
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
@@ -28,43 +39,60 @@ export function Header({ user, onAccountClick, onLogout }: HeaderProps) {
 
   const handleLoginClick = () => {
     closeMobileMenu();
-    router.push('/auth/login');
+    if (isSafari) {
+      window.location.href = '/auth/login';
+    } else {
+      router.push('/auth/login');
+    }
   };
 
-  // Close mobile menu when clicking outside
+  // Close mobile menu when clicking outside (Safari-safe)
   useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        isMobileMenuOpen &&
-        mobileMenuRef.current &&
-        !mobileMenuRef.current.contains(event.target as Node) &&
-        menuButtonRef.current &&
-        !menuButtonRef.current.contains(event.target as Node)
-      ) {
+      try {
+        if (
+          mobileMenuRef.current &&
+          !mobileMenuRef.current.contains(event.target as Node) &&
+          menuButtonRef.current &&
+          !menuButtonRef.current.contains(event.target as Node)
+        ) {
+          closeMobileMenu();
+        }
+      } catch (error) {
+        console.error('Safari click outside error:', error);
         closeMobileMenu();
       }
     };
 
-    if (isMobileMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+    // Use passive listeners for Safari
+    const options = { passive: true };
+    document.addEventListener('mousedown', handleClickOutside, options);
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isMobileMenuOpen]);
 
-  // Close mobile menu on escape key
+  // Close mobile menu on escape key (Safari-safe)
   useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
     const handleEscapeKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isMobileMenuOpen) {
+      try {
+        if (event.key === 'Escape') {
+          closeMobileMenu();
+        }
+      } catch (error) {
+        console.error('Safari escape key error:', error);
         closeMobileMenu();
       }
     };
 
-    if (isMobileMenuOpen) {
-      document.addEventListener('keydown', handleEscapeKey);
-    }
+    // Use passive listeners for Safari
+    const options = { passive: true };
+    document.addEventListener('keydown', handleEscapeKey, options);
 
     return () => {
       document.removeEventListener('keydown', handleEscapeKey);

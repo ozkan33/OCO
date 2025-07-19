@@ -12,6 +12,42 @@ body {
   background: rgb(var(--background-rgb));
 }
 
+/* Safari-specific fixes */
+@supports (-webkit-touch-callout: none) {
+  /* iOS Safari specific styles */
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  /* Fix for Safari input zoom issues */
+  input, textarea, select {
+    font-size: 16px !important;
+    -webkit-appearance: none;
+    border-radius: 0;
+  }
+  
+  /* Fix for Safari button styling */
+  button {
+    -webkit-appearance: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* Fix for Safari flexbox issues */
+  .flex {
+    -webkit-box-flex: 1;
+    -webkit-flex: 1;
+    -ms-flex: 1;
+    flex: 1;
+  }
+  
+  /* Fix for Safari transform issues */
+  .transform {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+  }
+}
+
 /* Mobile-specific improvements */
 @media (max-width: 768px) {
   /* Improve touch targets */
@@ -40,6 +76,15 @@ html {
 button:focus, a:focus, input:focus, textarea:focus {
   outline: 2px solid #3b82f6;
   outline-offset: 2px;
+}
+
+/* Safari-specific focus fixes */
+@supports (-webkit-touch-callout: none) {
+  button:focus, a:focus, input:focus, textarea:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+    -webkit-tap-highlight-color: transparent;
+  }
 }
 
 .rdg.rdg-editing {
