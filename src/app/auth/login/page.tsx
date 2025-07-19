@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { handleMobileRedirect, getMobileBrowserInfo } from '@/utils/mobileDetection';
@@ -10,7 +10,17 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isSafari, setIsSafari] = useState(false);
   const router = useRouter();
+
+  // Detect Safari on mount
+  useEffect(() => {
+    const mobileInfo = getMobileBrowserInfo();
+    if (mobileInfo?.isSafari) {
+      setIsSafari(true);
+      console.log('Safari detected, using Safari-specific handling');
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,7 +28,7 @@ export default function LoginPage() {
     setLoading(true);
     
     try {
-      // Use environment variables - should now be available
+      // Safari-safe environment variable access
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
       
@@ -77,12 +87,18 @@ export default function LoginPage() {
       
       console.log('Session cookie set successfully');
       
-      // Use mobile-optimized redirect
-      try {
-        await router.push('/admin/dashboard');
-      } catch (routerError) {
-        console.error('Router error, falling back to mobile redirect:', routerError);
-        handleMobileRedirect('/admin/dashboard');
+      // Safari-specific navigation handling
+      if (isSafari) {
+        // Use window.location for Safari to avoid router issues
+        window.location.href = '/admin/dashboard';
+      } else {
+        // Use router for other browsers
+        try {
+          await router.push('/admin/dashboard');
+        } catch (routerError) {
+          console.error('Router error, falling back to window.location:', routerError);
+          window.location.href = '/admin/dashboard';
+        }
       }
       
     } catch (fetchError: any) {
@@ -93,11 +109,15 @@ export default function LoginPage() {
   };
 
   const handleBackClick = () => {
-    try {
-      router.push('/');
-    } catch (routerError) {
-      console.error('Router error, falling back to mobile redirect:', routerError);
-      handleMobileRedirect('/');
+    if (isSafari) {
+      window.location.href = '/';
+    } else {
+      try {
+        router.push('/');
+      } catch (routerError) {
+        console.error('Router error, falling back to window.location:', routerError);
+        window.location.href = '/';
+      }
     }
   };
 

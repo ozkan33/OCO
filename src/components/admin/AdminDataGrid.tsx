@@ -302,21 +302,28 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
 
   // Subgrid state: per parent row, store columns and rows only
   const [subGrids, setSubGrids] = useState<{ [parentId: string]: { columns: MyColumn[]; rows: Row[] } }>(() => {
-    // On mount, try to initialize from loaded scorecards (if any)
-    const initial: { [parentId: string]: { columns: MyColumn[]; rows: Row[] } } = {};
-    const scorecards = (() => {
-      try { return JSON.parse(localStorage.getItem('scorecards') || '[]'); } catch { return []; }
-    })();
-    for (const sc of scorecards) {
-      if (sc.rows && Array.isArray(sc.rows)) {
-        for (const row of sc.rows) {
-          if (row.subgrid && row.subgrid.columns && row.subgrid.rows) {
-            initial[row.id] = { columns: row.subgrid.columns, rows: row.subgrid.rows };
+    // Lazy initialization to prevent heavy operations on mount
+    try {
+      const scorecards = JSON.parse(localStorage.getItem('scorecards') || '[]');
+      const initial: { [parentId: string]: { columns: MyColumn[]; rows: Row[] } } = {};
+      
+      // Only process if scorecards is an array and not too large
+      if (Array.isArray(scorecards) && scorecards.length < 100) {
+        for (const sc of scorecards) {
+          if (sc.rows && Array.isArray(sc.rows)) {
+            for (const row of sc.rows) {
+              if (row.subgrid && row.subgrid.columns && row.subgrid.rows) {
+                initial[row.id] = { columns: row.subgrid.columns, rows: row.subgrid.rows };
+              }
+            }
           }
         }
       }
+      return initial;
+    } catch (error) {
+      console.warn('Failed to initialize subgrids from localStorage:', error);
+      return {};
     }
-    return initial;
   });
   // Only one expanded row at a time
   const [expandedRowId, setExpandedRowId] = useState<string | number | null>(null);
@@ -1898,20 +1905,38 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   function loadScoreCardsFromStorage(): ScoreCard[] {
     try {
       const stored = localStorage.getItem('scorecards');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
+      if (!stored) return [];
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      console.warn('Failed to load scorecards from localStorage:', error);
       return [];
     }
   }
   function saveScoreCardsToStorage(scorecards: ScoreCard[]) {
-    localStorage.setItem('scorecards', JSON.stringify(scorecards));
+    try {
+      localStorage.setItem('scorecards', JSON.stringify(scorecards));
+    } catch (error) {
+      console.warn('Failed to save scorecards to localStorage:', error);
+    }
   }
   // Utility for loading/saving retailers
   function loadRetailersFromStorage() {
-    return JSON.parse(localStorage.getItem('retailers') || 'null');
+    try {
+      const stored = localStorage.getItem('retailers');
+      if (!stored) return null;
+      return JSON.parse(stored);
+    } catch (error) {
+      console.warn('Failed to load retailers from localStorage:', error);
+      return null;
+    }
   }
   function saveRetailersToStorage(rows: any[]) {
-    localStorage.setItem('retailers', JSON.stringify(rows));
+    try {
+      localStorage.setItem('retailers', JSON.stringify(rows));
+    } catch (error) {
+      console.warn('Failed to save retailers to localStorage:', error);
+    }
   }
 
   // Helper to get cell position
@@ -2784,13 +2809,21 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
 
   function loadSubgridTemplates() {
     try {
-      return JSON.parse(localStorage.getItem('subgridTemplates') || '[]');
-    } catch {
+      const stored = localStorage.getItem('subgridTemplates');
+      if (!stored) return [];
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      console.warn('Failed to load subgrid templates from localStorage:', error);
       return [];
     }
   }
   function saveSubgridTemplates(templates: any[]) {
-    localStorage.setItem('subgridTemplates', JSON.stringify(templates));
+    try {
+      localStorage.setItem('subgridTemplates', JSON.stringify(templates));
+    } catch (error) {
+      console.warn('Failed to save subgrid templates to localStorage:', error);
+    }
   }
   const [subgridTemplates, setSubgridTemplates] = useState<any[]>(() => loadSubgridTemplates());
 

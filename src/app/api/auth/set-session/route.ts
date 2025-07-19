@@ -11,11 +11,10 @@ export async function POST(request: Request) {
     // Create response
     const response = NextResponse.json({ success: true });
     
-    // Set HTTP-only cookies for secure authentication
-    // Mobile-friendly cookie settings
+    // Safari-friendly cookie settings
     const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production' && typeof window !== 'undefined',
+      secure: process.env.NODE_ENV === 'production', // Remove the window check for Safari
       sameSite: 'lax' as const,
       path: '/',
       maxAge: 60 * 60 * 24 * 7, // 7 days
