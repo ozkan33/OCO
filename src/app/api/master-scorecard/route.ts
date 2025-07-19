@@ -71,6 +71,11 @@ export async function GET(request: Request) {
     const user = await getUserFromToken(request);
     console.log('✅ User authenticated for master scorecard:', user.id);
 
+    // Get the selected scorecard ID from query parameters
+    const { searchParams } = new URL(request.url);
+    const selectedScorecardId = searchParams.get('scorecardId');
+    console.log('🎯 Selected scorecard ID:', selectedScorecardId);
+
     // Fetch all scorecards for the user
     const { data: scorecards, error } = await supabaseAdmin
       .from('user_scorecards')
@@ -85,51 +90,119 @@ export async function GET(request: Request) {
 
     if (!scorecards || scorecards.length === 0) {
       return NextResponse.json({
+        selectedScorecard: null,
         retailers: [],
-        items: [],
-        data: {},
+        retailerSummary: [],
         lastUpdated: new Date().toISOString(),
       });
     }
 
-    // --- NEW PIVOT AGGREGATION LOGIC ---
-    const retailerSet = new Set();
-    const itemSet = new Set();
-    const data: Record<string, Record<string, { authorized: number; total: number }>> = {};
+    // Find the selected scorecard
+    const selectedScorecard = selectedScorecardId 
+      ? scorecards.find(sc => sc.id === selectedScorecardId) 
+      : scorecards[0]; // Default to first scorecard if none selected
 
-    for (const scorecard of scorecards) {
-      const columns = scorecard.data?.columns || [];
-      const rows = scorecard.data?.rows || [];
-      // Find the retailer name column key
-      const retailerCol = columns.find((col: any) => col.name === 'Retailer Name' || col.key === 'name');
-      if (!retailerCol) continue;
-      // User-added columns (items): not default, not retailer name
-      const itemCols = columns.filter((col: any) => col.key !== retailerCol.key && !col.isDefault);
-      for (const row of rows) {
-        const retailer = String(row[retailerCol.key]);
-        if (!retailer) continue;
-        retailerSet.add(retailer);
-        for (const itemCol of itemCols) {
-          const item = itemCol.name;
-          itemSet.add(item);
-          const status = row[itemCol.key];
-          if (!data[retailer]) data[retailer] = {};
-          if (!data[retailer][item]) data[retailer][item] = { authorized: 0, total: 0 };
-          if (status !== undefined && status !== null && status !== '') {
-            data[retailer][item].total++;
-            if (typeof status === 'string' && status.toLowerCase() === 'authorized') {
-              data[retailer][item].authorized++;
-            }
+    if (!selectedScorecard) {
+      return NextResponse.json({
+        selectedScorecard: null,
+        retailers: [],
+        retailerSummary: [],
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+
+    console.log('📊 Processing scorecard:', selectedScorecard.title);
+
+    // Process the selected scorecard data
+    const columns = selectedScorecard.data?.columns || [];
+    const rows = selectedScorecard.data?.rows || [];
+
+    // Find the retailer name column
+    const retailerCol = columns.find((col: { name?: string; key: string }) => col.name === 'Retailer Name' || col.key === 'name');
+    if (!retailerCol) {
+      return NextResponse.json({
+        selectedScorecard: { id: selectedScorecard.id, title: selectedScorecard.title },
+        retailers: [],
+        retailerSummary: [],
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+
+    // Find product columns (user-added columns that are not default)
+    const productCols = columns.filter((col: { key: string; isDefault?: boolean; name?: string }) => 
+      col.key !== retailerCol.key && 
+      !col.isDefault && 
+      col.key !== 'comments' && 
+      col.key !== '_delete_row'
+    );
+
+    console.log('📦 Found product columns:', productCols.map(col => col.name));
+
+    // If no product columns found, return early with helpful message
+    if (productCols.length === 0) {
+      return NextResponse.json({
+        selectedScorecard: {
+          id: selectedScorecard.id,
+          title: selectedScorecard.title
+        },
+        retailers: [],
+        retailerSummary: [],
+        lastUpdated: new Date().toISOString(),
+        hasProducts: false,
+        message: `No product columns found in "${selectedScorecard.title}". Add product columns to see retailer authorization data.`
+      });
+    }
+
+    // Calculate retailer authorization percentages
+    const retailerSummary: Array<{
+      retailer: string;
+      authorized: number;
+      total: number;
+      percentage: number;
+      products: Array<{ name: string; status: string }>;
+    }> = [];
+
+    for (const row of rows) {
+      const retailer = String(row[retailerCol.key]);
+      if (!retailer || retailer.trim() === '') continue;
+
+      let authorizedCount = 0;
+      let totalCount = 0;
+      const products: Array<{ name: string; status: string }> = [];
+
+      for (const productCol of productCols) {
+        const status = row[productCol.key];
+        if (status !== undefined && status !== null && status !== '') {
+          totalCount++;
+          products.push({ name: productCol.name, status: String(status) });
+          
+          if (typeof status === 'string' && status.toLowerCase() === 'authorized') {
+            authorizedCount++;
           }
         }
       }
+
+      if (totalCount > 0) {
+        retailerSummary.push({
+          retailer,
+          authorized: authorizedCount,
+          total: totalCount,
+          percentage: Math.round((authorizedCount / totalCount) * 100),
+          products
+        });
+      }
     }
-    // --- END PIVOT AGGREGATION LOGIC ---
+
+    // Sort retailers by percentage (highest first)
+    retailerSummary.sort((a, b) => b.percentage - a.percentage);
 
     const result = {
-      retailers: Array.from(retailerSet),
-      items: Array.from(itemSet),
-      data,
+      selectedScorecard: {
+        id: selectedScorecard.id,
+        title: selectedScorecard.title
+      },
+      retailers: retailerSummary.map(r => r.retailer),
+      retailerSummary,
       lastUpdated: new Date().toISOString(),
     };
 
