@@ -11,17 +11,19 @@ const clientLogos = [
   { src: "https://i.hizliresim.com/4foaurk.jpg", alt: "Nature Blessed" },
   { src: "https://i.hizliresim.com/52p13eh.jpg", alt: "Cry Baby Craigs" },
   { src: "https://i.hizliresim.com/krii546.jpg", alt: "Buon Giorno Italia" },
-  { src: "https://i.hizliresim.com/ej1s137.png", alt: "Northern Soda Company" },
   { src: "https://i.hizliresim.com/q22a0v2.png", alt: "P&TY Granola Co" },
   { src: "https://i.hizliresim.com/tvz3il4.png", alt: "Taco Terco" },
-  { src: "https://i.hizliresim.com/h8v50a9.jpg", alt: "JoMamas" },
-  { src: "https://i.hizliresim.com/q3xn7x7.jpg", alt: "Jammin Jimmys" },
+  { src: "https://i.hizliresim.com/h8v50a9.jpg", alt: "JoMama's" },
   { src: "https://i.hizliresim.com/d2zwezj.jpg", alt: "Sturdiwheat" },
   { src: "https://i.hizliresim.com/gj0kg4t.jpg", alt: "Big Watt Beverage" },
   { src: "https://i.hizliresim.com/krf2p1g.jpg", alt: "Seven Bridges" },
-  { src: "https://i.hizliresim.com/m4yzvq2.jpg", alt: "KonDavis" },
+  { src: "https://i.hizliresim.com/m4yzvq2.jpg", alt: "KenDavis" },
   { src: "https://i.hizliresim.com/69suf7c.jpg", alt: "Dinos" },
   { src: "https://i.hizliresim.com/q3bhb2t.jpg", alt: "Coloma Frozen Foods" },
+  { src: "https://i.hizliresim.com/69le7h5.jpg", alt: "Mama Stoen's" },
+  { src: "https://i.hizliresim.com/88g01lk.jpg", alt: "Smude" },
+  { src: "https://i.hizliresim.com/igfk61r.jpg", alt: "Taco Gringo" },
+  { src: "https://i.hizliresim.com/mui2jgt.jpg", alt: "La Perla" }
 ];
 
 export default function LandingPage() {
