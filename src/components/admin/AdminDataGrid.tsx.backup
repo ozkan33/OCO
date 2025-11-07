@@ -198,8 +198,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       </div>
     ) },
     { key: 'cmg', name: '3B Contact', editable: true, sortable: true, isDefault: true, 
-      renderCell: ({ row }: { row: Row }) => <ContactLabel value={row['cmg']} />, 
-      renderEditCell: (props: RenderEditCellProps<Row>) => <ContactDropdownEditCell {...props} />
+      renderCell: ({ row }: { row: Row }) => <ContactLabel value={row['cmg']} />
     },
   ];
 
@@ -1905,50 +1904,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     );
   }
 
-  // --- Contact Dropdown Edit Cell ---
-  function ContactDropdownEditCell({ row, column, onRowChange }: RenderEditCellProps<Row>) {
-    const value = row[column.key] || '';
-    const options = contactOptions.map(opt => ({ value: opt.value, label: opt.label }));
-    const [menuOpen, setMenuOpen] = React.useState(true);
-    const selectRef = React.useRef<any>(null);
 
-    React.useEffect(() => {
-      setMenuOpen(true); // Open menu on mount
-      if (selectRef.current) {
-        selectRef.current.focus();
-      }
-    }, []);
-
-    return (
-      <Select
-        ref={selectRef}
-        autoFocus
-        tabIndex={0}
-        menuPortalTarget={typeof window !== 'undefined' ? document.body : null}
-        styles={{
-          menuPortal: base => ({ ...base, zIndex: 99999 }),
-          menu: base => ({ ...base, zIndex: 99999, minWidth: 120, fontSize: 14, padding: 0 }),
-          option: base => ({ ...base, padding: '2px 8px' }),
-          control: base => ({ ...base, minHeight: 32, height: 32, fontSize: 14 }),
-          valueContainer: base => ({ ...base, padding: '0 8px' }),
-          indicatorsContainer: base => ({ ...base, height: 32 }),
-          dropdownIndicator: base => ({ ...base, padding: 4 }),
-          input: base => ({ ...base, margin: 0, padding: 0 }),
-        }}
-        value={options.find(opt => opt.value === value) || null}
-        onChange={newValue => {
-          onRowChange({ ...row, [column.key]: newValue ? newValue.value : '' });
-          setMenuOpen(false); // Close menu after selection
-        }}
-        options={options}
-        components={{ Option: ContactOption, SingleValue: ContactSingleValue, Input: NoInput }}
-        isSearchable={false}
-        placeholder={null}
-        menuIsOpen={menuOpen}
-        onBlur={() => setMenuOpen(false)}
-      />
-    );
-  }
 
   // --- Column Mapping ---
   const currentData = getCurrentData();
@@ -2027,7 +1983,6 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         ...col,
         editable: true,
         renderCell: ({ row }: { row: Row }) => <ContactLabel value={row['cmg']} />,
-        renderEditCell: (props: RenderEditCellProps<Row>) => <ContactDropdownEditCell {...props} />,
       };
     }
     if (col.key === 'store_count') {
@@ -3098,40 +3053,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     );
   };
 
-  // Contact dropdown custom components
-  const ContactOption = (props: any) => {
-    const { data, isSelected, isFocused, innerProps } = props;
-    const found = contactOptions.find(opt => opt.value === data.value);
-    return (
-      <components.Option {...props} innerProps={innerProps}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '10px 16px',
-          borderRadius: 8,
-          cursor: 'pointer',
-          background: isSelected ? (found?.bg || '#f3f4f6') : isFocused ? '#f3f4f6' : 'transparent',
-          fontWeight: isSelected ? 700 : 400,
-          color: found?.color,
-          boxShadow: isSelected ? '0 2px 8px #0001' : undefined,
-          transition: 'background 0.15s',
-        }}>
-          <span style={{ color: found?.color, fontWeight: isSelected ? 700 : 500 }}>{data.label}</span>
-          {isSelected && <span style={{ marginLeft: 'auto', color: found?.color, fontSize: 20 }}>&#10003;</span>}
-        </div>
-      </components.Option>
-    );
-  };
-  const ContactSingleValue = (props: any) => {
-    const { data } = props;
-    const found = contactOptions.find(opt => opt.value === data.value);
-    return (
-      <components.SingleValue {...props}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
-          <span style={{ color: found?.color, fontWeight: 700 }}>{data.label}</span>
-        </div>
-      </components.SingleValue>
-    );
-  };
+
 
   // 2. PriorityPickerCard component (mirrors StatusPickerCard)
   function PriorityPickerCard({ rowIdx, colIdx, value, onSelect, onClose, columnKey }: { rowIdx: number; colIdx: number; value: string; onSelect: (v: string) => void; onClose: () => void; columnKey: string }) {
