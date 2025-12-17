@@ -11,7 +11,7 @@ const clientLogos = [
   { src: "https://i.hizliresim.com/4foaurk.jpg", alt: "Nature Blessed" },
   { src: "https://i.hizliresim.com/52p13eh.jpg", alt: "Cry Baby Craigs" },
   { src: "https://i.hizliresim.com/krii546.jpg", alt: "Buon Giorno Italia" },
-  { src: "https://i.hizliresim.com/q22a0v2.png", alt: "P&TY Granola Co" },
+  { src: "https://i.hizliresim.com/qfb79rk.png", alt: "Northstar Kombucha" },
   { src: "https://i.hizliresim.com/tvz3il4.png", alt: "Taco Terco" },
   { src: "https://i.hizliresim.com/h8v50a9.jpg", alt: "JoMama's" },
   { src: "https://i.hizliresim.com/d2zwezj.jpg", alt: "Sturdiwheat" },
@@ -22,8 +22,10 @@ const clientLogos = [
   { src: "https://i.hizliresim.com/q3bhb2t.jpg", alt: "Coloma Frozen Foods" },
   { src: "https://i.hizliresim.com/69le7h5.jpg", alt: "Mama Stoen's" },
   { src: "https://i.hizliresim.com/88g01lk.jpg", alt: "Smude" },
-  { src: "https://i.hizliresim.com/igfk61r.jpg", alt: "Taco Gringo" },
-  { src: "https://i.hizliresim.com/mui2jgt.jpg", alt: "La Perla" }
+  { src: "https://i.hizliresim.com/24tt7vi.jpeg", alt: "Superior Water" },
+  { src: "https://i.hizliresim.com/mui2jgt.jpg", alt: "La Perla" },
+  { src: "https://i.hizliresim.com/iv5mkd3.jpeg", alt: "Skinny Sticks" },
+  { src: "https://i.hizliresim.com/61u7kde.jpeg", alt: "Calvin Cleo" }
 ];
 
 export default function LandingPage() {
