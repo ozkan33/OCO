@@ -1,27 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
-
-// Helper function to get user from Supabase token in cookies
-async function getUserFromToken(request: Request) {
-  // Read the cookie header
-  const cookieHeader = request.headers.get('Cookie') || request.headers.get('cookie') || '';
-  const match = cookieHeader.match(/supabase-access-token=([^;]+)/);
-  const token = match ? match[1] : null;
-
-  if (!token) {
-    throw new Error('No token found');
-  }
-
-  try {
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
-    if (error || !user) {
-      throw new Error('Invalid token');
-    }
-    return user;
-  } catch (error) {
-    throw new Error('Invalid token');
-  }
-}
+import { getUserFromToken } from '../../../../lib/apiAuth';
 
 // GET /api/scorecards - Get all scorecards for the current user
 export async function GET(request: Request) {

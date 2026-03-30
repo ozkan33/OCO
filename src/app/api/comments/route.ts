@@ -1,62 +1,20 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { getUserFromToken } from '../../../../lib/apiAuth';
 
-// Helper function to get user from Supabase token in cookies
-async function getUserFromToken(request: Request) {
-  console.log('🔍 Starting getUserFromToken...');
-  
-  const cookieHeader = request.headers.get('Cookie') || request.headers.get('cookie') || '';
-  console.log('🍪 Cookie header:', cookieHeader ? 'Present' : 'Missing');
-  
-  const match = cookieHeader.match(/supabase-access-token=([^;]+)/);
-  const token = match ? match[1] : null;
-  console.log('🎫 Token extracted:', token ? 'Present' : 'Missing');
-
-  if (!token) {
-    console.error('❌ No token found in cookies');
-    throw new Error('No token found');
-  }
-
-  try {
-    console.log('🔐 Attempting to verify token with Supabase...');
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
-    
-    if (error) {
-      console.error('❌ Supabase auth error:', error);
-      throw new Error('Invalid token');
-    }
-    
-    if (!user) {
-      console.error('❌ No user returned from Supabase');
-      throw new Error('Invalid token');
-    }
-    
-    console.log('✅ User authenticated successfully:', user.id);
-    return user;
-  } catch (error) {
-    console.error('❌ Token verification failed:', error);
-    throw new Error('Invalid token');
-  }
-}
-
-// Helper function to migrate local scorecard to database
-async function migrateLocalScorecard(localScorecardId: string, user: any, request: Request) {
-  console.log('🔄 Starting local scorecard migration for ID:', localScorecardId);
-  
-  try {
-    // Get the scorecard data from the request body or localStorage-like structure
-    // In a real scenario, we'd need to get this from the client
+// Helper function to ensure scorecard exists in database
+async function ensureScorecardInDatabase(scorecardId: string, user: any, request: Request) {
+  // Check if it's a local scorecard
+  if (scorecardId.startsWith('scorecard_')) {
     const { searchParams } = new URL(request.url);
     const scorecardDataParam = searchParams.get('scorecard_data');
-    
+
     if (!scorecardDataParam) {
       throw new Error('Scorecard data required for migration');
     }
-    
+
     const scorecardData = JSON.parse(decodeURIComponent(scorecardDataParam));
-    console.log('📊 Scorecard data for migration:', scorecardData);
-    
-    // Create the scorecard in the database
+
     const { data: newScorecard, error: createError } = await supabaseAdmin
       .from('user_scorecards')
       .insert({
@@ -70,30 +28,14 @@ async function migrateLocalScorecard(localScorecardId: string, user: any, reques
       })
       .select()
       .single();
-    
+
     if (createError) {
-      console.error('❌ Failed to create scorecard during migration:', createError);
       throw createError;
     }
-    
-    console.log('✅ Scorecard migrated successfully:', newScorecard.id);
-    return newScorecard;
-  } catch (error) {
-    console.error('❌ Migration failed:', error);
-    throw error;
-  }
-}
 
-// Helper function to ensure scorecard exists in database
-async function ensureScorecardInDatabase(scorecardId: string, user: any, request: Request) {
-  console.log('🔍 Ensuring scorecard exists in database:', scorecardId);
-  
-  // Check if it's a local scorecard
-  if (scorecardId.startsWith('scorecard_')) {
-    console.log('🔄 Local scorecard detected, initiating migration...');
-    return await migrateLocalScorecard(scorecardId, user, request);
+    return newScorecard;
   }
-  
+
   // Verify database scorecard exists and belongs to user
   const { data: scorecard, error } = await supabaseAdmin
     .from('user_scorecards')
@@ -101,13 +43,11 @@ async function ensureScorecardInDatabase(scorecardId: string, user: any, request
     .eq('id', scorecardId)
     .eq('user_id', user.id)
     .single();
-  
+
   if (error || !scorecard) {
-    console.error('❌ Scorecard not found or access denied:', error);
     throw new Error('Scorecard not found or access denied');
   }
-  
-  console.log('✅ Database scorecard verified:', scorecard.title);
+
   return scorecard;
 }
 
