@@ -16,10 +16,7 @@ export default function LoginPage() {
   // Detect Safari on mount
   useEffect(() => {
     const mobileInfo = getMobileBrowserInfo();
-    if (mobileInfo?.isSafari) {
-      setIsSafari(true);
-      console.log('Safari detected, using Safari-specific handling');
-    }
+    if (mobileInfo?.isSafari) setIsSafari(true);
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -36,56 +33,35 @@ export default function LoginPage() {
         throw new Error('Supabase configuration is missing. Please check your environment variables.');
       }
       
-      console.log('Using Supabase URL:', supabaseUrl);
-      
-      // Log mobile browser info for debugging
-      const mobileInfo = getMobileBrowserInfo();
-      if (mobileInfo?.isMobile) {
-        console.log('Mobile browser detected:', mobileInfo);
-      }
-      
       const supabase = createClient(supabaseUrl, supabaseKey);
-      
+
       const { error, data } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      
+
       setLoading(false);
-      
-      if (error) {
-        console.error('Supabase auth error:', error);
-        setError(`Login failed: ${error.message}`);
+
+      if (error || !data?.session) {
+        // Generic message — never reveal whether the email exists or the exact failure reason
+        setError('Invalid email or password.');
         return;
       }
-      
-      if (!data?.session) {
-        setError('Login failed - no session returned');
-        return;
-      }
-      
-      console.log('Login successful, setting cookie-based session');
-      
-      // Send session to server to set HTTP-only cookies
+
+      // Send only the tokens to the server — not the user object
       const response = await fetch('/api/auth/set-session', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          access_token: data.session.access_token,
+          access_token:  data.session.access_token,
           refresh_token: data.session.refresh_token,
-          user: data.user,
         }),
       });
-      
+
       if (!response.ok) {
-        console.error('Failed to set session cookie');
-        setError('Authentication failed - please try again');
+        setError('Authentication failed. Please try again.');
         return;
       }
-      
-      console.log('Session cookie set successfully');
       
       // Safari-specific navigation handling
       if (isSafari) {
@@ -101,10 +77,9 @@ export default function LoginPage() {
         }
       }
       
-    } catch (fetchError: any) {
-      console.error('Login error:', fetchError);
+    } catch {
       setLoading(false);
-      setError(`Error: ${fetchError.message || 'An unexpected error occurred'}`);
+      setError('An unexpected error occurred. Please try again.');
     }
   };
 

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs wc:*)",
+      "Bash(xargs grep:*)",
+      "Bash(find \"/c/Users/kahve/OneDrive/Desktop/OCO/src/components\" -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -exec wc -l {} +)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}
