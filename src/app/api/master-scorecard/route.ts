@@ -1,43 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
-
-// Helper function to get user from token (same as comments route)
-async function getUserFromToken(request: Request) {
-  console.log('🔍 Starting getUserFromToken...');
-  
-  const cookieHeader = request.headers.get('Cookie') || request.headers.get('cookie') || '';
-  console.log('🍪 Cookie header:', cookieHeader ? 'Present' : 'Missing');
-  
-  const match = cookieHeader.match(/supabase-access-token=([^;]+)/);
-  const token = match ? match[1] : null;
-  console.log('🎫 Token extracted:', token ? 'Present' : 'Missing');
-
-  if (!token) {
-    console.error('❌ No token found in cookies');
-    throw new Error('No token found');
-  }
-
-  try {
-    console.log('🔐 Attempting to verify token with Supabase...');
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
-    
-    if (error) {
-      console.error('❌ Supabase auth error:', error);
-      throw new Error('Invalid token');
-    }
-    
-    if (!user) {
-      console.error('❌ No user returned from Supabase');
-      throw new Error('Invalid token');
-    }
-    
-    console.log('✅ User authenticated successfully:', user.id);
-    return user;
-  } catch (error) {
-    console.error('❌ Token verification failed:', error);
-    throw new Error('Invalid token');
-  }
-}
+import { getUserFromToken } from '../../../../lib/apiAuth';
 
 // Helper function to detect retailer columns from scorecard data
 function detectRetailerColumns(columns: any[]): string[] {
