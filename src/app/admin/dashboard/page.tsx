@@ -89,11 +89,25 @@ export default function AdminDashboard() {
       {/* Admin Dashboard Header */}
       <header className="bg-white shadow sticky top-0 z-50">
         <nav className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push('/') }>
-            <img src="https://i.hizliresim.com/rm69m47.png" alt="3BrothersMarketing Logo" width={36} height={36} />
-            <span className="text-xl font-bold text-gray-800">3Brothers Marketing</span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push('/') }>
+              <img src="https://i.hizliresim.com/rm69m47.png" alt="3BrothersMarketing Logo" width={36} height={36} />
+              <span className="text-xl font-bold text-gray-800">3Brothers Marketing</span>
+            </div>
+            <span className="text-gray-300 hidden sm:inline">|</span>
+            <div className="flex items-center gap-1">
+              <button className="px-3 py-1.5 text-sm font-medium text-amber-700 bg-amber-50 rounded-lg">
+                Dashboard
+              </button>
+              <button
+                onClick={() => router.push('/admin/market-visits')}
+                className="px-3 py-1.5 text-sm font-medium text-gray-500 hover:text-gray-800 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                Market Visits
+              </button>
+            </div>
           </div>
-          <button onClick={handleLogout} className="ml-2 px-3 py-1 bg-red-100 rounded hover:bg-red-200 text-red-800 font-medium">
+          <button onClick={handleLogout} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-medium transition-colors">
             Logout
           </button>
         </nav>
