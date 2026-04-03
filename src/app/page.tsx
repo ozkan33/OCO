@@ -13,7 +13,7 @@ const clientLogos = [
   { src: "https://i.hizliresim.com/krii546.jpg", alt: "Buon Giorno Italia" },
   { src: "https://i.hizliresim.com/qfb79rk.png", alt: "Northstar Kombucha" },
   { src: "https://i.hizliresim.com/tvz3il4.png", alt: "Taco Terco" },
-  { src: "https://i.hizliresim.com/h8v50a9.jpg", alt: "JoMama's" },
+  { src: "/logos/jomommas.jpg", alt: "JoMomma's" },
   { src: "https://i.hizliresim.com/d2zwezj.jpg", alt: "Sturdiwheat" },
   { src: "https://i.hizliresim.com/gj0kg4t.jpg", alt: "Big Watt Beverage" },
   { src: "https://i.hizliresim.com/krf2p1g.jpg", alt: "Seven Bridges" },
@@ -62,7 +62,6 @@ const stats = [
   { value: "18+", label: "Brand Partners" },
   { value: "3", label: "States Covered" },
   { value: "800+", label: "Retail Doors" },
-  { value: "5+", label: "Years Experience" },
 ];
 
 export default function LandingPage() {
@@ -82,7 +81,7 @@ export default function LandingPage() {
     // Opens the user's mail client with pre-filled content
     const subject = encodeURIComponent(`Message from ${form.name} via 3Brothers`);
     const body = encodeURIComponent(`Name: ${form.name}\nEmail: ${form.email}\n\n${form.message}`);
-    window.location.href = `mailto:info@3brothersmarketing.com?subject=${subject}&body=${body}`;
+    window.location.href = `mailto:volkan@3brothersmarketing.com?subject=${subject}&body=${body}`;
     setTimeout(() => {
       setSending(false);
       setSent(true);
@@ -94,70 +93,49 @@ export default function LandingPage() {
     <div className="min-h-screen bg-white">
 
       {/* ── Hero ───────────────────────────────────────────────────────────── */}
-      {/*
-        PHOTO SETUP: Drop a Minnesota landscape photo (lake, forest, golden hour)
-        into /public/hero.jpg — 1920×1080 or wider, landscape orientation.
-        Great free sources: unsplash.com → search "Minnesota lake sunset" or
-        "Boundary Waters canoe" or "Minnesota north woods".
-        The overlay below will darken it correctly for text legibility.
-      */}
+      {/* Replace /public/hero.jpg with a grocery shelf / retail aisle photo.
+          Search unsplash.com for: "grocery store aisle", "supermarket shelf products",
+          "food retail display", "grocery store bokeh" — 1920×1080+, landscape. */}
       <section
         id="home"
         className="relative overflow-hidden text-white"
         style={{ minHeight: 'min(100svh, 740px)' }}
       >
-        {/* Photo layer — sits above the fallback gradient on the section */}
+        {/* Full-bleed background photo */}
         <div
           aria-hidden
           className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: "url('/hero.jpg')" }}
+          style={{ backgroundImage: "url('/hero.png')" }}
         />
 
-        {/* Warm cinematic overlay — semi-transparent so photo shows through.
-            Darkens the top for text legibility, warms the bottom edge. */}
+        {/* Dark overlay for text legibility */}
         <div
           aria-hidden
           className="absolute inset-0"
           style={{
-            background: 'linear-gradient(to bottom, rgba(8,18,45,0.62) 0%, rgba(10,22,50,0.35) 30%, rgba(80,40,8,0.28) 62%, rgba(150,80,10,0.52) 82%, rgba(190,110,15,0.65) 100%)',
+            background: 'linear-gradient(to bottom, rgba(15,23,42,0.72) 0%, rgba(15,23,42,0.50) 40%, rgba(15,23,42,0.55) 70%, rgba(15,23,42,0.80) 100%)',
           }}
         />
 
-        {/* Warm ambient glow — adds depth and richness */}
-        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div style={{
-            position: 'absolute', top: '15%', right: '8%',
-            width: '50%', height: '55%',
-            background: 'radial-gradient(ellipse, rgba(210,130,30,0.20) 0%, transparent 68%)',
-            filter: 'blur(35px)',
-          }} />
-          <div style={{
-            position: 'absolute', bottom: '12%', left: '4%',
-            width: '42%', height: '45%',
-            background: 'radial-gradient(ellipse, rgba(185,90,15,0.16) 0%, transparent 68%)',
-            filter: 'blur(45px)',
-          }} />
-        </div>
-
-        {/* ── Content ── */}
-        <div className="relative z-10 flex flex-col items-center justify-center text-center px-5 py-24 md:py-36 max-w-4xl mx-auto gap-6">
-          <span className="inline-block bg-[#fbbf24]/15 text-[#fde68a] text-xs font-semibold tracking-widest uppercase px-4 py-1.5 rounded-full border border-[#fbbf24]/30 backdrop-blur-sm">
+        {/* ── Content — centered ── */}
+        <div className="relative z-10 flex flex-col items-center justify-center text-center px-5 py-24 md:py-36 max-w-4xl mx-auto gap-6" style={{ minHeight: 'min(100svh, 740px)' }}>
+          <span className="inline-block bg-blue-500/15 text-blue-200 text-xs font-semibold tracking-widest uppercase px-4 py-1.5 rounded-full border border-blue-400/30 backdrop-blur-sm">
             Minnesota · North Dakota · Wisconsin
           </span>
 
-          <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold leading-[1.1] tracking-tight" style={{ textShadow: '0 2px 20px rgba(0,0,0,0.4)' }}>
-            Empowering Growth,<br />
-            <span className="text-[#fbbf24]">Elevating Brands</span>
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold leading-[1.08] tracking-tight" style={{ textShadow: '0 2px 24px rgba(0,0,0,0.6)' }}>
+            From Shelf to&nbsp;Scale,<br />
+            <span className="text-blue-400">We Grow Brands</span>
           </h1>
 
-          <p className="text-base sm:text-lg md:text-xl text-amber-100/90 max-w-2xl leading-relaxed" style={{ textShadow: '0 1px 12px rgba(0,0,0,0.35)' }}>
-            Strategic sales & account management for food and beverage brands ready to win shelf space in the Upper Midwest.
+          <p className="text-base sm:text-lg md:text-xl text-white/85 max-w-2xl leading-relaxed" style={{ textShadow: '0 1px 12px rgba(0,0,0,0.5)' }}>
+            Strategic sales &amp; retail placement for food and beverage brands ready to win shelf space across the Upper Midwest.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-3 mt-2 w-full max-w-sm sm:max-w-none sm:justify-center">
             <button
               onClick={() => router.push('/auth/login')}
-              className="px-8 py-3.5 bg-[#fbbf24] text-[#0f172a] font-bold rounded-lg hover:bg-[#f59e0b] active:scale-95 transition-all text-base shadow-lg shadow-[#fbbf24]/40"
+              className="px-8 py-3.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 active:scale-95 transition-all text-base shadow-lg shadow-blue-600/40"
             >
               Partner Portal
             </button>
@@ -176,7 +154,7 @@ export default function LandingPage() {
 
       {/* ── Stats bar ─────────────────────────────────────────────────────── */}
       <section className="border-y border-gray-100 bg-white">
-        <div className="max-w-4xl mx-auto px-5 py-8 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+        <div className="max-w-4xl mx-auto px-5 py-8 grid grid-cols-3 gap-6 text-center">
           {stats.map(s => (
             <div key={s.label}>
               <p className="text-3xl md:text-4xl font-extrabold text-[#0f172a]">{s.value}</p>
@@ -201,7 +179,7 @@ export default function LandingPage() {
                 key={s.title}
                 className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm hover:shadow-md transition-shadow group"
               >
-                <div className="w-12 h-12 rounded-xl bg-[#fbbf24]/10 text-[#b45309] flex items-center justify-center mb-5 group-hover:bg-[#fbbf24]/20 transition-colors">
+                <div className="w-12 h-12 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center mb-5 group-hover:bg-blue-200 transition-colors">
                   {s.icon}
                 </div>
                 <h3 className="text-lg font-bold text-[#0f172a] mb-2">{s.title}</h3>
@@ -218,7 +196,7 @@ export default function LandingPage() {
           <div>
             <h2 className="text-3xl md:text-4xl font-extrabold text-[#0f172a] mb-5 leading-tight">
               We care about brands<br />
-              <span className="text-[#fbbf24]">that deserve the spotlight</span>
+              <span className="text-blue-600">that deserve the spotlight</span>
             </h2>
             <p className="text-gray-600 leading-relaxed mb-4">
               At 3 Brothers Marketing, our mission is to provide exceptional sales and account management with a deep commitment to the brands that often go unnoticed in MN, ND, and WI markets.
@@ -264,12 +242,14 @@ export default function LandingPage() {
           >
             {clientLogos.map((logo, idx) => (
               <SwiperSlide key={idx}>
-                <div className="flex items-center justify-center bg-white rounded-xl border border-gray-100 shadow-sm h-24 md:h-28 px-4">
+                <div className="flex flex-col items-center justify-center bg-white rounded-xl border border-gray-100 shadow-sm h-28 md:h-32 px-4 gap-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={logo.src}
                     alt={logo.alt}
-                    className="max-h-14 max-w-full object-contain"
+                    className="max-h-12 md:max-h-14 max-w-full object-contain"
                   />
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider leading-none text-center truncate w-full">{logo.alt}</span>
                 </div>
               </SwiperSlide>
             ))}
@@ -318,7 +298,7 @@ export default function LandingPage() {
                     onChange={handleChange}
                     placeholder="Jane Smith"
                     required
-                    className="border border-gray-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#fbbf24] focus:border-transparent transition"
+                    className="border border-gray-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -330,7 +310,7 @@ export default function LandingPage() {
                     onChange={handleChange}
                     placeholder="jane@yourbrand.com"
                     required
-                    className="border border-gray-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#fbbf24] focus:border-transparent transition"
+                    className="border border-gray-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                   />
                 </div>
               </div>
@@ -343,7 +323,7 @@ export default function LandingPage() {
                   placeholder="Tell us about your brand and what you're looking for..."
                   required
                   rows={5}
-                  className="border border-gray-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#fbbf24] focus:border-transparent transition resize-none"
+                  className="border border-gray-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none"
                 />
               </div>
               <button
@@ -354,9 +334,9 @@ export default function LandingPage() {
                 {sending ? 'Opening email client…' : 'Send Message →'}
               </button>
               <p className="text-xs text-center text-gray-400">
-                Or email us directly at{' '}
-                <a href="mailto:info@3brothersmarketing.com" className="text-[#b45309] hover:underline font-medium">
-                  info@3brothersmarketing.com
+                Or{' '}
+                <a href="mailto:volkan@3brothersmarketing.com" className="text-blue-600 hover:underline font-medium">
+                  email us directly
                 </a>
               </p>
             </form>
