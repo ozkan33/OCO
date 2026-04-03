@@ -2932,64 +2932,43 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       <div
         style={{
           margin: '0 0 4px 32px',
-          background: 'transparent',
-          border: '1px solid #e5e7eb',
-          borderRadius: 6,
-          padding: '8px 8px 4px 8px',
+          background: '#fafbfc',
+          border: '1px solid #e2e8f0',
+          borderRadius: 8,
+          padding: '10px 10px 6px 10px',
           fontSize: '13px',
           width: '100%',
           maxWidth: '100%',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
         }}
       >
-        <div className="flex gap-2 mb-2 items-center">
-          <button
-            onClick={() => handleSubGridAddColumn(parentId)}
-            className="px-2 py-1 rounded text-xs font-medium border bg-green-600 text-white hover:bg-green-700"
-            style={{ fontSize: '12px', height: 24, padding: '0 8px' }}
-          >
-            ➕ Add Column
+        <div className="flex gap-1.5 mb-2 items-center flex-wrap">
+          <button onClick={() => handleSubGridAddColumn(parentId)} className="grid-toolbar-btn sm primary">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            Add Column
           </button>
-          {/* Subgrid Import/Export Buttons */}
-          <label className="px-2 py-1 rounded text-xs font-medium border bg-purple-600 text-white hover:bg-purple-700 cursor-pointer" style={{ fontSize: '12px', height: 24, padding: '0 8px' }}>
-            📥 Import Excel
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              style={{ display: 'none' }}
-              onChange={e => handleImportSubgridExcel(e, parentId)}
-            />
+          <label className="grid-toolbar-btn sm cursor-pointer">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
+            Import
+            <input type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleImportSubgridExcel(e, parentId)} />
           </label>
-          <button
-            onClick={() => handleExportSubgridExcel(parentId)}
-            className="px-2 py-1 rounded text-xs font-medium border bg-green-600 text-white hover:bg-green-700"
-            style={{ fontSize: '12px', height: 24, padding: '0 8px' }}
-          >
-            📤 Export Excel
+          <button onClick={() => handleExportSubgridExcel(parentId)} className="grid-toolbar-btn sm">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12M12 16.5V3" /></svg>
+            Export
           </button>
-          <div className="flex gap-2 ml-auto">
-            <button
-              onClick={() => setSubgridTemplateModal({ parentId, mode: 'save' })}
-              className="px-2 py-1 rounded text-xs font-medium border bg-blue-600 text-white hover:bg-blue-700"
-              style={{ fontSize: '12px', height: 24, padding: '0 8px' }}
-            >
-              💾 Save Template
+          <div className="flex gap-1.5 ml-auto">
+            <button onClick={() => setSubgridTemplateModal({ parentId, mode: 'save' })} className="grid-toolbar-btn sm">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
+              Save
             </button>
-            <button
-              onClick={() => setSubgridTemplateModal({ parentId, mode: 'import' })}
-              className="px-2 py-1 rounded text-xs font-medium border bg-cyan-600 text-white hover:bg-cyan-700"
-              style={{ fontSize: '12px', height: 24, padding: '0 8px' }}
-              disabled={subgridTemplates.length === 0}
-            >
-              📂 Import Template
+            <button onClick={() => setSubgridTemplateModal({ parentId, mode: 'import' })} className="grid-toolbar-btn sm" disabled={subgridTemplates.length === 0}>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m6.75 12-3-3m0 0-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+              Load
             </button>
           </div>
-          <button
-            onClick={() => handleDeleteSubGrid(parentId)}
-            className="px-2 py-1 rounded text-xs font-medium border bg-red-600 text-white hover:bg-red-700 ml-2"
-            style={{ fontSize: '12px', height: 24, padding: '0 8px' }}
-          >
-            🗑️ Delete Subgrid
+          <button onClick={() => handleDeleteSubGrid(parentId)} className="grid-toolbar-btn sm danger">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+            Delete
           </button>
         </div>
         <div style={{ width: '100%', overflow: 'auto', maxWidth: '100%' }}>
@@ -4157,57 +4136,47 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
 
           {/* Row Edit Toggle Button and Import */}
           {selectedCategory && isScorecard(selectedCategory) && (
-            <div className="flex items-center justify-between gap-4 mb-4">
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={openAddColModal}
-                  className="px-3 py-1 rounded text-sm font-medium border bg-green-600 text-white hover:bg-green-700 flex items-center gap-2"
-                  disabled={userRole !== 'ADMIN'}
-                >
-                  ➕ Add Column
+            <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <button onClick={openAddColModal} className="grid-toolbar-btn primary" disabled={userRole !== 'ADMIN'}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                  Add Column
                 </button>
-                <span className="relative flex items-center group ml-2">
-                  <FaInfoCircle className="text-gray-400 group-hover:text-blue-600 cursor-pointer" />
-                  <div className="absolute left-1/2 top-full mt-2 ml-2 w-64 bg-black text-white text-xs rounded p-2 shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none z-50 transition-opacity duration-150" style={{ whiteSpace: 'normal' }}>
+                <span className="relative flex items-center group">
+                  <FaInfoCircle className="text-gray-400 group-hover:text-blue-500 cursor-pointer" size={14} />
+                  <div className="absolute left-1/2 top-full mt-2 ml-2 w-64 bg-gray-900 text-white text-xs rounded-lg p-2.5 shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none z-50 transition-opacity duration-150" style={{ whiteSpace: 'normal' }}>
                     To import data, columns and data types must match exactly.
                   </div>
                 </span>
-                <label htmlFor="main-import-excel" className="px-3 py-1 rounded text-sm font-medium border bg-purple-600 text-white hover:bg-purple-700 flex items-center gap-2 cursor-pointer" style={{ fontSize: '14px', height: 32, padding: '0 12px' }} onClick={() => toast.warning('Importing an Excel file will overwrite all existing data in this scorecard.')}>  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <svg style={{ width: 16, height: 16, marginRight: 2 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><path d="M16 16l-4 4-4-4M12 12v8" /></svg>
-                  Import Excel
-                </span>
+                <label htmlFor="main-import-excel" className="grid-toolbar-btn cursor-pointer" onClick={() => toast.warning('Importing an Excel file will overwrite all existing data in this scorecard.')}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
+                  Import
                 </label>
                 <input id="main-import-excel" type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleImportExcel} />
-                <button
-                  onClick={() => setShowExportModal(true)}
-                  className="px-3 py-1 rounded text-sm font-medium border bg-green-600 text-white hover:bg-green-700 flex items-center gap-2"
-                >
-                  📤 Export Excel
+                <button onClick={() => setShowExportModal(true)} className="grid-toolbar-btn">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12M12 16.5V3" /></svg>
+                  Export
                 </button>
               </div>
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => setShowSaveTemplateModal(true)}
-                  className="px-3 py-1 rounded text-sm font-medium border bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-2"
-                  disabled={userRole !== 'ADMIN'}
-                >
-                  💾 Save Template
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowSaveTemplateModal(true)} className="grid-toolbar-btn" disabled={userRole !== 'ADMIN'}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
+                  Save Template
                 </button>
                 <button
                   onClick={async () => {
-                    // Refresh templates before opening modal
                     await fetchTemplates();
-                    // Check if templates are available after refresh
                     if (templates.length === 0) {
                       toast.error('No templates available. Please save a template first.');
                       return;
                     }
                     setShowImportTemplateModal(true);
                   }}
-                  className="px-3 py-1 rounded text-sm font-medium border bg-cyan-600 text-white hover:bg-cyan-700 flex items-center gap-2"
+                  className="grid-toolbar-btn"
                   disabled={userRole !== 'ADMIN'}
                 >
-                  📂 Import Template
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m6.75 12-3-3m0 0-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+                  Load Template
                 </button>
               </div>
             </div>

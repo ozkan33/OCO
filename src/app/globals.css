@@ -108,78 +108,130 @@ button:focus, a:focus, input:focus, textarea:focus {
   border-radius: 6px;
 }
 
-/* Subgrid column separators */
-.subgrid-with-separators .rdg-cell {
-  border-right: 1px solid #e5e7eb !important;
-  border-bottom: 1px solid #f3f4f6 !important;
+/* ── Monday.com-style grid overrides ─────────────────────────── */
+
+/* Base grid — clean background, tighter rows */
+.rdg {
+  border: none !important;
+  border-radius: 8px !important;
+  font-family: inherit !important;
 }
 
+/* Header row — clean, bold, uppercase labels */
+.main-grid-with-separators .rdg-header-cell,
 .subgrid-with-separators .rdg-header-cell {
-  border-right: 1px solid #d1d5db !important;
-  border-bottom: 2px solid #d1d5db !important;
-  background-color: #f9fafb !important;
+  background-color: #f8fafc !important;
+  border-right: 1px solid #e2e8f0 !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+  color: #475569 !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  padding: 0 12px !important;
 }
 
+/* Data cells — subtle borders, clean type */
+.main-grid-with-separators .rdg-cell,
+.subgrid-with-separators .rdg-cell {
+  border-right: 1px solid #f1f5f9 !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+  font-size: 13px !important;
+  color: #1e293b !important;
+  padding: 0 10px !important;
+}
+
+/* Row hover — soft blue highlight like Monday.com */
+.main-grid-with-separators .rdg-row:hover .rdg-cell,
 .subgrid-with-separators .rdg-row:hover .rdg-cell {
-  background-color: #f8fafc !important;
+  background-color: #eff6ff !important;
 }
 
+/* Alternating rows — very subtle */
+.main-grid-with-separators .rdg-row:nth-child(even) .rdg-cell,
 .subgrid-with-separators .rdg-row:nth-child(even) .rdg-cell {
-  background-color: #fafbfc !important;
+  background-color: #fafbfd !important;
 }
-
+.main-grid-with-separators .rdg-row:nth-child(even):hover .rdg-cell,
 .subgrid-with-separators .rdg-row:nth-child(even):hover .rdg-cell {
-  background-color: #f1f5f9 !important;
+  background-color: #eff6ff !important;
 }
 
-/* Main grid column separators */
-.main-grid-with-separators .rdg-cell {
-  border-right: 1px solid #e5e7eb !important;
-  border-bottom: 1px solid #f3f4f6 !important;
+/* Selected cell — blue ring like Monday.com */
+.rdg-cell.rdg-cell-selected {
+  box-shadow: inset 0 0 0 2px #3b82f6 !important;
 }
 
-.main-grid-with-separators .rdg-header-cell {
-  border-right: 1px solid #d1d5db !important;
-  border-bottom: 2px solid #d1d5db !important;
-  background-color: #f9fafb !important;
-}
-
-.main-grid-with-separators .rdg-row:hover .rdg-cell {
-  background-color: #f8fafc !important;
-}
-
-.main-grid-with-separators .rdg-row:nth-child(even) .rdg-cell {
-  background-color: #fafbfc !important;
-}
-
-.main-grid-with-separators .rdg-row:nth-child(even):hover .rdg-cell {
-  background-color: #f1f5f9 !important;
-}
-
-/* Remove separator between Retailer Name and Comments columns in main grid (robust) */
+/* Remove separator between Retailer Name and Comments columns */
 .main-grid-with-separators .rdg-cell[data-col-key="name"],
-.main-grid-with-separators .rdg-cell[data-col-key="comments"] {
-  border-right: none !important;
-}
-
-/* Remove separator between Retailer Name and Comments columns in main grid using custom classes */
+.main-grid-with-separators .rdg-cell[data-col-key="comments"],
 .main-grid-with-separators .rdg-cell.retailer-col,
 .main-grid-with-separators .rdg-cell.comments-col {
   border-right: none !important;
 }
-
-/* Aggressive fix: Remove separator between first and second columns in main grid */
-.main-grid-with-separators .rdg-row > .rdg-cell:first-child {
-  border-right: none !important;
-}
-.main-grid-with-separators .rdg-row > .rdg-cell:nth-child(2) {
-  border-left: none !important;
-}
-
-/* Aggressive: Remove separator between first and second header columns in main grid for all header rows */
+.main-grid-with-separators .rdg-row > .rdg-cell:first-child,
 .main-grid-with-separators .rdg-header-cell:first-child {
   border-right: none !important;
 }
+.main-grid-with-separators .rdg-row > .rdg-cell:nth-child(2),
 .main-grid-with-separators .rdg-header-cell:nth-child(2) {
   border-left: none !important;
+}
+
+/* ── Toolbar button base (Monday.com style) ─────────────────── */
+.grid-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 34px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.grid-toolbar-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+.grid-toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Primary variant — filled blue */
+.grid-toolbar-btn.primary {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+.grid-toolbar-btn.primary:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: white;
+}
+
+/* Danger variant — filled red */
+.grid-toolbar-btn.danger {
+  background: white;
+  color: #ef4444;
+  border-color: #fecaca;
+}
+.grid-toolbar-btn.danger:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+/* Small variant — for subgrid */
+.grid-toolbar-btn.sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: 5px;
 }
