@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { BRANDS } from '@/constants/brands';
+import { useBrands } from '@/hooks/useBrands';
 import PhotoLightbox from './PhotoLightbox';
 
 interface Visit {
@@ -22,6 +22,7 @@ interface MarketVisitGalleryProps {
 }
 
 export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryProps) {
+  const { brands } = useBrands();
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
@@ -150,7 +151,7 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none"
             >
               <option value="">All Brands</option>
-              {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+              {brands.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
           </div>
           <div className="min-w-[140px]">
@@ -359,7 +360,7 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Brands</label>
                 <div className="flex flex-wrap gap-1.5">
-                  {BRANDS.map(b => (
+                  {brands.map(b => (
                     <button key={b} type="button" onClick={() => toggleEditBrand(b)}
                       className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${editForm.brands.includes(b) ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-gray-600 border-gray-300 hover:border-amber-400'}`}>
                       {b}

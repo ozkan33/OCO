@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { BRANDS } from '@/constants/brands';
+import { useBrands } from '@/hooks/useBrands';
 import { FiLogOut, FiPlus, FiEdit2, FiTrash2, FiCopy, FiCheck, FiEye, FiEyeOff, FiClock } from 'react-icons/fi';
 import { Fragment } from 'react';
 
@@ -17,6 +17,7 @@ interface Scorecard { id: string; title: string; columns: any[]; rowCount: numbe
 
 export default function ClientsPage() {
   const router = useRouter();
+  const { brands } = useBrands();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [brandUsers, setBrandUsers] = useState<BrandUser[]>([]);
@@ -392,7 +393,7 @@ export default function ClientsPage() {
                     <label className="block text-sm font-medium text-slate-700 mb-1">Brand *</label>
                     <select value={formBrand} onChange={e => setFormBrand(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
                       <option value="">Select brand...</option>
-                      {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                      {brands.map(b => <option key={b} value={b}>{b}</option>)}
                     </select>
                   </div>
                   <div>
@@ -482,7 +483,7 @@ export default function ClientsPage() {
                   <label className="block text-sm font-medium text-slate-700 mb-1">Brand</label>
                   <select value={formBrand} onChange={e => setFormBrand(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
                     <option value="">Select brand...</option>
-                    {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                    {brands.map(b => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </div>
                 <div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { BRANDS } from '@/constants/brands';
+import { useBrands } from '@/hooks/useBrands';
 import { extractExifFromFile } from '@/utils/extractExif';
 import { reverseGeocode } from '@/utils/reverseGeocode';
 import AddressAutocomplete from './AddressAutocomplete';
@@ -11,6 +11,7 @@ interface MarketVisitUploadProps {
 }
 
 export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps) {
+  const { brands } = useBrands();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -261,7 +262,7 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">Brands in Photo *</label>
         <div className="flex flex-wrap gap-2">
-          {BRANDS.map(brand => (
+          {brands.map(brand => (
             <button
               key={brand}
               type="button"

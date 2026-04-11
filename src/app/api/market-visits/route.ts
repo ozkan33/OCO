@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
-import { BRANDS } from '@/constants/brands';
-
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 
@@ -46,7 +44,12 @@ export async function POST(request: Request) {
       } catch {
         return NextResponse.json({ error: 'Invalid brands format' }, { status: 400 });
       }
-      const invalid = brands.filter(b => !(BRANDS as readonly string[]).includes(b));
+      // Validate against scorecards in the database
+      const { data: scorecards } = await supabaseAdmin
+        .from('user_scorecards')
+        .select('title');
+      const validBrands = new Set((scorecards || []).map((s: any) => s.title));
+      const invalid = brands.filter(b => !validBrands.has(b));
       if (invalid.length > 0) {
         return NextResponse.json({ error: `Unknown brands: ${invalid.join(', ')}` }, { status: 400 });
       }
