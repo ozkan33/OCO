@@ -12,6 +12,81 @@ body {
   background: rgb(var(--background-rgb));
 }
 
+/* Safari-specific fixes */
+@supports (-webkit-touch-callout: none) {
+  /* iOS Safari specific styles */
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  /* Fix for Safari input zoom issues */
+  input, textarea, select {
+    font-size: 16px !important;
+    -webkit-appearance: none;
+    border-radius: 0;
+  }
+  
+  /* Fix for Safari button styling */
+  button {
+    -webkit-appearance: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* Fix for Safari flexbox issues */
+  .flex {
+    -webkit-box-flex: 1;
+    -webkit-flex: 1;
+    -ms-flex: 1;
+    flex: 1;
+  }
+  
+  /* Fix for Safari transform issues */
+  .transform {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+  }
+}
+
+/* Mobile-specific improvements */
+@media (max-width: 768px) {
+  /* Improve touch targets */
+  button, a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Better text readability on mobile */
+  p {
+    line-height: 1.6;
+  }
+  
+  /* Improve form inputs on mobile */
+  input, textarea, select {
+    font-size: 16px !important; /* Prevents zoom on iOS */
+  }
+}
+
+/* Smooth scrolling for anchor links */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Better focus states for accessibility */
+button:focus, a:focus, input:focus, textarea:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Safari-specific focus fixes */
+@supports (-webkit-touch-callout: none) {
+  button:focus, a:focus, input:focus, textarea:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
 .rdg.rdg-editing {
   outline: none !important;
   border: 1px solid #d1d5db !important; /* Tailwind gray-300 */
@@ -31,4 +106,80 @@ body {
   background: #fff;
   box-shadow: 0 0 0 2px #2563eb;
   border-radius: 6px;
+}
+
+/* Subgrid column separators */
+.subgrid-with-separators .rdg-cell {
+  border-right: 1px solid #e5e7eb !important;
+  border-bottom: 1px solid #f3f4f6 !important;
+}
+
+.subgrid-with-separators .rdg-header-cell {
+  border-right: 1px solid #d1d5db !important;
+  border-bottom: 2px solid #d1d5db !important;
+  background-color: #f9fafb !important;
+}
+
+.subgrid-with-separators .rdg-row:hover .rdg-cell {
+  background-color: #f8fafc !important;
+}
+
+.subgrid-with-separators .rdg-row:nth-child(even) .rdg-cell {
+  background-color: #fafbfc !important;
+}
+
+.subgrid-with-separators .rdg-row:nth-child(even):hover .rdg-cell {
+  background-color: #f1f5f9 !important;
+}
+
+/* Main grid column separators */
+.main-grid-with-separators .rdg-cell {
+  border-right: 1px solid #e5e7eb !important;
+  border-bottom: 1px solid #f3f4f6 !important;
+}
+
+.main-grid-with-separators .rdg-header-cell {
+  border-right: 1px solid #d1d5db !important;
+  border-bottom: 2px solid #d1d5db !important;
+  background-color: #f9fafb !important;
+}
+
+.main-grid-with-separators .rdg-row:hover .rdg-cell {
+  background-color: #f8fafc !important;
+}
+
+.main-grid-with-separators .rdg-row:nth-child(even) .rdg-cell {
+  background-color: #fafbfc !important;
+}
+
+.main-grid-with-separators .rdg-row:nth-child(even):hover .rdg-cell {
+  background-color: #f1f5f9 !important;
+}
+
+/* Remove separator between Retailer Name and Comments columns in main grid (robust) */
+.main-grid-with-separators .rdg-cell[data-col-key="name"],
+.main-grid-with-separators .rdg-cell[data-col-key="comments"] {
+  border-right: none !important;
+}
+
+/* Remove separator between Retailer Name and Comments columns in main grid using custom classes */
+.main-grid-with-separators .rdg-cell.retailer-col,
+.main-grid-with-separators .rdg-cell.comments-col {
+  border-right: none !important;
+}
+
+/* Aggressive fix: Remove separator between first and second columns in main grid */
+.main-grid-with-separators .rdg-row > .rdg-cell:first-child {
+  border-right: none !important;
+}
+.main-grid-with-separators .rdg-row > .rdg-cell:nth-child(2) {
+  border-left: none !important;
+}
+
+/* Aggressive: Remove separator between first and second header columns in main grid for all header rows */
+.main-grid-with-separators .rdg-header-cell:first-child {
+  border-right: none !important;
+}
+.main-grid-with-separators .rdg-header-cell:nth-child(2) {
+  border-left: none !important;
 }

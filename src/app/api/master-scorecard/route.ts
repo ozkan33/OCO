@@ -67,11 +67,15 @@ function calculatePenetration(rows: any[], retailerColumn: string): number {
 // GET /api/master-scorecard - Get aggregated retailer penetration data
 export async function GET(request: Request) {
   console.log('📊 GET /api/master-scorecard called');
-  
   try {
     const user = await getUserFromToken(request);
     console.log('✅ User authenticated for master scorecard:', user.id);
-    
+
+    // Get the selected scorecard ID from query parameters
+    const { searchParams } = new URL(request.url);
+    const selectedScorecardId = searchParams.get('scorecardId');
+    console.log('🎯 Selected scorecard ID:', selectedScorecardId);
+
     // Fetch all scorecards for the user
     const { data: scorecards, error } = await supabaseAdmin
       .from('user_scorecards')
@@ -84,89 +88,123 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Failed to fetch scorecards' }, { status: 500 });
     }
 
-    console.log('📋 Found', scorecards?.length || 0, 'scorecards');
-
     if (!scorecards || scorecards.length === 0) {
       return NextResponse.json({
-        customers: [],
+        selectedScorecard: null,
         retailers: [],
-        lastUpdated: new Date().toISOString()
+        retailerSummary: [],
+        lastUpdated: new Date().toISOString(),
       });
     }
 
-    // Collect all unique retailer columns across all scorecards
-    const allRetailerColumns = new Set<string>();
-    const customerData: any[] = [];
+    // Find the selected scorecard
+    const selectedScorecard = selectedScorecardId 
+      ? scorecards.find(sc => sc.id === selectedScorecardId) 
+      : scorecards[0]; // Default to first scorecard if none selected
 
-    for (const scorecard of scorecards) {
-      const data = scorecard.data || {};
-      const columns = data.columns || [];
-      const rows = data.rows || [];
+    if (!selectedScorecard) {
+      return NextResponse.json({
+        selectedScorecard: null,
+        retailers: [],
+        retailerSummary: [],
+        lastUpdated: new Date().toISOString(),
+      });
+    }
 
-      // Detect retailer columns for this scorecard
-      const retailerColumns = detectRetailerColumns(columns);
-      retailerColumns.forEach(col => allRetailerColumns.add(col));
+    console.log('📊 Processing scorecard:', selectedScorecard.title);
 
-      // Calculate penetration for each retailer column
-      const penetrationData: Record<string, number> = {};
-      let totalPenetration = 0;
-      let retailerCount = 0;
+    // Process the selected scorecard data
+    const columns = selectedScorecard.data?.columns || [];
+    const rows = selectedScorecard.data?.rows || [];
 
-      for (const retailerCol of retailerColumns) {
-        const penetration = calculatePenetration(rows, retailerCol);
-        penetrationData[retailerCol] = penetration;
-        totalPenetration += penetration;
-        retailerCount++;
+    // Find the retailer name column
+    const retailerCol = columns.find((col: { name?: string; key: string }) => col.name === 'Retailer Name' || col.key === 'name');
+    if (!retailerCol) {
+      return NextResponse.json({
+        selectedScorecard: { id: selectedScorecard.id, title: selectedScorecard.title },
+        retailers: [],
+        retailerSummary: [],
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+
+    // Find product columns (user-added columns that are not default)
+    const productCols = columns.filter((col: { key: string; isDefault?: boolean; name?: string }) => 
+      col.key !== retailerCol.key && 
+      !col.isDefault && 
+      col.key !== 'comments' && 
+      col.key !== '_delete_row'
+    );
+
+    console.log('📦 Found product columns:', productCols.map((col: { name?: string }) => col.name));
+
+    // If no product columns found, return early with helpful message
+    if (productCols.length === 0) {
+      return NextResponse.json({
+        selectedScorecard: {
+          id: selectedScorecard.id,
+          title: selectedScorecard.title
+        },
+        retailers: [],
+        retailerSummary: [],
+        lastUpdated: new Date().toISOString(),
+        hasProducts: false,
+        message: `No product columns found in "${selectedScorecard.title}". Add product columns to see retailer authorization data.`
+      });
+    }
+
+    // Calculate retailer authorization percentages
+    const retailerSummary: Array<{
+      retailer: string;
+      authorized: number;
+      total: number;
+      percentage: number;
+      products: Array<{ name: string; status: string }>;
+    }> = [];
+
+    for (const row of rows) {
+      const retailer = String(row[retailerCol.key]);
+      if (!retailer || retailer.trim() === '') continue;
+
+      let authorizedCount = 0;
+      let totalCount = 0;
+      const products: Array<{ name: string; status: string }> = [];
+
+      for (const productCol of productCols) {
+        const status = row[productCol.key];
+        if (status !== undefined && status !== null && status !== '') {
+          totalCount++;
+          products.push({ name: productCol.name, status: String(status) });
+          
+          if (typeof status === 'string' && status.toLowerCase() === 'authorized') {
+            authorizedCount++;
+          }
+        }
       }
 
-      // Calculate average penetration across all retailers for this customer
-      const averagePenetration = retailerCount > 0 ? Math.round(totalPenetration / retailerCount) : 0;
-
-      customerData.push({
-        id: scorecard.id,
-        name: scorecard.title,
-        penetration: penetrationData,
-        totalPenetration: averagePenetration,
-        productCount: rows.length,
-        lastModified: scorecard.last_modified
-      });
+      if (totalCount > 0) {
+        retailerSummary.push({
+          retailer,
+          authorized: authorizedCount,
+          total: totalCount,
+          percentage: Math.round((authorizedCount / totalCount) * 100),
+          products
+        });
+      }
     }
 
-    // Calculate retailer averages
-    const retailerAverages: Record<string, number> = {};
-    const retailerArray = Array.from(allRetailerColumns);
-    for (const retailer of retailerArray) {
-      const customerPenetrations = customerData
-        .map(customer => customer.penetration[retailer] || 0)
-        .filter(p => p !== undefined);
-      
-      const average = customerPenetrations.length > 0 
-        ? Math.round(customerPenetrations.reduce((sum, p) => sum + p, 0) / customerPenetrations.length)
-        : 0;
-      
-      retailerAverages[retailer] = average;
-    }
-
-    // Calculate overall average
-    const overallAverage = customerData.length > 0
-      ? Math.round(customerData.reduce((sum, customer) => sum + customer.totalPenetration, 0) / customerData.length)
-      : 0;
+    // Sort retailers by percentage (highest first)
+    retailerSummary.sort((a, b) => b.percentage - a.percentage);
 
     const result = {
-      customers: customerData,
-      retailers: Array.from(allRetailerColumns),
-      retailerAverages,
-      overallAverage,
+      selectedScorecard: {
+        id: selectedScorecard.id,
+        title: selectedScorecard.title
+      },
+      retailers: retailerSummary.map(r => r.retailer),
+      retailerSummary,
       lastUpdated: new Date().toISOString(),
-      totalCustomers: customerData.length,
-      totalRetailers: allRetailerColumns.size
     };
-
-    console.log('✅ Master scorecard data calculated:', {
-      customers: result.customers.length,
-      retailers: result.retailers.length,
-      overallAverage: result.overallAverage
-    });
 
     return NextResponse.json(result);
   } catch (error) {

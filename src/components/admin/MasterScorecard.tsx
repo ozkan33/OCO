@@ -1,33 +1,45 @@
 import React, { useState, useEffect } from 'react';
-import { FaSync, FaInfoCircle, FaExternalLinkAlt } from 'react-icons/fa';
+import { FaSync, FaInfoCircle, FaExternalLinkAlt, FaCheckCircle, FaTimesCircle, FaChevronDown } from 'react-icons/fa';
 import { toast } from 'sonner';
 
+interface RetailerSummary {
+  retailer: string;
+  authorized: number;
+  total: number;
+  percentage: number;
+  products: Array<{ name: string; status: string }>;
+}
+
 interface MasterScorecardData {
-  customers: {
+  selectedScorecard: {
     id: string;
-    name: string;
-    penetration: Record<string, number>;
-    totalPenetration: number;
-    productCount: number;
-    lastModified: string;
-  }[];
+    title: string;
+  } | null;
   retailers: string[];
-  retailerAverages: Record<string, number>;
-  overallAverage: number;
+  retailerSummary: RetailerSummary[];
   lastUpdated: string;
-  totalCustomers: number;
-  totalRetailers: number;
+  hasProducts?: boolean;
+  message?: string;
+}
+
+interface ScorecardOption {
+  id: string;
+  title: string;
 }
 
 interface MasterScorecardProps {
   onCustomerClick?: (customerId: string) => void;
+  selectedScorecardId?: string;
+  availableScorecards?: ScorecardOption[];
 }
 
-export default function MasterScorecard({ onCustomerClick }: MasterScorecardProps) {
+export default function MasterScorecard({ onCustomerClick, selectedScorecardId, availableScorecards = [] }: MasterScorecardProps) {
   const [data, setData] = useState<MasterScorecardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [currentScorecardId, setCurrentScorecardId] = useState<string | undefined>(selectedScorecardId);
+  const [showScorecardDropdown, setShowScorecardDropdown] = useState(false);
 
   // Color coding function based on penetration percentage
   const getColorClass = (percentage: number): string => {
@@ -45,12 +57,16 @@ export default function MasterScorecard({ onCustomerClick }: MasterScorecardProp
   };
 
   // Fetch master scorecard data
-  const fetchData = async () => {
+  const fetchData = async (scorecardId?: string) => {
     try {
       setLoading(true);
       setError(null);
       
-      const response = await fetch('/api/master-scorecard', {
+      const url = scorecardId 
+        ? `/api/master-scorecard?scorecardId=${scorecardId}`
+        : '/api/master-scorecard';
+      
+      const response = await fetch(url, {
         credentials: 'include'
       });
 
@@ -70,14 +86,16 @@ export default function MasterScorecard({ onCustomerClick }: MasterScorecardProp
     }
   };
 
-  // Load data on mount
+  // Load data on mount and when selectedScorecardId changes
   useEffect(() => {
-    fetchData();
-  }, []);
+    const scorecardId = currentScorecardId || selectedScorecardId;
+    fetchData(scorecardId);
+  }, [currentScorecardId, selectedScorecardId]);
 
   // Handle manual refresh
   const handleRefresh = () => {
-    fetchData();
+    const scorecardId = currentScorecardId || selectedScorecardId;
+    fetchData(scorecardId);
     toast.success('Master scorecard refreshed');
   };
 
@@ -88,13 +106,19 @@ export default function MasterScorecard({ onCustomerClick }: MasterScorecardProp
     }
   };
 
-  // Handle percentage cell click for drill-down
-  const handlePercentageClick = (customerId: string, retailer: string, percentage: number) => {
-    // For now, just show a tooltip with more info
-    const customer = data?.customers.find(c => c.id === customerId);
-    if (customer) {
-      toast.info(`${customer.name} - ${retailer}: ${percentage}% (${Math.round(percentage * customer.productCount / 100)} of ${customer.productCount} products authorized)`);
+  // Handle scorecard selection
+  const handleScorecardChange = (scorecardId: string) => {
+    setCurrentScorecardId(scorecardId);
+    setShowScorecardDropdown(false);
+  };
+
+  // Get current scorecard title
+  const getCurrentScorecardTitle = () => {
+    if (data?.selectedScorecard?.title) {
+      return data.selectedScorecard.title;
     }
+    const selectedScorecard = availableScorecards.find(sc => sc.id === currentScorecardId);
+    return selectedScorecard?.title || 'Select Scorecard';
   };
 
   if (loading) {
@@ -129,13 +153,37 @@ export default function MasterScorecard({ onCustomerClick }: MasterScorecardProp
     );
   }
 
-  if (!data || data.customers.length === 0) {
+  if (!data || !data.selectedScorecard || data.retailerSummary.length === 0) {
     return (
       <div className="p-6 bg-white rounded-lg shadow-lg">
         <div className="flex items-center justify-center h-32">
           <div className="text-center text-gray-500">
-            <div className="mb-2">No customer data available</div>
-            <div className="text-sm">Create some scorecards to see the master dashboard</div>
+            <div className="mb-2">No data available</div>
+            <div className="text-sm">
+              {data?.selectedScorecard ? (
+                <div>
+                  {data.hasProducts === false ? (
+                    <>
+                      <p className="mb-2">{data.message || `The selected scorecard "${data.selectedScorecard.title}" has no product columns.`}</p>
+                      <p className="text-xs text-gray-400 mb-3">To see master scorecard data, you need to add product columns to this scorecard.</p>
+                      <button
+                        onClick={() => onCustomerClick?.(data.selectedScorecard!.id)}
+                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                      >
+                        Open Scorecard to Add Products
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="mb-2">The selected scorecard "{data.selectedScorecard.title}" has no retailer data.</p>
+                      <p className="text-xs text-gray-400">Add retailers to see authorization data.</p>
+                    </>
+                  )}
+                </div>
+              ) : (
+                "Create some scorecards to see the master dashboard"
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -147,12 +195,50 @@ export default function MasterScorecard({ onCustomerClick }: MasterScorecardProp
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Master Scorecard</h2>
-          <p className="text-sm text-gray-600">Retailer Penetration Dashboard</p>
+          <h2 className="text-2xl font-bold text-gray-900">
+            Master Scorecard - Retailer Authorization Summary
+          </h2>
+          <p className="text-sm text-gray-600">
+            Product authorization status for each retailer
+          </p>
         </div>
         <div className="flex items-center gap-4">
+          {/* Scorecard Selector */}
+          <div className="relative">
+            <button
+              onClick={() => setShowScorecardDropdown(!showScorecardDropdown)}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
+            >
+              <span>{getCurrentScorecardTitle()}</span>
+              <FaChevronDown className="w-3 h-3" />
+            </button>
+            
+            {showScorecardDropdown && (
+              <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-300 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+                {availableScorecards.length > 0 ? (
+                  availableScorecards.map((scorecard) => (
+                    <button
+                      key={scorecard.id}
+                      onClick={() => handleScorecardChange(scorecard.id)}
+                      className={`w-full text-left px-4 py-2 hover:bg-gray-100 text-sm ${
+                        scorecard.id === currentScorecardId ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
+                      }`}
+                    >
+                      {scorecard.title}
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-4 py-3 text-sm text-gray-500">
+                    <p className="mb-2">No scorecards with products found.</p>
+                    <p className="text-xs text-gray-400">Add product columns to your scorecards to see them here.</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="text-sm text-gray-500">
-            Last updated: {new Date(data.lastUpdated).toLocaleString()}
+            Last updated: {data ? new Date(data.lastUpdated).toLocaleString() : ''}
           </div>
           <button
             onClick={handleRefresh}
@@ -164,111 +250,78 @@ export default function MasterScorecard({ onCustomerClick }: MasterScorecardProp
         </div>
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <div className="bg-blue-50 p-4 rounded-lg">
-          <div className="text-2xl font-bold text-blue-600">{data.totalCustomers}</div>
-          <div className="text-sm text-gray-600">Total Customers</div>
-        </div>
-        <div className="bg-green-50 p-4 rounded-lg">
-          <div className="text-2xl font-bold text-green-600">{data.totalRetailers}</div>
-          <div className="text-sm text-gray-600">Total Retailers</div>
-        </div>
-        <div className="bg-purple-50 p-4 rounded-lg">
-          <div className="text-2xl font-bold text-purple-600">{data.overallAverage}%</div>
-          <div className="text-sm text-gray-600">Overall Average</div>
-        </div>
-        <div className="bg-orange-50 p-4 rounded-lg">
-          <div className="text-2xl font-bold text-orange-600">
-            {data.customers.reduce((sum, c) => sum + c.productCount, 0)}
-          </div>
-          <div className="text-sm text-gray-600">Total Products</div>
-        </div>
-      </div>
-
-      {/* Data Table */}
+      {/* Retailer Summary Table */}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse border border-gray-300">
           <thead>
             <tr className="bg-gray-50">
               <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-700">
-                Customer Name
+                Retailer
               </th>
-              {data.retailers.map(retailer => (
-                <th key={retailer} className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-700">
-                  {retailer.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                </th>
-              ))}
               <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-700">
-                Total
+                Authorization Summary
+              </th>
+              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-700">
+                Percentage
+              </th>
+              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-700">
+                Products
               </th>
             </tr>
           </thead>
           <tbody>
-            {data.customers.map(customer => (
-              <tr key={customer.id} className="hover:bg-gray-50">
-                <td className="border border-gray-300 px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleCustomerClick(customer.id)}
-                      className="text-blue-600 hover:text-blue-800 font-medium hover:underline"
-                    >
-                      {customer.name}
-                    </button>
-                    <span className="text-xs text-gray-500">
-                      ({customer.productCount} products)
-                    </span>
+            {data.retailerSummary.map((retailer, index) => (
+              <tr key={retailer.retailer} className="hover:bg-gray-50">
+                <td className="border border-gray-300 px-4 py-3 font-medium text-gray-900">
+                  {retailer.retailer}
+                </td>
+                <td className="border border-gray-300 px-4 py-3 text-center">
+                  <span className={`px-3 py-1 rounded-full text-sm border ${getColorClass(retailer.percentage)} ${getColorIntensity(retailer.percentage)}`}>
+                    {retailer.authorized}/{retailer.total} ({retailer.percentage}%)
+                  </span>
+                </td>
+                <td className="border border-gray-300 px-4 py-3 text-center">
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className={`h-2 rounded-full ${retailer.percentage >= 80 ? 'bg-green-500' : retailer.percentage >= 50 ? 'bg-yellow-500' : retailer.percentage >= 25 ? 'bg-orange-500' : 'bg-red-500'}`}
+                      style={{ width: `${retailer.percentage}%` }}
+                    ></div>
                   </div>
                 </td>
-                {data.retailers.map(retailer => {
-                  const percentage = customer.penetration[retailer] || 0;
-                  return (
-                    <td key={retailer} className="border border-gray-300 px-4 py-3 text-center">
-                      <button
-                        onClick={() => handlePercentageClick(customer.id, retailer, percentage)}
-                        className={`px-3 py-1 rounded-full text-sm border ${getColorClass(percentage)} ${getColorIntensity(percentage)} hover:shadow-md transition-shadow`}
+                <td className="border border-gray-300 px-4 py-3">
+                  <div className="flex flex-wrap gap-1">
+                    {retailer.products.map((product, productIndex) => (
+                      <span
+                        key={productIndex}
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs ${
+                          product.status.toLowerCase() === 'authorized'
+                            ? 'bg-green-100 text-green-800'
+                            : product.status.toLowerCase() === 'buyer passed'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}
+                        title={`${product.name}: ${product.status}`}
                       >
-                        {percentage}%
-                      </button>
-                    </td>
-                  );
-                })}
-                <td className="border border-gray-300 px-4 py-3 text-center">
-                  <span className={`px-3 py-1 rounded-full text-sm border ${getColorClass(customer.totalPenetration)} ${getColorIntensity(customer.totalPenetration)}`}>
-                    {customer.totalPenetration}%
-                  </span>
+                        {product.status.toLowerCase() === 'authorized' ? (
+                          <FaCheckCircle className="w-3 h-3" />
+                        ) : product.status.toLowerCase() === 'buyer passed' ? (
+                          <FaTimesCircle className="w-3 h-3" />
+                        ) : null}
+                        {product.name}
+                      </span>
+                    ))}
+                  </div>
                 </td>
               </tr>
             ))}
-            {/* Retailer Averages Row */}
-            <tr className="bg-gray-100 font-semibold">
-              <td className="border border-gray-300 px-4 py-3 text-gray-700">
-                Retailer Average
-              </td>
-              {data.retailers.map(retailer => {
-                const average = data.retailerAverages[retailer] || 0;
-                return (
-                  <td key={retailer} className="border border-gray-300 px-4 py-3 text-center">
-                    <span className={`px-3 py-1 rounded-full text-sm border ${getColorClass(average)} ${getColorIntensity(average)}`}>
-                      {average}%
-                    </span>
-                  </td>
-                );
-              })}
-              <td className="border border-gray-300 px-4 py-3 text-center">
-                <span className={`px-3 py-1 rounded-full text-sm border ${getColorClass(data.overallAverage)} ${getColorIntensity(data.overallAverage)}`}>
-                  {data.overallAverage}%
-                </span>
-              </td>
-            </tr>
           </tbody>
         </table>
       </div>
 
       {/* Legend */}
-      <div className="mt-6 flex items-center gap-6">
-        <div className="text-sm font-medium text-gray-700">Color Legend:</div>
-        <div className="flex items-center gap-4">
+      <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+        <div className="text-sm font-medium text-gray-700 mb-2">Color Legend:</div>
+        <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded bg-green-100 border border-green-300"></div>
             <span className="text-sm text-gray-600">80-100% (Excellent)</span>
@@ -292,8 +345,8 @@ export default function MasterScorecard({ onCustomerClick }: MasterScorecardProp
       <div className="mt-4 flex items-start gap-2 p-3 bg-blue-50 rounded-lg">
         <FaInfoCircle className="text-blue-500 mt-0.5 flex-shrink-0" />
         <div className="text-sm text-blue-700">
-          <strong>How to read:</strong> Percentages show how many products have "Authorized" status for each retailer. 
-          Click on customer names to view their detailed scorecard, or click on percentages to see product counts.
+          <strong>How to read:</strong> Each row shows a retailer and their product authorization status. 
+          The percentage indicates how many products are authorized for that retailer.
         </div>
       </div>
     </div>

@@ -3,14 +3,25 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Header } from '@/components/layout/Header';
 import { Inter } from 'next/font/google';
+import { getMobileBrowserInfo } from '@/utils/mobileDetection';
 
 const inter = Inter({ subsets: ['latin'] });
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isSafari, setIsSafari] = useState(false);
   const router = useRouter();
   const pathname = usePathname() || '';
+
+  // Detect Safari on mount
+  useEffect(() => {
+    const mobileInfo = getMobileBrowserInfo();
+    if (mobileInfo?.isSafari) {
+      setIsSafari(true);
+      console.log('Safari detected in ClientLayout');
+    }
+  }, []);
 
   useEffect(() => {
     // Fetch user info from /api/auth/me using cookies
@@ -39,10 +50,32 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   const handleAccountClick = () => {
     if (!user) return;
-    if (user.role === 'ADMIN') {
-      router.push('/admin/dashboard');
-    } else if (user.role === 'VENDOR') {
-      router.push('/vendor/dashboard');
+    
+    if (isSafari) {
+      // Use window.location for Safari
+      if (user.role === 'ADMIN') {
+        window.location.href = '/admin/dashboard';
+      } else if (user.role === 'VENDOR') {
+        window.location.href = '/vendor/dashboard';
+      }
+    } else {
+      // Use router for other browsers
+      try {
+        if (user.role === 'ADMIN') {
+          router.push('/admin/dashboard');
+        } else if (user.role === 'VENDOR') {
+          router.push('/vendor/dashboard');
+        }
+      } catch (routerError) {
+        console.error('Router error, falling back to window.location:', routerError);
+        if (typeof window !== 'undefined') {
+          if (user.role === 'ADMIN') {
+            window.location.href = '/admin/dashboard';
+          } else if (user.role === 'VENDOR') {
+            window.location.href = '/vendor/dashboard';
+          }
+        }
+      }
     }
   };
 
@@ -57,12 +90,34 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       // Clear user state
       setUser(null);
       
-      // Redirect to home
-      window.location.href = '/';
+      // Safari-specific navigation
+      if (isSafari) {
+        window.location.href = '/';
+      } else {
+        // Redirect to home with better mobile handling
+        try {
+          await router.push('/');
+        } catch (routerError) {
+          console.error('Router error, falling back to window.location:', routerError);
+          if (typeof window !== 'undefined') {
+            window.location.href = '/';
+          }
+        }
+      }
     } catch (error) {
       console.error('Logout error:', error);
       // Fallback - still redirect to home
-      window.location.href = '/';
+      if (isSafari) {
+        window.location.href = '/';
+      } else {
+        try {
+          await router.push('/');
+        } catch (routerError) {
+          if (typeof window !== 'undefined') {
+            window.location.href = '/';
+          }
+        }
+      }
     }
   };
 
@@ -71,14 +126,10 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   return (
     <div className={inter.className}>
-      {!isDashboard && (
-        <Header
-          user={user}
-          onAccountClick={handleAccountClick}
-          onLogout={handleLogout}
-        />
-      )}
-      <main>{children}</main>
+      {!isDashboard && <Header user={user} onAccountClick={handleAccountClick} onLogout={handleLogout} />}
+      <main className="min-h-screen">
+        {children}
+      </main>
     </div>
   );
 } 

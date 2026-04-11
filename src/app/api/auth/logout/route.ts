@@ -5,9 +5,10 @@ export async function POST() {
   const response = NextResponse.json({ success: true });
   
   // Clear all authentication cookies
+  // Safari-friendly cookie settings
   const cookieOptions = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production', // Remove the window check for Safari
     sameSite: 'lax' as const,
     path: '/',
     maxAge: 0, // Expire immediately
