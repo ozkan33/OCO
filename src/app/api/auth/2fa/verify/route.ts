@@ -28,9 +28,9 @@ export async function POST(request: Request) {
     }
 
     // Verify the code
-    const isValid = verifyTOTP({ token: code, secret: totpData.encrypted_secret });
+    const result = await verifyTOTP({ token: code, secret: totpData.encrypted_secret });
 
-    if (!isValid) {
+    if (!result.valid) {
       return NextResponse.json({ error: 'Invalid code. Please try again.' }, { status: 400 });
     }
 
