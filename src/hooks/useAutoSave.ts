@@ -217,6 +217,30 @@ export function useAutoSave<T>(
   };
 }
 
+// Compute which cells changed between two row snapshots.
+// Returns an array of { rowId, columnKey, value } for every changed cell.
+function diffRows(
+  prevRows: any[],
+  nextRows: any[],
+  columnKeys: string[]
+): { rowId: number; columnKey: string; value: string }[] {
+  const changes: { rowId: number; columnKey: string; value: string }[] = [];
+  const prevById = new Map(prevRows.map(r => [r.id, r]));
+
+  for (const row of nextRows) {
+    if (!row.id || row.isAddRow) continue;
+    const prev = prevById.get(row.id) ?? {};
+    for (const key of columnKeys) {
+      const oldVal = String(prev[key] ?? '');
+      const newVal = String(row[key] ?? '');
+      if (oldVal !== newVal) {
+        changes.push({ rowId: row.id, columnKey: key, value: newVal });
+      }
+    }
+  }
+  return changes;
+}
+
 // Hook specifically for scorecards using API endpoints
 export function useScoreCardAutoSave(
   scoreCardId: string | null,
@@ -225,93 +249,79 @@ export function useScoreCardAutoSave(
   resetKey?: string | number,
   resetValue?: any
 ) {
+  // Track the last saved rows snapshot so we can diff on next save
+  const lastSavedRowsRef = useRef<any[]>([]);
+
   const saveToAPI = useCallback(async (data: any) => {
     if (!scoreCardId) {
       throw new Error('No scorecard ID provided');
     }
 
-    console.log('🔄 Auto-save attempting to save:', { scoreCardId, data });
-
-    // Check if this is a local scorecard (starts with 'scorecard_') 
-    // In this case, create it in the database and update the local reference
+    // ── Handle local (pre-DB) scorecards ─────────────────────────────────────
     if (scoreCardId.startsWith('scorecard_')) {
-      console.log('💾 Creating local scorecard in database');
-      
-      // Create the scorecard in the database
-      const createBody = {
-        title: data?.name || 'Untitled Scorecard',
-        data: data, // The entire scorecard data
-        is_draft: true,
-      };
-
       const createResponse = await fetch('/api/scorecards', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(createBody),
+        body: JSON.stringify({ title: data?.name || 'Untitled Scorecard', data, is_draft: true }),
       });
 
       if (!createResponse.ok) {
         const errorData = await createResponse.json().catch(() => ({}));
-        console.error('❌ Database create failed:', errorData);
-        throw new Error(errorData.error || `Failed to create scorecard in database: ${createResponse.status}`);
+        throw new Error(errorData.error || `Failed to create scorecard: ${createResponse.status}`);
       }
 
       const createdScorecard = await createResponse.json();
-      console.log('✅ Database create successful!', createdScorecard);
 
-      // Update localStorage to replace the local ID with the database ID
       const existingScoreCards = JSON.parse(localStorage.getItem('scorecards') || '[]');
-      const updatedScoreCards = existingScoreCards.map((sc: any) => 
-        sc.id === scoreCardId ? { ...sc, id: createdScorecard.id, ...data, lastModified: new Date().toISOString() } : sc
-      );
-      localStorage.setItem('scorecards', JSON.stringify(updatedScoreCards));
-      
-      console.log('✅ Local scorecard updated with database ID!');
+      localStorage.setItem('scorecards', JSON.stringify(
+        existingScoreCards.map((sc: any) =>
+          sc.id === scoreCardId
+            ? { ...sc, id: createdScorecard.id, ...data, lastModified: new Date().toISOString() }
+            : sc
+        )
+      ));
+      lastSavedRowsRef.current = data?.rows ?? [];
       return createdScorecard;
     }
 
-    // For database scorecards, use the API
-    const requestBody = {
-      title: data?.name || 'Untitled Scorecard',
-      data: data, // The entire scorecard data
-      is_draft: true,
-    };
-
-    console.log('📤 Sending request body:', requestBody);
-
+    // ── Blob save (keeps existing behaviour, source of truth for the grid) ───
     const response = await fetch(`/api/scorecards/${scoreCardId}`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({ title: data?.name || 'Untitled Scorecard', data, is_draft: true }),
     });
 
-    console.log('📥 Response status:', response.status);
-    console.log('📥 Response headers:', Object.fromEntries(response.headers.entries()));
-
     if (!response.ok) {
-      const responseText = await response.text();
-      console.error('❌ Save failed - Response text:', responseText);
-      
+      const text = await response.text();
       let errorData: any = {};
-      try {
-        errorData = JSON.parse(responseText);
-      } catch (e) {
-        console.error('❌ Failed to parse error response as JSON:', e);
-        errorData = { error: responseText || `HTTP ${response.status}` };
-      }
-      
-      console.error('❌ Save failed:', errorData);
+      try { errorData = JSON.parse(text); } catch { errorData = { error: text }; }
       throw new Error(errorData.error || `Failed to save scorecard: ${response.status}`);
     }
 
     const savedScorecard = await response.json();
-    console.log('✅ API save successful!', savedScorecard);
+
+    // ── Cell-level normalized save (fire-and-forget, won't break the UI) ─────
+    const currentRows: any[] = data?.rows ?? [];
+    const columnKeys: string[] = (data?.columns ?? [])
+      .map((c: any) => c.key)
+      .filter((k: string) => k && !k.startsWith('_') && k !== 'comments');
+
+    const changes = diffRows(lastSavedRowsRef.current, currentRows, columnKeys);
+    lastSavedRowsRef.current = currentRows;
+
+    if (changes.length > 0) {
+      fetch(`/api/scorecards/${scoreCardId}/cells`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ changes }),
+      }).catch(() => {
+        // Non-fatal: normalized save failed, blob is still authoritative
+      });
+    }
+
     return savedScorecard;
   }, [scoreCardId]);
 

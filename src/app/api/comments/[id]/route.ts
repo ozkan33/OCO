@@ -1,26 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
-
-// Helper function to get user from Supabase token in cookies
-async function getUserFromToken(request: Request) {
-  const cookieHeader = request.headers.get('Cookie') || request.headers.get('cookie') || '';
-  const match = cookieHeader.match(/supabase-access-token=([^;]+)/);
-  const token = match ? match[1] : null;
-
-  if (!token) {
-    throw new Error('No token found');
-  }
-
-  try {
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
-    if (error || !user) {
-      throw new Error('Invalid token');
-    }
-    return user;
-  } catch (error) {
-    throw new Error('Invalid token');
-  }
-}
+import { getUserFromToken } from '../../../../../lib/apiAuth';
+import { logger } from '../../../../../lib/logger';
 
 // PUT /api/comments/[id] - Update a comment
 export async function PUT(request: Request, context: unknown) {
@@ -60,13 +41,13 @@ export async function PUT(request: Request, context: unknown) {
       .single();
 
     if (error) {
-      console.error('Error updating comment:', error);
+      logger.error('Error updating comment:', error);
       return NextResponse.json({ error: 'Failed to update comment' }, { status: 500 });
     }
 
     return NextResponse.json(comment);
   } catch (error) {
-    console.error('Error in PUT /api/comments/[id]:', error);
+    logger.error('Error in PUT /api/comments/[id]:', error);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 }
@@ -103,13 +84,13 @@ export async function DELETE(
       .eq('id', id);
 
     if (error) {
-      console.error('Error deleting comment:', error);
+      logger.error('Error deleting comment:', error);
       return NextResponse.json({ error: 'Failed to delete comment' }, { status: 500 });
     }
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {
-    console.error('Error in DELETE /api/comments/[id]:', error);
+    logger.error('Error in DELETE /api/comments/[id]:', error);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 } 
