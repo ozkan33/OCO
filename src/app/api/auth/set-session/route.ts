@@ -33,6 +33,8 @@ export async function POST(request: Request) {
       id:    user.id,
       email: user.email,
       role:  user.user_metadata?.role ?? 'VENDOR',
+      brand: user.user_metadata?.brand ?? null,
+      must_change_password: user.user_metadata?.must_change_password ?? false,
     }), cookieOptions);
 
     return response;

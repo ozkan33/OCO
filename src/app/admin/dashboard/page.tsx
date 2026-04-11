@@ -1,15 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import AdminDataGrid from '@/components/admin/AdminDataGrid';
 import { SafariErrorBoundary } from '@/components/ui/SafariErrorBoundary';
+import { FiLogOut } from 'react-icons/fi';
 
 export default function AdminDashboard() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -35,6 +39,18 @@ export default function AdminDashboard() {
     fetchUser();
   }, []);
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false);
+      }
+    };
+    if (showUserMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showUserMenu]);
+
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
@@ -45,12 +61,28 @@ export default function AdminDashboard() {
     }
   };
 
+  const getUserInitials = () => {
+    if (!user) return '?';
+    const name = user.name || user.email || '';
+    const parts = name.split(/[\s@]+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return name.charAt(0).toUpperCase() || '?';
+  };
+
+  const getDisplayName = () => {
+    if (!user) return 'User';
+    if (user.name && user.name !== user.email) return user.name;
+    const email = user.email || '';
+    const local = email.split('@')[0];
+    return local ? local.charAt(0).toUpperCase() + local.slice(1) : 'User';
+  };
+
   if (loadingUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading dashboard...</p>
+          <div className="animate-spin rounded-full h-10 w-10 border-2 border-slate-200 border-t-blue-600 mx-auto mb-4"></div>
+          <p className="text-sm text-slate-500 font-medium">Loading dashboard...</p>
         </div>
       </div>
     );
@@ -58,13 +90,16 @@ export default function AdminDashboard() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative max-w-md" role="alert">
-          <strong className="font-bold">Error: </strong>
-          <span className="block sm:inline">{error}</span>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="mt-2 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="bg-white border border-red-200 text-slate-700 px-6 py-5 rounded-xl shadow-sm max-w-md" role="alert">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-red-500"></div>
+            <strong className="font-semibold text-slate-900">Connection Error</strong>
+          </div>
+          <p className="text-sm text-slate-600 mb-4">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors"
           >
             Retry
           </button>
@@ -75,45 +110,96 @@ export default function AdminDashboard() {
 
   if (!user || !user.role) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative max-w-md" role="alert">
-          <strong className="font-bold">Unauthorized: </strong>
-          <span className="block sm:inline">You do not have access to this page.</span>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="bg-white border border-red-200 text-slate-700 px-6 py-5 rounded-xl shadow-sm max-w-md" role="alert">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-red-500"></div>
+            <strong className="font-semibold text-slate-900">Unauthorized</strong>
+          </div>
+          <p className="text-sm text-slate-600">You do not have access to this page.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Admin Dashboard Header */}
-      <header className="bg-white shadow sticky top-0 z-50">
-        <nav className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push('/') }>
-              <img src="https://i.hizliresim.com/rm69m47.png" alt="3BrothersMarketing Logo" width={36} height={36} />
-              <span className="text-xl font-bold text-gray-800">3Brothers Marketing</span>
+    <div className="min-h-screen bg-slate-50">
+      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-50">
+        <nav className="w-full px-4 sm:px-6 py-2.5 flex justify-between items-center">
+          <div className="flex items-center gap-4">
+            <div
+              className="flex items-center gap-2.5 cursor-pointer group"
+              onClick={() => router.push('/')}
+              role="link"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && router.push('/')}
+            >
+              <Image src="/logo.png" alt="3BrothersMarketing Logo" width={32} height={32} className="rounded-lg" />
+              <span className="text-base font-bold text-slate-800 group-hover:text-slate-600 transition-colors hidden sm:inline">
+                3Brothers Marketing
+              </span>
             </div>
-            <span className="text-gray-300 hidden sm:inline">|</span>
-            <div className="flex items-center gap-1">
-              <button className="px-3 py-1.5 text-sm font-medium text-amber-700 bg-amber-50 rounded-lg">
+            <div className="hidden sm:block w-px h-5 bg-slate-200"></div>
+            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
+              <button
+                className="px-3.5 py-1.5 text-sm font-medium rounded-md bg-white text-slate-800 shadow-sm transition-all"
+                aria-current="page"
+              >
                 Dashboard
               </button>
               <button
                 onClick={() => router.push('/admin/market-visits')}
-                className="px-3 py-1.5 text-sm font-medium text-gray-500 hover:text-gray-800 rounded-lg hover:bg-gray-100 transition-colors"
+                className="px-3.5 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-md hover:bg-white/60 transition-all"
               >
                 Market Visits
               </button>
+              <button
+                onClick={() => router.push('/admin/clients')}
+                className="px-3.5 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-md hover:bg-white/60 transition-all"
+              >
+                Clients
+              </button>
             </div>
           </div>
-          <button onClick={handleLogout} className="px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-medium transition-colors">
-            Logout
-          </button>
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-100 transition-colors group"
+              aria-label="User menu"
+              aria-expanded={showUserMenu}
+              aria-haspopup="true"
+            >
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold shadow-sm">
+                {getUserInitials()}
+              </div>
+              <span className="text-sm font-medium text-slate-600 group-hover:text-slate-800 transition-colors hidden sm:inline max-w-[120px] truncate">
+                {getDisplayName()}
+              </span>
+              <svg className={`w-3.5 h-3.5 text-slate-400 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+              </svg>
+            </button>
+            {showUserMenu && (
+              <div className="absolute right-0 top-full mt-1.5 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1.5 z-50">
+                <div className="px-3.5 py-2.5 border-b border-slate-100">
+                  <p className="text-sm font-semibold text-slate-800 truncate">{getDisplayName()}</p>
+                  <p className="text-xs text-slate-400 truncate">{user.email}</p>
+                </div>
+                <div className="py-1">
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-600 hover:bg-red-50 hover:text-red-700 transition-colors text-left"
+                  >
+                    <FiLogOut className="w-4 h-4" />
+                    Sign out
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </nav>
       </header>
-      {/* Full-width grid with sidebar */}
-      <main className="w-full max-w-none px-0 py-12 flex justify-center">
+      <main className="w-full max-w-none px-0 py-0 flex justify-center">
         <div className="w-full">
           <SafariErrorBoundary>
             <AdminDataGrid userRole={user.role} key={user.role} />

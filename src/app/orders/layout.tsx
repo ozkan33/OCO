@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function OrdersLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -6,7 +7,7 @@ export default function OrdersLayout({ children }: { children: React.ReactNode }
       <header className="bg-white shadow-md sticky top-0 z-50">
         <div className="container mx-auto flex items-center justify-between py-3 px-4">
           <div className="flex items-center gap-3">
-            <img src="https://i.hizliresim.com/rm69m47.png" alt="3 Brothers Marketing Logo" className="h-10 w-auto" />
+            <Image src="https://i.hizliresim.com/rm69m47.png" alt="3 Brothers Marketing Logo" width={40} height={40} className="h-10 w-auto" />
             <span className="font-bold text-xl text-gray-800 tracking-tight">Vendor Portal</span>
           </div>
           <nav className="flex items-center gap-6">
@@ -18,4 +19,4 @@ export default function OrdersLayout({ children }: { children: React.ReactNode }
       <main className="min-h-screen bg-gray-50 pt-6">{children}</main>
     </div>
   );
-} 
+}

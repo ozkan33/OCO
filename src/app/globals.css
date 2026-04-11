@@ -3,13 +3,15 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-rgb: 249, 250, 251;
+  --foreground-rgb: 15, 23, 42;
+  --background-rgb: 248, 250, 252;
 }
 
 body {
   color: rgb(var(--foreground-rgb));
   background: rgb(var(--background-rgb));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Safari-specific fixes */
@@ -73,18 +75,37 @@ html {
 }
 
 /* Better focus states for accessibility */
-button:focus, a:focus, input:focus, textarea:focus {
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
   outline: 2px solid #3b82f6;
   outline-offset: 2px;
 }
 
 /* Safari-specific focus fixes */
 @supports (-webkit-touch-callout: none) {
-  button:focus, a:focus, input:focus, textarea:focus {
+  button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
     outline: 2px solid #3b82f6;
     outline-offset: 2px;
     -webkit-tap-highlight-color: transparent;
   }
+}
+
+/* ── Sidebar scrollbar ───────────────────────────────────────── */
+aside::-webkit-scrollbar,
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+aside::-webkit-scrollbar-track,
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+aside::-webkit-scrollbar-thumb,
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+aside::-webkit-scrollbar-thumb:hover,
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .rdg.rdg-editing {
@@ -108,26 +129,27 @@ button:focus, a:focus, input:focus, textarea:focus {
   border-radius: 6px;
 }
 
-/* ── Monday.com-style grid overrides ─────────────────────────── */
+/* ── Modern grid overrides (Linear / Notion inspired) ────────── */
 
 /* Base grid — clean background, tighter rows */
 .rdg {
   border: none !important;
-  border-radius: 8px !important;
+  border-radius: 10px !important;
   font-family: inherit !important;
+  overflow: hidden;
 }
 
 /* Header row — clean, bold, uppercase labels */
 .main-grid-with-separators .rdg-header-cell,
 .subgrid-with-separators .rdg-header-cell {
   background-color: #f8fafc !important;
-  border-right: 1px solid #e2e8f0 !important;
-  border-bottom: 2px solid #e2e8f0 !important;
-  color: #475569 !important;
-  font-weight: 600 !important;
-  font-size: 12px !important;
+  border-right: 1px solid #f1f5f9 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  color: #64748b !important;
+  font-weight: 500 !important;
+  font-size: 11px !important;
   text-transform: uppercase !important;
-  letter-spacing: 0.04em !important;
+  letter-spacing: 0.06em !important;
   padding: 0 12px !important;
 }
 
@@ -139,27 +161,59 @@ button:focus, a:focus, input:focus, textarea:focus {
   font-size: 13px !important;
   color: #1e293b !important;
   padding: 0 10px !important;
+  display: flex !important;
+  align-items: center !important;
+  transition: background-color 0.1s ease;
+}
+
+/* Row height refinement */
+.rdg-row {
+  transition: background-color 0.1s ease;
+}
+.rdg {
+  --rdg-row-height: 36px !important;
+  --rdg-header-row-height: 38px !important;
 }
 
 /* Row hover — soft blue highlight like Monday.com */
 .main-grid-with-separators .rdg-row:hover .rdg-cell,
 .subgrid-with-separators .rdg-row:hover .rdg-cell {
-  background-color: #eff6ff !important;
+  background-color: #f0f7ff !important;
 }
 
 /* Alternating rows — very subtle */
 .main-grid-with-separators .rdg-row:nth-child(even) .rdg-cell,
 .subgrid-with-separators .rdg-row:nth-child(even) .rdg-cell {
-  background-color: #fafbfd !important;
+  background-color: #fafbfc !important;
 }
 .main-grid-with-separators .rdg-row:nth-child(even):hover .rdg-cell,
 .subgrid-with-separators .rdg-row:nth-child(even):hover .rdg-cell {
-  background-color: #eff6ff !important;
+  background-color: #f0f7ff !important;
 }
 
 /* Selected cell — blue ring like Monday.com */
 .rdg-cell.rdg-cell-selected {
   box-shadow: inset 0 0 0 2px #3b82f6 !important;
+}
+
+/* Frozen column styling */
+.rdg-cell-frozen,
+.rdg-header-cell-frozen {
+  background-color: #fff !important;
+  border-right: 2px solid #e2e8f0 !important;
+  z-index: 2;
+}
+.rdg-header-cell-frozen {
+  background-color: #f8fafc !important;
+}
+.rdg-row:hover .rdg-cell-frozen {
+  background-color: #f0f7ff !important;
+}
+.rdg-row:nth-child(even) .rdg-cell-frozen {
+  background-color: #fafbfc !important;
+}
+.rdg-row:nth-child(even):hover .rdg-cell-frozen {
+  background-color: #f0f7ff !important;
 }
 
 /* Remove separator between Retailer Name and Comments columns */
@@ -187,22 +241,36 @@ button:focus, a:focus, input:focus, textarea:focus {
   height: 34px;
   font-size: 13px;
   font-weight: 500;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid #e2e8f0;
   background: white;
   color: #475569;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
 }
 .grid-toolbar-btn:hover {
-  background: #f1f5f9;
+  background: #f8fafc;
   border-color: #cbd5e1;
-  color: #1e293b;
+  color: #0f172a;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06);
+}
+.grid-toolbar-btn:active {
+  transform: translateY(0.5px);
 }
 .grid-toolbar-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  box-shadow: none;
+}
+
+.toolbar-separator {
+  width: 1px;
+  height: 20px;
+  background: #e2e8f0;
+  margin: 0 4px;
+  flex-shrink: 0;
 }
 
 /* Primary variant — filled blue */
@@ -210,11 +278,13 @@ button:focus, a:focus, input:focus, textarea:focus {
   background: #3b82f6;
   color: white;
   border-color: #3b82f6;
+  box-shadow: 0 1px 3px 0 rgba(59, 130, 246, 0.25);
 }
 .grid-toolbar-btn.primary:hover {
   background: #2563eb;
   border-color: #2563eb;
   color: white;
+  box-shadow: 0 2px 6px 0 rgba(59, 130, 246, 0.3);
 }
 
 /* Danger variant — filled red */
@@ -230,8 +300,131 @@ button:focus, a:focus, input:focus, textarea:focus {
 
 /* Small variant — for subgrid */
 .grid-toolbar-btn.sm {
-  height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
   border-radius: 5px;
+  gap: 4px;
+}
+
+/* ── Subgrid drawer animation ────────────────────────────────── */
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0.8;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* ── Modal animations ────────────────────────────────────────── */
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modalSlideUp {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.modal-backdrop {
+  animation: modalFadeIn 0.15s ease-out;
+}
+.modal-content {
+  animation: modalSlideUp 0.2s ease-out;
+}
+
+/* ── Save Status Indicator animations ────────────────────────── */
+.save-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.save-status-saving {
+  animation: saveStatusFadeIn 0.15s ease-out;
+}
+
+.save-status-saved {
+  animation: saveStatusFadeIn 0.2s ease-out;
+}
+
+.save-status-check {
+  animation: saveCheckPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.save-status-pulse {
+  animation: savePulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.save-status-error {
+  animation: saveShake 0.4s ease-out;
+}
+
+@keyframes saveStatusFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes saveCheckPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  60% {
+    transform: scale(1.2);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes savePulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes saveShake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-2px);
+  }
+  40% {
+    transform: translateX(2px);
+  }
+  60% {
+    transform: translateX(-1px);
+  }
+  80% {
+    transform: translateX(1px);
+  }
+}
+
+/* Cell save flash — applied momentarily after a cell value is saved */
+@keyframes cellSaveFlash {
+  0% {
+    background-color: rgba(16, 185, 129, 0.12);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.cell-saved-flash {
+  animation: cellSaveFlash 0.8s ease-out forwards;
 }

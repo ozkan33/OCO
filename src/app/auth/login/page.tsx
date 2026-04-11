@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { createClient } from '@supabase/supabase-js';
 import { handleMobileRedirect, getMobileBrowserInfo } from '@/utils/mobileDetection';
 
@@ -12,6 +13,12 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isSafari, setIsSafari] = useState(false);
   const router = useRouter();
+
+  // 2FA state
+  const [needs2FA, setNeeds2FA] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
+  const [trustDevice, setTrustDevice] = useState(true);
+  const [pendingRedirect, setPendingRedirect] = useState('/admin/dashboard');
 
   // Detect Safari on mount
   useEffect(() => {
@@ -62,25 +69,67 @@ export default function LoginPage() {
         setError('Authentication failed. Please try again.');
         return;
       }
-      
-      // Safari-specific navigation handling
-      if (isSafari) {
-        // Use window.location for Safari to avoid router issues
-        window.location.href = '/admin/dashboard';
-      } else {
-        // Use router for other browsers
-        try {
-          await router.push('/admin/dashboard');
-        } catch (routerError) {
-          console.error('Router error, falling back to window.location:', routerError);
-          window.location.href = '/admin/dashboard';
+
+      // Determine redirect based on role
+      const role = data.user?.user_metadata?.role;
+      const mustChangePassword = data.user?.user_metadata?.must_change_password;
+      const totpEnabled = data.user?.user_metadata?.totp_enabled;
+      let redirectTo = '/admin/dashboard';
+
+      if (role === 'BRAND') {
+        redirectTo = mustChangePassword ? '/auth/change-password' : '/portal';
+      }
+
+      // Check if 2FA is required and device is not trusted
+      if (totpEnabled && !mustChangePassword) {
+        // Check trusted device cookie (server already set it, we check via API)
+        const tfaRes = await fetch('/api/auth/2fa/setup', { credentials: 'include' });
+        const tfaData = tfaRes.ok ? await tfaRes.json() : null;
+
+        if (tfaData?.enabled) {
+          // Check if this device has the trusted_device cookie
+          // If the cookie exists and is valid, the server will handle it
+          // For now, show the 2FA input
+          setPendingRedirect(redirectTo);
+          setNeeds2FA(true);
+          return;
         }
+      }
+
+      // Log the session
+      await fetch('/api/auth/log-session', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ action: 'login' }),
+      }).catch(() => {});
+
+      // Navigate
+      if (isSafari) {
+        window.location.href = redirectTo;
+      } else {
+        try { await router.push(redirectTo); }
+        catch { window.location.href = redirectTo; }
       }
       
     } catch {
       setLoading(false);
       setError('An unexpected error occurred. Please try again.');
     }
+  };
+
+  const handleVerify2FA = async () => {
+    setError(null);
+    if (totpCode.length !== 6) { setError('Enter the 6-digit code.'); return; }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/2fa/verify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ code: totpCode, trustDevice }),
+      });
+      if (!res.ok) { const d = await res.json(); setError(d.error || 'Invalid code.'); setLoading(false); return; }
+      // Log session
+      await fetch('/api/auth/log-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'login' }) }).catch(() => {});
+      window.location.href = pendingRedirect;
+    } catch { setError('Verification failed.'); setLoading(false); }
   };
 
   const handleBackClick = () => {
@@ -99,21 +148,49 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#f8fafc] via-[#e0e7ef] to-[#e0e7ef] py-12 px-4">
       <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-2xl flex flex-col items-center">
-        <img
+        <Image
           src="https://i.hizliresim.com/rm69m47.png"
           alt="3 Brothers Marketing Logo"
+          width={64}
+          height={64}
           className="h-16 w-auto mb-4 cursor-pointer transition-transform hover:scale-105"
           onClick={handleBackClick}
         />
-        <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Sign In</h2>
-        <p className="text-gray-500 mb-6 text-center">Welcome back! Please enter your credentials to access your dashboard.</p>
-        
+        <h2 className="text-3xl font-extrabold text-gray-900 mb-2">{needs2FA ? 'Two-Factor Authentication' : 'Sign In'}</h2>
+        <p className="text-gray-500 mb-6 text-center">{needs2FA ? 'Enter the code from your authenticator app.' : 'Welcome back! Please enter your credentials to access your dashboard.'}</p>
+
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative text-center mb-4 w-full" role="alert">
             <span className="block sm:inline">{error}</span>
           </div>
         )}
-        
+
+        {/* 2FA Verification */}
+        {needs2FA ? (
+          <div className="w-full space-y-5">
+            <input
+              type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
+              value={totpCode} onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="000000" autoFocus
+              className="w-full border border-gray-300 rounded-lg px-3 py-3 text-center text-2xl font-mono tracking-[0.5em] focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            />
+            <label className="flex items-start gap-3 bg-gray-50 rounded-lg p-3 cursor-pointer">
+              <input type="checkbox" checked={trustDevice} onChange={e => setTrustDevice(e.target.checked)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-gray-700">Trust this device for 30 days</p>
+                <p className="text-xs text-gray-400">Skip 2FA on this device next time.</p>
+              </div>
+            </label>
+            <button type="button" onClick={handleVerify2FA} disabled={loading || totpCode.length !== 6}
+              className="w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition disabled:opacity-50">
+              {loading ? 'Verifying...' : 'Verify'}
+            </button>
+            <button type="button" onClick={() => { setNeeds2FA(false); setTotpCode(''); setError(null); }}
+              className="w-full py-2 text-sm text-gray-500 hover:text-gray-700">
+              Back to login
+            </button>
+          </div>
+        ) : (
         <form className="w-full space-y-5" onSubmit={handleLogin}>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
@@ -160,7 +237,8 @@ export default function LoginPage() {
             {loading ? 'Signing In...' : 'Sign In'}
           </button>
         </form>
-        
+        )}
+
         <button
           className="text-gray-600 hover:underline mt-4"
           onClick={handleBackClick}

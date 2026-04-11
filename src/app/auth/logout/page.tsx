@@ -7,7 +7,13 @@ export default function LogoutPage() {
   const router = useRouter();
 
   useEffect(() => {
+    // Clear all app-specific storage to prevent data leaking to next session
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('scorecards');
+    localStorage.removeItem('retailers');
+    sessionStorage.clear();
+
     router.replace('/auth/login');
   }, [router]);
 
@@ -19,4 +25,4 @@ export default function LogoutPage() {
       </div>
     </div>
   );
-} 
+}

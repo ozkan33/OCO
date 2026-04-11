@@ -1,17 +1,5 @@
 import React, { useState, useEffect } from 'react';
-// Only import from react-router-dom if not using Next.js
-let useParams: any = () => ({});
-let useNavigate: any = () => () => {};
-try {
-  // @ts-ignore
-  ({ useParams, useNavigate } = require('react-router-dom'));
-} catch {}
-
-let useRouter: any = undefined;
-try {
-  // @ts-ignore
-  useRouter = require('next/navigation').useRouter;
-} catch {}
+import { useRouter } from 'next/navigation';
 
 interface Customer {
   id: number;
@@ -25,11 +13,8 @@ interface CustomerDetailProps {
 }
 
 export default function CustomerDetail(props: CustomerDetailProps) {
-  // Use id from props if provided, otherwise from useParams
-  const params = useParams ? useParams() : {};
-  const id = props.id || params.id;
-  const router = useRouter ? useRouter() : undefined;
-  const navigate = useNavigate ? useNavigate() : undefined;
+  const router = useRouter();
+  const id = props.id;
   const [customer, setCustomer] = useState<Customer | null>(null);
 
   useEffect(() => {
@@ -47,19 +32,11 @@ export default function CustomerDetail(props: CustomerDetailProps) {
     const data = JSON.parse(localStorage.getItem('retailers') || '[]');
     const updated = data.map((c: Customer) => c.id === customer?.id ? customer : c);
     localStorage.setItem('retailers', JSON.stringify(updated));
-    if (props.id && router) {
-      router.push('/');
-    } else if (navigate) {
-      navigate('/');
-    }
+    router.push('/');
   }
 
   function handleCancel() {
-    if (props.id && router) {
-      router.push('/');
-    } else if (navigate) {
-      navigate('/');
-    }
+    router.push('/');
   }
 
   if (!customer) return <div>Loading...</div>;
@@ -83,4 +60,4 @@ export default function CustomerDetail(props: CustomerDetailProps) {
       <button onClick={handleCancel} className="ml-2 px-4 py-2 rounded border">Cancel</button>
     </div>
   );
-} 
+}

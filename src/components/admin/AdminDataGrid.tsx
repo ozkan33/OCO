@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DataGrid, type Column, type RowsChangeData, type SortColumn, type RenderEditCellProps } from 'react-data-grid';
-import { FaSort, FaSortUp, FaSortDown, FaRegCommentDots, FaInfoCircle, FaTachometerAlt, FaPlus, FaEdit, FaTrash } from 'react-icons/fa';
+import { FaSort, FaSortUp, FaSortDown, FaRegCommentDots, FaInfoCircle, FaPlus, FaEdit, FaTrash } from 'react-icons/fa';
 import ReactDOM from 'react-dom';
 import 'react-data-grid/lib/styles.css';
 
@@ -11,7 +11,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 import { format, isToday } from 'date-fns';
 import { Toaster, toast } from 'sonner';
 import { useScoreCardAutoSave } from '../../hooks/useAutoSave';
-import { SaveStatusCompact } from '../ui/SaveStatus';
+import { SaveStatus, SaveStatusCompact } from '../ui/SaveStatus';
 import MasterScorecard from './MasterScorecard';
 
 // ─── Extracted components ────────────────────────────────────────────────────
@@ -122,7 +122,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   const defaultColumnKeys = ['name', 'retail_price', 'buyer', 'store_count', 'hq_location', 'cmg'];
   const retailersColumns: MyColumn[] = [
     {
-      key: 'name', name: 'Retailer Name', editable: true, sortable: true, isDefault: true,
+      key: 'name', name: 'Retailer Name', editable: true, sortable: true, isDefault: true, frozen: true, width: 220,
       renderCell: (props) => <div className="retailer-col">{props.row["name"]}</div>
     },
     // Priority dropdown column
@@ -146,7 +146,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       },
       renderEditCell: ({ row, column, onRowChange }) => (
         <div className="relative w-full h-full">
-          <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-500 z-10">$</span>
+          <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-slate-500 z-10">$</span>
           <input
             type="number"
             step="0.01"
@@ -221,7 +221,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     {
       key: 'hq_location', name: 'HQ Location', editable: true, sortable: true, isDefault: true, renderEditCell: ({ row, column, onRowChange }: RenderEditCellProps<Row>) => (
         <div className="flex items-center gap-2 w-full">
-          <span style={{ color: '#2563eb', fontSize: 18 }}>&#128205;</span>
+          <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" /></svg>
           <input
             type="text"
             value={row[column.key] || ''}
@@ -268,6 +268,8 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   const [newScoreCardName, setNewScoreCardName] = useState('');
   const [editingScoreCard, setEditingScoreCard] = useState<ScoreCard | null>(null);
   const [showEditScoreCardModal, setShowEditScoreCardModal] = useState(false);
+  const [sidebarSearch, setSidebarSearch] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
 
 
@@ -608,6 +610,19 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     editingScoreCard?.id, // resetKey
     editingScoreCard // resetValue
   );
+
+  // Warn user if they try to close tab/navigate away with unsaved changes
+  React.useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   // Add scroll position preservation effect (ChatGPT's solution)
   React.useEffect(() => {
@@ -1620,8 +1635,12 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     updateCurrentData({ columns: updatedColumns });
   }, [userRole, selectedCategory]);
 
-  // Handle category switch
-  function handleCategoryChange(category: string) {
+  // Handle category switch — flush pending save before switching
+  async function handleCategoryChange(category: string) {
+    // Save current scorecard before switching
+    if (hasUnsavedChanges && editingScoreCard) {
+      try { await forceSave(); } catch { /* best effort */ }
+    }
     setSelectedCategory(category);
     setSortColumns([]);
 
@@ -1812,17 +1831,14 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   // Render colored label for product status
   function ProductStatusLabel({ value }: { value: string }) {
     const selected = productStatusOptions.find(opt => opt.value === value);
+    if (!selected) return <span className="text-slate-300 text-xs">—</span>;
     return (
       <div
-        className="min-w-[140px] h-10 w-full flex items-center justify-center rounded font-medium text-base box-border border-none p-0 m-0"
-        style={{ background: selected ? selected.bg : '#f3f4f6', color: selected ? selected.color : '#6b7280', gap: 8 }}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium"
+        style={{ background: selected.bg, color: selected.color }}
       >
-        {/* Status icon */}
-        {selected && <span style={{ fontSize: 18, width: 22, display: 'flex', justifyContent: 'center' }}>{statusIcons[selected.value] || ''}</span>}
-        {/* Colored dot */}
-        {selected && <span style={{ width: 10, height: 10, borderRadius: '50%', background: selected.bg, border: `2px solid ${selected.color}`, display: 'inline-block' }}></span>}
-        {/* Label */}
-        <span style={{ color: selected?.color }}>{selected ? selected.label : <span className="text-gray-400">Select status</span>}</span>
+        <span className="w-1.5 h-1.5 rounded-full" style={{ background: selected.color, opacity: 0.7 }} />
+        {selected.label}
       </div>
     );
   }
@@ -2037,7 +2053,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         },
         renderEditCell: ({ row, column, onRowChange }: RenderEditCellProps<Row>) => (
           <div className="relative w-full h-full">
-            <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-500 z-10">$</span>
+            <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-slate-500 z-10">$</span>
             <input
               type="number"
               step="0.01"
@@ -2063,7 +2079,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         editable: true,
         renderEditCell: ({ row, column, onRowChange }: RenderEditCellProps<Row>) => (
           <div className="flex items-center gap-2 w-full">
-            <span style={{ color: '#2563eb', fontSize: 18 }}>&#128205;</span>
+            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" /></svg>
             <input
               type="text"
               value={row[column.key] || ''}
@@ -2187,11 +2203,11 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         renderCell: ({ row }) => (
           <button
             onClick={() => setConfirmDelete({ type: 'row', id: row.id })}
-            className="text-gray-400 hover:text-red-600"
+            className="text-slate-400 hover:text-red-600"
             style={{ fontSize: 14 }}
             title="Delete row"
           >
-            🗑️
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
           </button>
         ),
       }
@@ -2208,11 +2224,11 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         renderCell: ({ row }) => (
           <button
             onClick={() => setConfirmDelete({ type: 'row', id: row.id })}
-            className="text-gray-400 hover:text-red-600"
+            className="text-slate-400 hover:text-red-600"
             style={{ fontSize: 14 }}
             title="Delete row"
           >
-            🗑️
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
           </button>
         ),
       }
@@ -2232,11 +2248,11 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       renderCell: ({ row }) => (
         <button
           onClick={() => setConfirmDelete({ type: 'row', id: row.id })}
-          className="text-gray-400 hover:text-red-600"
+          className="text-slate-300 hover:text-red-500 transition-colors"
           style={{ fontSize: 14 }}
           title="Delete row"
         >
-          🗑️
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
         </button>
       ),
       renderEditCell: () => null,
@@ -2373,9 +2389,36 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     event.target.value = '';
   }
 
-  function applyImport() {
+  async function applyImport() {
     if (!importPreview) return;
+
+    // Save a backup of current data before overwriting
+    const scorecardName = (editingScoreCard?.name || 'scorecard').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const currentData = getCurrentData();
+    if (currentData && currentData.rows.length > 0) {
+      try {
+        const XLSX = await import('xlsx');
+        const backupRows = currentData.rows.map(row => {
+          const obj: any = {};
+          currentData.columns.forEach(col => {
+            if (col.key !== 'comments' && col.key !== '_delete_row') {
+              obj[String(col.name || col.key)] = row[col.key] || '';
+            }
+          });
+          return obj;
+        });
+        const ws = XLSX.utils.json_to_sheet(backupRows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, scorecardName.slice(0, 31));
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        XLSX.writeFile(wb, `${scorecardName}_backup_before_import_${timestamp}.xlsx`);
+      } catch {
+        // Backup export failed — continue with import anyway
+      }
+    }
+
     updateCurrentData({ rows: importPreview.formattedRows });
+    const importSource = importPreview.filename;
     setImportPreview(null);
     setTimeout(async () => {
       try {
@@ -2384,7 +2427,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         toast.error('Failed to save imported data to backend.');
       }
     }, 0);
-    toast.success(`Import applied — ${importPreview.toUpdate} updated, ${importPreview.toAdd} added.`);
+    toast.success(`Imported "${importSource}" into "${editingScoreCard?.name}" — ${importPreview.toUpdate} updated, ${importPreview.toAdd} added.`);
   }
 
   // Sync editAddress/editNotes with retailer when modal opens or retailer changes
@@ -2634,23 +2677,23 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
           <h3 className="text-lg font-bold mb-4">Edit 3B Contact</h3>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Name</label>
-              <input type="text" value={contactModalData.name} onChange={e => setContactModalData(c => ({ ...c, name: e.target.value }))} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Name" />
+              <label className="block text-sm font-medium text-slate-700">Name</label>
+              <input type="text" value={contactModalData.name} onChange={e => setContactModalData(c => ({ ...c, name: e.target.value }))} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Name" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Telephone</label>
-              <input type="tel" value={contactModalData.telephone} onChange={e => setContactModalData(c => ({ ...c, telephone: e.target.value }))} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Telephone" />
+              <label className="block text-sm font-medium text-slate-700">Telephone</label>
+              <input type="tel" value={contactModalData.telephone} onChange={e => setContactModalData(c => ({ ...c, telephone: e.target.value }))} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Telephone" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Address</label>
-              <input type="text" value={contactModalData.address} onChange={e => setContactModalData(c => ({ ...c, address: e.target.value }))} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Address" />
+              <label className="block text-sm font-medium text-slate-700">Address</label>
+              <input type="text" value={contactModalData.address} onChange={e => setContactModalData(c => ({ ...c, address: e.target.value }))} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Address" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Notes</label>
-              <textarea value={contactModalData.notes} onChange={e => setContactModalData(c => ({ ...c, notes: e.target.value }))} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Notes" />
+              <label className="block text-sm font-medium text-slate-700">Notes</label>
+              <textarea value={contactModalData.notes} onChange={e => setContactModalData(c => ({ ...c, notes: e.target.value }))} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Notes" />
             </div>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setOpenContactModal(null)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+              <button onClick={() => setOpenContactModal(null)} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200">Cancel</button>
               <button onClick={() => {
                 if (!currentData || rowIdx === undefined || rowIdx === -1) return;
                 const updatedRows = currentData.rows.map((r, i) => i === rowIdx ? { ...r, [key]: { ...contactModalData } } : r);
@@ -2779,16 +2822,16 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             ) : (
               <>
                 <div className="flex items-center gap-1 flex-1">
-                  <span className="text-xs font-medium text-gray-700 truncate">
+                  <span className="text-[11px] font-medium text-slate-600 truncate">
                     {typeof col.name === 'string' ? col.name : ''}
                   </span>
                   <button
                     onClick={startEditing}
-                    className="text-gray-400 hover:text-blue-600 p-0.5"
+                    className="text-slate-300 hover:text-blue-500 transition-colors p-0.5"
                     title="Edit Column Name"
                     style={{ fontSize: 10 }}
                   >
-                    ✏️
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z" /></svg>
                   </button>
                 </div>
                 <div className="flex items-center gap-1 ml-2">
@@ -2813,11 +2856,11 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                           e.stopPropagation();
                           handleSubGridDeleteColumn(parentId, col.key);
                         }}
-                        className="text-gray-400 hover:text-red-600 p-0.5"
+                        className="text-slate-300 hover:text-red-500 transition-colors p-0.5"
                         title="Delete Column"
                         style={{ fontSize: 10 }}
                       >
-                        🗑️
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
                       </button>
                     )}
                   <button
@@ -2830,11 +2873,11 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                         return [...filtered, { columnKey: col.key, direction: newDirection }];
                       });
                     }}
-                    className="text-gray-400 hover:text-blue-600 p-0.5"
+                    className="text-slate-300 hover:text-blue-500 transition-colors p-0.5"
                     title="Sort Column"
                     style={{ fontSize: 10 }}
                   >
-                    {sortIcon || '↕'}
+                    {sortIcon || <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5 7.5 3m0 0L12 7.5M7.5 3v13.5m13.5-3L16.5 18m0 0L12 13.5m4.5 4.5V4.5" /></svg>}
                   </button>
                 </div>
               </>
@@ -2851,10 +2894,10 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             return (
               <button
                 onClick={() => handleSubGridAddRow(parentId)}
-                className="w-full h-full flex items-center justify-start text-blue-600 hover:text-blue-800 font-medium pl-2"
+                className="w-full h-full flex items-center justify-start text-slate-400 hover:text-blue-600 transition-colors font-medium pl-2"
                 style={{ minHeight: 24, fontSize: '13px', padding: 0 }}
               >
-                ➕ Add Row
+                + Add Row
               </button>
             );
           } else {
@@ -2876,8 +2919,8 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             }}
             title={isTruncated ? String(cellValue) : undefined}
           >
-            <span className="text-gray-900">{displayValue}</span>
-            {isTruncated && <span className="text-gray-400 ml-1">...</span>}
+            <span className="text-slate-800">{displayValue}</span>
+            {isTruncated && <span className="text-slate-400 ml-1">...</span>}
           </div>
         );
       },
@@ -2918,60 +2961,72 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
         return (
           <button
             onClick={() => handleSubGridDeleteRow(parentId, row.id)}
-            className="text-red-500 hover:text-red-700 text-base"
+            className="text-slate-300 hover:text-red-500 transition-colors text-base"
             style={{ fontSize: 14, padding: 0 }}
           >
-            🗑️
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
           </button>
         );
       },
       renderEditCell: () => <></>,
     });
 
+    const parentRow = getCurrentData()?.rows.find(r => r.id === parentId);
+    const parentName = parentRow?.name || 'Item';
+
     return (
-      <div
-        style={{
-          margin: '0 0 4px 32px',
-          background: '#fafbfc',
-          border: '1px solid #e2e8f0',
-          borderRadius: 8,
-          padding: '10px 10px 6px 10px',
-          fontSize: '13px',
-          width: '100%',
-          maxWidth: '100%',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-        }}
-      >
-        <div className="flex gap-1.5 mb-2 items-center flex-wrap">
-          <button onClick={() => handleSubGridAddColumn(parentId)} className="grid-toolbar-btn sm primary">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-            Add Column
-          </button>
-          <label className="grid-toolbar-btn sm cursor-pointer">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
-            Import
-            <input type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleImportSubgridExcel(e, parentId)} />
-          </label>
-          <button onClick={() => handleExportSubgridExcel(parentId)} className="grid-toolbar-btn sm">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12M12 16.5V3" /></svg>
-            Export
-          </button>
-          <div className="flex gap-1.5 ml-auto">
-            <button onClick={() => setSubgridTemplateModal({ parentId, mode: 'save' })} className="grid-toolbar-btn sm">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
-              Save
-            </button>
-            <button onClick={() => setSubgridTemplateModal({ parentId, mode: 'import' })} className="grid-toolbar-btn sm" disabled={subgridTemplates.length === 0}>
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m6.75 12-3-3m0 0-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-              Load
-            </button>
+      <div className="flex flex-col h-full">
+        {/* Drawer header */}
+        <div className="flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-1 h-5 bg-blue-500 rounded-full shrink-0" />
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-slate-800 truncate">{parentName}</h3>
+              <p className="text-[11px] text-slate-400">{grid.rows.length} row{grid.rows.length !== 1 ? 's' : ''} · {grid.columns.length} column{grid.columns.length !== 1 ? 's' : ''}</p>
+            </div>
           </div>
-          <button onClick={() => handleDeleteSubGrid(parentId)} className="grid-toolbar-btn sm danger">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
-            Delete
+          <button
+            onClick={() => setExpandedRowId(null)}
+            className="text-slate-400 hover:text-slate-600 text-xl font-bold shrink-0 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors"
+            aria-label="Close"
+          >
+            &times;
           </button>
         </div>
-        <div style={{ width: '100%', overflow: 'auto', maxWidth: '100%' }}>
+
+        {/* Toolbar */}
+        <div className="flex items-center gap-1 px-4 py-2 border-b border-slate-100 shrink-0 flex-wrap">
+          <button onClick={() => handleSubGridAddColumn(parentId)} className="grid-toolbar-btn sm primary">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            Column
+          </button>
+          <button onClick={() => handleSubGridAddRow(parentId)} className="grid-toolbar-btn sm">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            Row
+          </button>
+          <div className="toolbar-separator" />
+          <label className="grid-toolbar-btn sm cursor-pointer" title="Import">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
+            <input type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleImportSubgridExcel(e, parentId)} />
+          </label>
+          <button onClick={() => handleExportSubgridExcel(parentId)} className="grid-toolbar-btn sm" title="Export">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12M12 16.5V3" /></svg>
+          </button>
+          <div className="toolbar-separator" />
+          <button onClick={() => setSubgridTemplateModal({ parentId, mode: 'save' })} className="grid-toolbar-btn sm" title="Save template">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
+          </button>
+          <button onClick={() => setSubgridTemplateModal({ parentId, mode: 'import' })} className="grid-toolbar-btn sm" disabled={subgridTemplates.length === 0} title="Load template">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m6.75 12-3-3m0 0-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+          </button>
+          <div className="flex-1" />
+          <button onClick={() => handleDeleteSubGrid(parentId)} className="grid-toolbar-btn sm danger" title="Delete subgrid">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+          </button>
+        </div>
+
+        {/* Grid content */}
+        <div className="flex-1 overflow-auto p-4">
           <DataGrid
             key={parentId + '-' + grid.rows.length + '-' + grid.columns.length}
             columns={subEditableColumns}
@@ -2982,11 +3037,9 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             className="fill-grid subgrid-with-separators"
             enableVirtualization={false}
             style={{
-              fontSize: '13px',
-              minHeight: 60,
+              fontSize: '12px',
+              height: '100%',
               width: '100%',
-              minWidth: '100%',
-              maxWidth: '100%'
             }}
           />
         </div>
@@ -3023,7 +3076,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
-                background: isExpanded ? '#e6f0fa' : undefined,
+                background: isExpanded ? '#f0f7ff' : undefined,
                 borderRadius: isExpanded ? 6 : undefined,
                 padding: isExpanded ? '2px 0' : undefined
               }}
@@ -3042,13 +3095,12 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
-                  color: isExpanded ? '#2563eb' : '#888',
-                  fontSize: 18,
+                  color: isExpanded ? '#3b82f6' : '#94a3b8',
                   padding: 0,
                   marginRight: 2
                 }}
               >
-                {isExpanded ? '▾' : '▸'}
+                <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
               </button>
               <span style={{ fontWeight: isExpanded ? 600 : 400 }}>{props.row.name}</span>
             </div>
@@ -3091,12 +3143,14 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   // 2. Add PriorityLabel and PriorityDropdownEditCell
   function PriorityLabel({ value }: { value: string }) {
     const selected = priorityOptions.find(opt => opt.value === value);
+    if (!selected) return <span className="text-slate-300 text-xs">—</span>;
     return (
       <div
-        className="min-w-[90px] h-8 w-full flex items-center justify-center rounded font-medium text-base box-border border-none p-0 m-0"
-        style={{ background: selected ? selected.bg : '#f3f4f6', color: selected ? selected.color : '#6b7280', gap: 8 }}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium"
+        style={{ background: selected.bg, color: selected.color }}
       >
-        <span style={{ color: selected?.color }}>{selected ? selected.label : <span className="text-gray-400">Select priority</span>}</span>
+        <span className="w-1.5 h-1.5 rounded-full" style={{ background: selected.color, opacity: 0.7 }} />
+        {selected.label}
       </div>
     );
   }
@@ -3104,12 +3158,13 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
   // 3. Add ContactLabel and ContactDropdownEditCell
   function ContactLabel({ value }: { value: string }) {
     const selected = contactOptions.find(opt => opt.value === value);
+    if (!selected) return <span className="text-slate-300 text-xs">—</span>;
     return (
       <div
-        className="min-w-[90px] h-8 w-full flex items-center justify-center rounded font-medium text-base box-border border-none p-0 m-0"
-        style={{ background: selected ? selected.bg : '#f3f4f6', color: selected ? selected.color : '#6b7280', gap: 8 }}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium"
+        style={{ background: selected.bg, color: selected.color }}
       >
-        <span style={{ color: selected?.color }}>{selected ? selected.label : <span className="text-gray-400">Select contact</span>}</span>
+        {selected.label}
       </div>
     );
   }
@@ -3643,7 +3698,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                 if (e.key === 'Enter') commitChange(false, e);
                 if (e.key === 'Escape') { setEditing(false); setInputValue(col.name as string); if (inputRef.current) inputRef.current.blur(); if (document.activeElement && (document.activeElement as HTMLElement).classList.contains('rdg-header-cell')) { (document.activeElement as HTMLElement).blur(); } }
               }}
-              className="rounded-lg border border-gray-300 px-2 py-1 text-sm transition-all outline-none focus:outline-none"
+              className="rounded-lg border border-slate-300 px-2 py-1 text-sm transition-all outline-none focus:outline-none"
               style={{ width: Math.max(80, inputValue.length * 10) }}
               onBlur={() => commitChange(true)}
               maxLength={32}
@@ -3659,7 +3714,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             >✓</button>
             <button
               onClick={() => { setEditing(false); setInputValue(col.name as string); if (inputRef.current) inputRef.current.blur(); if (document.activeElement && (document.activeElement as HTMLElement).classList.contains('rdg-header-cell')) { (document.activeElement as HTMLElement).blur(); } }}
-              className="ml-1 text-gray-400 hover:text-red-600"
+              className="ml-1 text-slate-400 hover:text-red-600"
               title="Cancel"
               tabIndex={-1}
               style={{ fontSize: 18 }}
@@ -3674,7 +3729,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
               title="Edit column name"
               tabIndex={-1}
               onClick={e => { e.stopPropagation(); setEditing(true); }}
-            >✏️</button>
+            ><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z" /></svg></button>
             {isUserAdded && (
               <button
                 className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-600"
@@ -3682,7 +3737,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                 title="Delete column"
                 tabIndex={-1}
                 onClick={e => { e.stopPropagation(); setConfirmDelete({ type: 'column', id: col.key }); }}
-              >🗑️</button>
+              ><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg></button>
             )}
             {sortIcon && (
               <span
@@ -3845,9 +3900,10 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       }
     });
     const worksheet = XLSX.utils.json_to_sheet(modernRows);
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Modern Hierarchical Table');
+    const scorecardName = (editingScoreCard?.name || 'scorecard').replace(/[^a-zA-Z0-9_-]/g, '_');
+    XLSX.utils.book_append_sheet(workbook, worksheet, scorecardName.slice(0, 31));
     const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-    const filename = `scorecard_export_${timestamp}.xlsx`;
+    const filename = `${scorecardName}_${timestamp}.xlsx`;
     XLSX.writeFile(workbook, filename);
     toast.success(`Exported as ${filename}`);
   }
@@ -3881,9 +3937,13 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
     });
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Subgrid');
+    const scorecardName = (editingScoreCard?.name || 'scorecard').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const parentRow = getCurrentData()?.rows.find(r => r.id === parentId);
+    const parentName = (parentRow?.name || 'subgrid').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const sheetName = `${scorecardName}_${parentName}`.slice(0, 31);
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
     const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-    const filename = `subgrid_export_${parentId}_${timestamp}.xlsx`;
+    const filename = `${scorecardName}_${parentName}_subgrid_${timestamp}.xlsx`;
     XLSX.writeFile(workbook, filename);
     toast.success(`Exported subgrid as ${filename}`);
   }
@@ -4010,58 +4070,93 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
       `}</style>
       <div className="flex h-screen w-full">
         {/* Sidebar */}
-        <aside className="w-56 h-full bg-white border-r border-gray-200 py-6 px-4 flex flex-col gap-2">
-          <h3 className="text-lg font-bold text-black mb-4">Workspaces</h3>
+        <aside
+          className="h-full bg-white border-r border-slate-200 shadow-sm flex flex-col shrink-0 transition-all duration-200 ease-in-out overflow-hidden"
+          style={{ width: sidebarCollapsed ? 0 : 240, opacity: sidebarCollapsed ? 0 : 1 }}
+        >
+          <div className="px-4 pt-5 pb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Workspaces</h3>
+            <button
+              onClick={() => setSidebarCollapsed(true)}
+              className="p-1 text-slate-300 hover:text-slate-500 hover:bg-slate-100 rounded transition-colors"
+              title="Collapse sidebar"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5" /></svg>
+            </button>
+          </div>
 
-          {/* Master Scorecard - Moved to top */}
-          <div className="mb-4">
+          <div className="px-3 mb-2">
             <button
               onClick={() => handleCategoryChange('master-scorecard')}
-              className={`w-full text-left px-3 py-2 rounded font-medium transition-all flex items-center gap-2 ${selectedCategory === 'master-scorecard' ? 'bg-blue-100 text-blue-800 border border-blue-300' : 'hover:bg-gray-100 text-gray-700 border border-transparent'}`}
+              className={`w-full text-left px-3 py-2 rounded-lg font-medium transition-all flex items-center gap-2 text-sm ${selectedCategory === 'master-scorecard' ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-50 text-slate-600'}`}
+              style={{ borderLeft: selectedCategory === 'master-scorecard' ? '3px solid #3b82f6' : '3px solid transparent' }}
             >
-              <FaTachometerAlt size={14} />
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
               <span>Master Scorecard</span>
-              <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+              <span className="ml-auto text-[10px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded-full font-semibold">
                 Dashboard
               </span>
             </button>
           </div>
 
-          {/* Regular Categories */}
-          {dataCategories.map(cat => (
-            <button
-              key={cat}
-              onClick={() => handleCategoryChange(cat)}
-              className={`text-left px-3 py-2 rounded font-medium transition-all ${selectedCategory === cat ? 'bg-gray-200 text-black' : 'hover:bg-gray-100 text-gray-700'}`}
-            >
-              {cat}
-            </button>
-          ))}
+          <div className="px-3">
+            {dataCategories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => handleCategoryChange(cat)}
+                className={`w-full text-left px-3 py-2 rounded-lg font-medium transition-all text-sm ${selectedCategory === cat ? 'bg-slate-100 text-slate-900' : 'hover:bg-slate-50 text-slate-600'}`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
 
-          {/* ScoreCard Section */}
-          <div className="mt-6">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-md font-semibold text-gray-800">ScoreCards</h4>
+          <div className="mx-4 my-3 border-t border-slate-100"></div>
+
+          <div className="px-4 mb-2">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">ScoreCards</h4>
               {userRole === 'ADMIN' && (
                 <button
                   onClick={() => setShowCreateScoreCardModal(true)}
-                  className="p-1 text-blue-600 hover:text-blue-800"
+                  className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                   title="Create New ScoreCard"
                 >
-                  <FaPlus size={14} />
+                  <FaPlus size={12} />
                 </button>
               )}
             </div>
+          </div>
 
-            {scorecards.map(scorecard => (
-              <div key={scorecard.id} className="mb-2">
+          {scorecards.length > 3 && (
+            <div className="px-3 mb-2">
+              <div className="relative">
+                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input
+                  type="text"
+                  value={sidebarSearch}
+                  onChange={e => setSidebarSearch(e.target.value)}
+                  placeholder="Filter scorecards..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 transition-colors"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto px-3 pb-4" style={{ scrollbarWidth: 'thin', scrollbarColor: '#cbd5e1 transparent' }}>
+            {scorecards
+              .filter(sc => !sidebarSearch || sc.name.toLowerCase().includes(sidebarSearch.toLowerCase()))
+              .map(scorecard => (
+              <div key={scorecard.id} className="mb-0.5">
                 <div className="flex items-center justify-between group">
                   <button
                     onClick={() => handleCategoryChange(scorecard.id)}
-                    className={`flex-1 text-left px-3 py-2 rounded font-medium transition-all ${selectedCategory === scorecard.id ? 'bg-gray-200 text-black' : 'hover:bg-gray-100 text-gray-700'}`}
+                    className={`flex-1 text-left px-3 py-2 rounded-lg font-medium transition-all text-sm truncate ${selectedCategory === scorecard.id ? 'bg-slate-100 text-slate-900' : 'hover:bg-slate-50 text-slate-600'}`}
+                    style={{ borderLeft: selectedCategory === scorecard.id ? '3px solid #3b82f6' : '3px solid transparent' }}
+                    title={scorecard.name}
                   >
                     <div className="flex items-center">
-                      {scorecard.name}
+                      <span className="truncate">{scorecard.name}</span>
                       {selectedCategory === scorecard.id && editingScoreCard?.id === scorecard.id && (
                         <SaveStatusCompact
                           status={saveStatus}
@@ -4075,23 +4170,23 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                     </div>
                   </button>
                   {userRole === 'ADMIN' && (
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity shrink-0">
                       <button
                         onClick={() => {
                           setEditingScoreCard(scorecard);
                           setShowEditScoreCardModal(true);
                         }}
-                        className="p-1 text-gray-500 hover:text-blue-600"
+                        className="p-1 text-slate-400 hover:text-blue-600 rounded transition-colors"
                         title="Edit ScoreCard"
                       >
-                        <FaEdit size={12} />
+                        <FaEdit size={11} />
                       </button>
                       <button
                         onClick={() => setConfirmDelete({ type: 'scorecard', id: scorecard.id })}
-                        className="p-1 text-gray-500 hover:text-red-600"
+                        className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
                         title="Delete ScoreCard"
                       >
-                        <FaTrash size={12} />
+                        <FaTrash size={11} />
                       </button>
                     </div>
                   )}
@@ -4100,16 +4195,33 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             ))}
 
             {scorecards.length === 0 && (
-              <p className="text-sm text-gray-500 italic px-3 py-2">
-                No scorecards yet. {userRole === 'ADMIN' && 'Click the + button to create one.'}
+              <p className="text-xs text-slate-400 italic px-3 py-3">
+                No scorecards yet.{userRole === 'ADMIN' && ' Click + to create one.'}
+              </p>
+            )}
+
+            {sidebarSearch && scorecards.filter(sc => sc.name.toLowerCase().includes(sidebarSearch.toLowerCase())).length === 0 && scorecards.length > 0 && (
+              <p className="text-xs text-slate-400 italic px-3 py-3">
+                No match for &ldquo;{sidebarSearch}&rdquo;
               </p>
             )}
           </div>
         </aside>
 
+        {/* Sidebar expand button (shown when collapsed) */}
+        {sidebarCollapsed && (
+          <button
+            onClick={() => setSidebarCollapsed(false)}
+            className="h-full w-10 shrink-0 bg-white border-r border-slate-200 flex flex-col items-center pt-4 hover:bg-slate-50 transition-colors group"
+            title="Expand sidebar"
+          >
+            <svg className="w-4 h-4 text-slate-400 group-hover:text-slate-600 transition-colors" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 4.5l7.5 7.5-7.5 7.5m-6-15l7.5 7.5-7.5 7.5" /></svg>
+          </button>
+        )}
+
         {/* Main Content */}
-        <main className="flex-1 h-full flex flex-col p-8">
-          {/* Auto-save status indicator */}
+        <main className="flex-1 h-full flex flex-col p-6 overflow-auto bg-slate-50">
+          {/* Auto-save wrapper (no toast on routine save — uses inline indicator instead) */}
           {editingScoreCard && (
             <ScorecardAutoSaveWrapper
               key={editingScoreCard.id}
@@ -4126,7 +4238,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                   }
                   setEditingScoreCard(prev => prev ? { ...prev, id: newId } : null);
                 }
-                toast.success('ScoreCard saved successfully');
+                // No toast — inline SaveStatus indicator shows feedback
               }}
               onSaveError={(error) => {
                 toast.error(`Save failed: ${error.message}`);
@@ -4136,15 +4248,15 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
 
           {/* Row Edit Toggle Button and Import */}
           {selectedCategory && isScorecard(selectedCategory) && (
-            <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+            <div className="flex items-center justify-between gap-2 pb-3 flex-wrap sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10 -mx-6 px-6 pt-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <button onClick={openAddColModal} className="grid-toolbar-btn primary" disabled={userRole !== 'ADMIN'}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                   Add Column
                 </button>
                 <span className="relative flex items-center group">
-                  <FaInfoCircle className="text-gray-400 group-hover:text-blue-500 cursor-pointer" size={14} />
-                  <div className="absolute left-1/2 top-full mt-2 ml-2 w-64 bg-gray-900 text-white text-xs rounded-lg p-2.5 shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none z-50 transition-opacity duration-150" style={{ whiteSpace: 'normal' }}>
+                  <FaInfoCircle className="text-slate-400 group-hover:text-blue-500 cursor-pointer" size={14} />
+                  <div className="absolute left-1/2 top-full mt-2 ml-2 w-64 bg-slate-800 text-white text-xs rounded-lg p-2.5 shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none z-50 transition-opacity duration-150" style={{ whiteSpace: 'normal' }}>
                     To import data, columns and data types must match exactly.
                   </div>
                 </span>
@@ -4158,7 +4270,19 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                   Export
                 </button>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                {/* Inline save status indicator — like Google Docs "All changes saved" */}
+                {editingScoreCard && (
+                  <SaveStatus
+                    status={saveStatus}
+                    lastSaved={lastSaved}
+                    error={saveError}
+                    hasUnsavedChanges={hasUnsavedChanges}
+                    isOnline={isOnline}
+                    onRetry={forceSave}
+                  />
+                )}
+                <div className="w-px h-5 bg-slate-200" />
                 <button onClick={() => setShowSaveTemplateModal(true)} className="grid-toolbar-btn" disabled={userRole !== 'ADMIN'}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
                   Save Template
@@ -4213,15 +4337,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
 
           {/* DataGrid */}
           {selectedCategory !== 'master-scorecard' && getCurrentData() && getCurrentData()?.columns && getCurrentData()?.rows ? (
-            <div ref={gridContainerRef} className="flex-1 min-h-screen w-full flex flex-col" style={{ position: 'relative' }}>
-              {getSortedRows().map((row, idx) => (
-                <React.Fragment key={row.id ?? idx}>
-                  {/* Main Row is rendered by DataGrid itself */}
-                  {expandedRowId === row.id && (
-                    <SubGridRenderer parentId={row.id} />
-                  )}
-                </React.Fragment>
-              ))}
+            <div ref={gridContainerRef} className="flex-1 w-full flex flex-col" style={{ position: 'relative', minHeight: 'calc(100vh - 120px)' }}>
               <DataGrid
                 ref={gridRef}
                 key={JSON.stringify(getCurrentData())}
@@ -4244,9 +4360,9 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                           return (
                             <button
                               onClick={handleAddRow}
-                              className="w-full h-full flex items-center justify-center text-blue-600 hover:text-blue-800 font-medium"
+                              className="w-full h-full flex items-center justify-center text-slate-400 hover:text-blue-600 text-sm font-medium transition-colors"
                             >
-                              ➕ Add Row
+                              + Add Row
                             </button>
                           );
                         }
@@ -4410,7 +4526,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
               />
             </div>
           ) : (
-            <div className="flex-1 flex items-center justify-center text-gray-400 text-lg" style={{ minHeight: '60vh' }}>
+            <div className="flex-1 flex items-center justify-center text-slate-400 text-lg" style={{ minHeight: '60vh' }}>
               {selectedCategory === 'master-scorecard' ? 'Loading Master Scorecard...' : scorecards.length === 0 ? 'No ScoreCards yet. Please create one.' : 'Please select a ScoreCard.'}
             </div>
           )}
@@ -4701,14 +4817,14 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                 <h3 className="text-lg font-bold mb-4">Add New Column</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Column Name</label>
+                    <label className="block text-sm font-medium text-slate-700">Column Name</label>
                     {/* Hidden password field to prevent browser autofill */}
                     <input type="password" style={{ display: 'none' }} autoComplete="new-password" />
                     <input
                       type="text"
                       value={newColName}
                       onChange={e => setNewColName(e.target.value)}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 pr-8"
+                      className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 pr-8"
                       placeholder="e.g., Phone Number"
                       autoComplete="new-password"
                     />
@@ -4719,7 +4835,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => { setShowAddColModal(false); setColError(''); setNewColName(''); }}
-                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                      className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
                     >
                       Cancel
                     </button>
@@ -4742,12 +4858,12 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                 <h3 className="text-lg font-bold mb-4">Create New ScoreCard</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">ScoreCard Name</label>
+                    <label className="block text-sm font-medium text-slate-700">ScoreCard Name</label>
                     <input
                       type="text"
                       value={newScoreCardName}
                       onChange={e => setNewScoreCardName(e.target.value)}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                       placeholder="e.g., Sales Performance"
                       onKeyPress={e => e.key === 'Enter' && createScoreCard()}
                     />
@@ -4755,7 +4871,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => setShowCreateScoreCardModal(false)}
-                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                      className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
                     >
                       Cancel
                     </button>
@@ -4778,19 +4894,19 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                 <h3 className="text-lg font-bold mb-4">Edit ScoreCard</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">ScoreCard Name</label>
+                    <label className="block text-sm font-medium text-slate-700">ScoreCard Name</label>
                     <input
                       type="text"
                       value={editingScoreCard.name}
                       onChange={e => setEditingScoreCard(prev => prev ? { ...prev, name: e.target.value } : null)}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                       placeholder="e.g., Sales Performance"
                     />
                   </div>
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => setShowEditScoreCardModal(false)}
-                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                      className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
                     >
                       Cancel
                     </button>
@@ -4817,21 +4933,34 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             </div>
           )}
 
+          {/* Subgrid Drawer */}
+          {expandedRowId !== null && subGrids[expandedRowId] && selectedCategory && isScorecard(selectedCategory) && (
+            <div className="fixed inset-0 z-40 flex">
+              <div
+                className="fixed inset-0 bg-black/20 transition-opacity"
+                onClick={() => setExpandedRowId(null)}
+              />
+              <div className="relative ml-auto w-full max-w-xl h-full bg-white shadow-2xl flex flex-col border-l border-slate-200 overflow-hidden" style={{ animation: 'slideInRight 0.2s ease-out' }}>
+                <SubGridRenderer parentId={expandedRowId} />
+              </div>
+            </div>
+          )}
+
           {/* Comment Modal */}
           {openCommentRowId !== null && isScorecard(selectedCategory) && (() => {
             const row: Partial<Row> = getCurrentData()?.rows.find(r => r.id === openCommentRowId) || {};
             return (
               <div className="fixed inset-0 z-50 flex">
                 <div className="fixed inset-0 bg-black bg-opacity-40 transition-opacity" onClick={handleCloseCommentModal}></div>
-                <div className="relative ml-auto w-full max-w-md h-full bg-white shadow-2xl flex flex-col animate-slideInRight rounded-l-2xl border-l border-gray-200">
-                  <div className="flex items-center justify-between border-b px-8 py-6 bg-gray-50 rounded-t-2xl">
+                <div className="relative ml-auto w-full max-w-md h-full bg-white shadow-2xl flex flex-col animate-slideInRight rounded-l-2xl border-l border-slate-200">
+                  <div className="flex items-center justify-between border-b px-8 py-6 bg-slate-50 rounded-t-2xl">
                     <div>
-                      <h2 className="text-2xl font-bold text-gray-900">{row.name || 'Row'}</h2>
+                      <h2 className="text-2xl font-bold text-slate-900">{row.name || 'Row'}</h2>
                     </div>
-                    <button onClick={handleCloseCommentModal} className="text-gray-400 hover:text-gray-700 text-3xl font-bold">×</button>
+                    <button onClick={handleCloseCommentModal} className="text-slate-400 hover:text-slate-700 text-3xl font-bold">×</button>
                   </div>
-                  <div className="flex-1 flex flex-col px-8 py-6 overflow-y-auto bg-gray-50">
-                    <h3 className="text-base font-semibold text-gray-700 mb-4">Comments</h3>
+                  <div className="flex-1 flex flex-col px-8 py-6 overflow-y-auto bg-slate-50">
+                    <h3 className="text-base font-semibold text-slate-700 mb-4">Comments</h3>
                     <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-1" style={{ maxHeight: '40vh' }}>
                       {typeof row.id === 'number' && comments[selectedCategory]?.[row.id] && comments[selectedCategory][row.id].length > 0 ? (
                         comments[selectedCategory][row.id].map((c, i) => {
@@ -4839,21 +4968,21 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                           const displayName = user?.name || user?.email || 'Anonymous';
                           const createdAt = new Date(c.created_at).toLocaleString();
                           return (
-                            <li key={c.id || i} className="flex items-start gap-4 bg-white rounded-2xl shadow border border-gray-200 p-4">
+                            <li key={c.id || i} className="flex items-start gap-4 bg-white rounded-2xl shadow border border-slate-200 p-4">
                               <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">
                                 {displayName[0]?.toUpperCase() || 'A'}
                               </div>
                               <div className="flex-1">
                                 <div className="flex justify-between items-center mb-1">
-                                  <span className="font-semibold text-gray-800">{displayName}</span>
-                                  <span className="text-xs text-gray-400 ml-2 whitespace-nowrap">{createdAt}</span>
+                                  <span className="font-semibold text-slate-800">{displayName}</span>
+                                  <span className="text-xs text-slate-400 ml-2 whitespace-nowrap">{createdAt}</span>
                                 </div>
                                 {editCommentIdx === i ? (
                                   <div className="flex flex-col gap-2 mt-1">
                                     <textarea
                                       value={editCommentText}
                                       onChange={e => setEditCommentText(e.target.value)}
-                                      className="w-full rounded-xl border border-gray-300 px-3 py-2 text-base"
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-base"
                                       rows={2}
                                       autoFocus
                                     />
@@ -4877,12 +5006,12 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                                       >Save</button>
                                       <button
                                         onClick={() => { setEditCommentIdx(null); setEditCommentText(''); }}
-                                        className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-xs font-semibold"
+                                        className="px-3 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-semibold"
                                       >Cancel</button>
                                     </div>
                                   </div>
                                 ) : (
-                                  <div className="text-gray-700 text-base whitespace-pre-line mt-1">{c.text}</div>
+                                  <div className="text-slate-700 text-base whitespace-pre-line mt-1">{c.text}</div>
                                 )}
                                 {/* Show Edit/Delete if author */}
                                 {isAuthor && editCommentIdx !== i && (
@@ -4902,7 +5031,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                           );
                         })
                       ) : (
-                        <div className="text-gray-400 text-center py-8">No comments yet. Be the first to comment!</div>
+                        <div className="text-slate-400 text-center py-8">No comments yet. Be the first to comment!</div>
                       )}
                     </div>
                     <form
@@ -4920,7 +5049,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                         <textarea
                           value={commentInput}
                           onChange={e => setCommentInput(e.target.value)}
-                          className="w-full rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-blue-500 px-4 py-3 text-base bg-white shadow-sm resize-none min-h-[44px] transition-all"
+                          className="w-full rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-blue-500 px-4 py-3 text-base bg-white shadow-sm resize-none min-h-[44px] transition-all"
                           placeholder="Add a comment..."
                           rows={commentInput.length > 60 ? 4 : 2}
                           style={{ minHeight: 44, maxHeight: 120, marginBottom: 8 }}
@@ -4951,17 +5080,17 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             return (
               <div className="fixed inset-0 z-50 flex">
                 <div className="fixed inset-0 bg-black bg-opacity-40 transition-opacity" onClick={() => setOpenRetailerDrawer(null)}></div>
-                <div className="relative ml-auto w-full max-w-md h-full bg-white shadow-2xl flex flex-col animate-slideInRight rounded-l-2xl border-l border-gray-200">
-                  <div className="flex items-center justify-between border-b px-6 py-4 bg-gray-50 rounded-t-2xl">
+                <div className="relative ml-auto w-full max-w-md h-full bg-white shadow-2xl flex flex-col animate-slideInRight rounded-l-2xl border-l border-slate-200">
+                  <div className="flex items-center justify-between border-b px-6 py-4 bg-slate-50 rounded-t-2xl">
                     <div>
-                      <h2 className="text-xl font-bold text-gray-900">{row.name || 'Row'}</h2>
+                      <h2 className="text-xl font-bold text-slate-900">{row.name || 'Row'}</h2>
                     </div>
-                    <button onClick={() => setOpenRetailerDrawer(null)} className="text-gray-400 hover:text-gray-700 text-2xl font-bold">×</button>
+                    <button onClick={() => setOpenRetailerDrawer(null)} className="text-slate-400 hover:text-slate-700 text-2xl font-bold">×</button>
                   </div>
                   <div className="flex-1 flex flex-col px-6 py-4 overflow-y-auto">
                     {/* Address editing */}
                     <div className="mb-4">
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">Address</label>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Address</label>
                       <input
                         type="text"
                         value={row.address || ''}
@@ -4975,7 +5104,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                         placeholder="Enter address..."
                       />
                     </div>
-                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Comments</h3>
+                    <h3 className="text-sm font-semibold text-slate-700 mb-2">Comments</h3>
                     <div className="flex-1 overflow-y-auto mb-2 space-y-4 pr-1" style={{ maxHeight: '40vh' }}>
                       {typeof row.id === 'number' && comments[selectedCategory]?.[row.id]
                         ? comments[selectedCategory][row.id].map((c, i) => {
@@ -4983,14 +5112,14 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                           const displayName = user?.name || user?.email || 'Anonymous';
                           const createdAt = new Date(c.created_at).toLocaleString();
                           return (
-                            <li key={c.id || i} className="flex items-start gap-3 bg-white rounded-xl shadow border border-gray-200 p-4">
+                            <li key={c.id || i} className="flex items-start gap-3 bg-white rounded-xl shadow border border-slate-200 p-4">
                               <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">
                                 {displayName[0]?.toUpperCase() || 'A'}
                               </div>
                               <div className="flex-1">
                                 <div className="flex justify-between items-center mb-1">
-                                  <span className="font-semibold text-gray-800">{displayName}</span>
-                                  <span className="text-xs text-gray-400 ml-2 whitespace-nowrap">{createdAt}</span>
+                                  <span className="font-semibold text-slate-800">{displayName}</span>
+                                  <span className="text-xs text-slate-400 ml-2 whitespace-nowrap">{createdAt}</span>
                                 </div>
                                 {/* Edit mode for comment */}
                                 {editCommentIdx === i ? (
@@ -4998,7 +5127,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                                     <textarea
                                       value={editCommentText}
                                       onChange={e => setEditCommentText(e.target.value)}
-                                      className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                                       rows={2}
                                       autoFocus
                                     />
@@ -5021,11 +5150,11 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                                     >Save</button>
                                     <button
                                       onClick={() => { setEditCommentIdx(null); setEditCommentText(''); }}
-                                      className="px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-xs font-semibold"
+                                      className="px-2 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-semibold"
                                     >Cancel</button>
                                   </div>
                                 ) : (
-                                  <div className="text-gray-700 text-sm whitespace-pre-line mt-1">{c.text}</div>
+                                  <div className="text-slate-700 text-sm whitespace-pre-line mt-1">{c.text}</div>
                                 )}
                                 {/* Show Edit/Delete if author */}
                                 {isAuthor && editCommentIdx !== i && (
@@ -5059,7 +5188,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                         : null}
                     </div>
                     {/* Modern comment input */}
-                    <div className="pt-4 border-t bg-gray-50 rounded-b-2xl flex gap-3 items-start mt-2" style={{ borderTop: '1px solid #e5e7eb' }}>
+                    <div className="pt-4 border-t bg-slate-50 rounded-b-2xl flex gap-3 items-start mt-2" style={{ borderTop: '1px solid #e5e7eb' }}>
                       <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg mt-1">
                         {(user?.name || user?.username || 'A')[0].toUpperCase()}
                       </div>
@@ -5067,7 +5196,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                         <textarea
                           value={commentInput}
                           onChange={e => setCommentInput(e.target.value)}
-                          className="w-full rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-blue-500 px-4 py-2 text-sm bg-white shadow-sm resize-none min-h-[44px] transition-all"
+                          className="w-full rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-blue-500 px-4 py-2 text-sm bg-white shadow-sm resize-none min-h-[44px] transition-all"
                           placeholder="Add a comment..."
                           rows={commentInput.length > 60 ? 4 : 2}
                           style={{ minHeight: 44, maxHeight: 120, marginBottom: 8 }}
@@ -5212,12 +5341,12 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
               <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xs flex flex-col items-center">
                 <h2 className="text-lg font-bold mb-2">Confirm Deletion</h2>
-                <p className="mb-4 text-center text-gray-700">
+                <p className="mb-4 text-center text-slate-700">
                   Are you sure you want to delete this {confirmDelete.type === 'row' ? 'row' : confirmDelete.type === 'column' ? 'column' : 'scorecard'}?
                 </p>
                 <div className="flex gap-4 w-full justify-center">
                   <button
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
                     onClick={() => setConfirmDelete(null)}
                   >
                     Cancel
@@ -5249,12 +5378,12 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                 <h3 className="text-lg font-bold mb-4">Save ScoreCard as Template</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Template Name</label>
+                    <label className="block text-sm font-medium text-slate-700">Template Name</label>
                     <input
                       type="text"
                       value={templateName}
                       onChange={e => setTemplateName(e.target.value)}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                       placeholder="e.g., Product Columns"
                     />
                   </div>
@@ -5271,7 +5400,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => { setShowSaveTemplateModal(false); setTemplateError(''); setTemplateName(''); setIncludeRowsInTemplate(true); }}
-                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                      className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
                     >
                       Cancel
                     </button>
@@ -5294,13 +5423,13 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                 <h3 className="text-lg font-bold mb-4">Import Template</h3>
                 <div className="space-y-4">
                   {templates.length === 0 ? (
-                    <div className="text-center text-gray-500 text-sm mb-4">
+                    <div className="text-center text-slate-500 text-sm mb-4">
                       No templates available. Please save a template first.
                     </div>
                   ) : (
                     <>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Select Template</label>
+                        <label className="block text-sm font-medium text-slate-700">Select Template</label>
                         <div className="flex gap-2 items-center">
                           <select
                             value={selectedTemplateName}
@@ -5309,7 +5438,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                               const t = templates.find(t => t.name === e.target.value);
                               setImportWithRows(!!(t && t.rows));
                             }}
-                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                            className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                           >
                             <option value="">-- Select --</option>
                             {templates.map(t => (
@@ -5349,7 +5478,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => { setShowImportTemplateModal(false); setTemplateError(''); setSelectedTemplateName(''); setImportWithRows(true); }}
-                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                      className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
                     >
                       Cancel
                     </button>
@@ -5379,12 +5508,12 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                     <h3 className="text-lg font-bold mb-4">Save Subgrid as Template</h3>
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Template Name</label>
+                        <label className="block text-sm font-medium text-slate-700">Template Name</label>
                         <input
                           type="text"
                           value={subgridTemplateName}
                           onChange={e => setSubgridTemplateName(e.target.value)}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                           placeholder="e.g., Subgrid Columns"
                         />
                       </div>
@@ -5401,7 +5530,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                       <div className="flex justify-end gap-2">
                         <button
                           onClick={() => { setSubgridTemplateModal(null); setSubgridTemplateError(''); setSubgridTemplateName(''); setSubgridIncludeRows(true); }}
-                          className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                          className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
                         >
                           Cancel
                         </button>
@@ -5419,7 +5548,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                     <h3 className="text-lg font-bold mb-4">Import Subgrid Template</h3>
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Select Template</label>
+                        <label className="block text-sm font-medium text-slate-700">Select Template</label>
                         <div className="flex gap-2 items-center">
                           <select
                             value={subgridSelectedTemplate}
@@ -5428,7 +5557,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                               const t = subgridTemplates.find(t => t.name === e.target.value);
                               setSubgridImportWithRows(!!(t && t.rows));
                             }}
-                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                            className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                           >
                             <option value="">-- Select --</option>
                             {subgridTemplates.map(t => (
@@ -5472,7 +5601,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                       <div className="flex justify-end gap-2">
                         <button
                           onClick={() => { setSubgridTemplateModal(null); setSubgridTemplateError(''); setSubgridSelectedTemplate(''); setSubgridImportWithRows(true); }}
-                          className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                          className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
                         >
                           Cancel
                         </button>
@@ -5496,10 +5625,10 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
               <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xs flex flex-col items-center">
                 <h2 className="text-lg font-bold mb-2">Delete Comment</h2>
-                <p className="mb-4 text-center text-gray-700">Are you sure you want to delete this comment?</p>
+                <p className="mb-4 text-center text-slate-700">Are you sure you want to delete this comment?</p>
                 <div className="flex gap-4 w-full justify-center">
                   <button
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
                     onClick={() => setConfirmDeleteComment(null)}
                   >Cancel</button>
                   <button
@@ -5525,12 +5654,12 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
               <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xs flex flex-col items-center">
                 <h2 className="text-lg font-bold mb-2">Confirm Deletion</h2>
-                <p className="mb-4 text-center text-gray-700">
+                <p className="mb-4 text-center text-slate-700">
                   Are you sure you want to delete the template '{confirmDelete.name}'?
                 </p>
                 <div className="flex gap-4 w-full justify-center">
                   <button
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
                     onClick={() => setConfirmDelete(null)}
                   >Cancel</button>
                   <button
@@ -5556,7 +5685,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                     This export will include all main grid data and any subgrid data that exists, with clear parent-child relationships using visual indicators.
                   </div>
 
-                  <div className="bg-gray-50 p-3 rounded text-xs text-gray-600">
+                  <div className="bg-slate-50 p-3 rounded text-xs text-slate-600">
                     <strong>Features:</strong>
                     <ul className="mt-1 list-disc list-inside space-y-1">
                       <li>🔵 PARENT - Rows with children</li>
@@ -5578,7 +5707,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                   <div className="flex justify-end gap-2">
                     <button
                       onClick={() => setShowExportModal(false)}
-                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                      className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
                     >
                       Cancel
                     </button>
@@ -5599,8 +5728,8 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
           {importPreview && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-1">Review Import</h3>
-                <p className="text-sm text-gray-500 mb-5 truncate">{importPreview.filename}</p>
+                <h3 className="text-lg font-bold text-slate-900 mb-1">Review Import</h3>
+                <p className="text-sm text-slate-500 mb-5 truncate">{importPreview.filename}</p>
 
                 <div className="space-y-3 mb-6">
                   {importPreview.toUpdate > 0 && (
@@ -5635,7 +5764,7 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
                 <div className="flex justify-end gap-3">
                   <button
                     onClick={() => setImportPreview(null)}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200"
                   >
                     Cancel
                   </button>
@@ -5653,12 +5782,12 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
               <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xs flex flex-col items-center">
                 <h2 className="text-lg font-bold mb-2">Confirm Deletion</h2>
-                <p className="mb-4 text-center text-gray-700">
+                <p className="mb-4 text-center text-slate-700">
                   Are you sure you want to delete the subgrid template '{confirmDelete.name}'?
                 </p>
                 <div className="flex gap-4 w-full justify-center">
                   <button
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
                     onClick={() => setConfirmDelete(null)}
                   >Cancel</button>
                   <button

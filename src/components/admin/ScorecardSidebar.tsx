@@ -36,7 +36,7 @@ export default function ScorecardSidebar({
   onDeleteScoreCard,
 }: ScorecardSidebarProps) {
   return (
-    <aside className="w-56 h-full bg-white border-r border-gray-200 py-6 px-4 flex flex-col gap-2">
+    <aside className="w-56 h-full bg-white border-r border-slate-200 py-6 px-4 flex flex-col gap-2">
       <h3 className="text-lg font-bold text-black mb-4">Workspaces</h3>
 
       {/* Master Scorecard */}
@@ -46,7 +46,7 @@ export default function ScorecardSidebar({
           className={`w-full text-left px-3 py-2 rounded font-medium transition-all flex items-center gap-2 ${
             selectedCategory === 'master-scorecard'
               ? 'bg-blue-100 text-blue-800 border border-blue-300'
-              : 'hover:bg-gray-100 text-gray-700 border border-transparent'
+              : 'hover:bg-slate-100 text-slate-700 border border-transparent'
           }`}
         >
           <FaTachometerAlt size={14} />
@@ -60,7 +60,7 @@ export default function ScorecardSidebar({
       {/* ScoreCard Section */}
       <div className="mt-2">
         <div className="flex items-center justify-between mb-3">
-          <h4 className="text-md font-semibold text-gray-800">ScoreCards</h4>
+          <h4 className="text-md font-semibold text-slate-800">ScoreCards</h4>
           {userRole === 'ADMIN' && (
             <button
               onClick={onCreateScoreCard}
@@ -80,7 +80,7 @@ export default function ScorecardSidebar({
                 className={`flex-1 text-left px-3 py-2 rounded font-medium transition-all ${
                   selectedCategory === scorecard.id
                     ? 'bg-gray-200 text-black'
-                    : 'hover:bg-gray-100 text-gray-700'
+                    : 'hover:bg-slate-100 text-slate-700'
                 }`}
               >
                 <div className="flex items-center">
@@ -98,7 +98,7 @@ export default function ScorecardSidebar({
                 </div>
               </button>
               {userRole === 'ADMIN' && (
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                   <button
                     onClick={() => onEditScoreCard(scorecard)}
                     className="p-1 text-gray-500 hover:text-blue-600"

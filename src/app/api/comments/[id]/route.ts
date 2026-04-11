@@ -2,51 +2,39 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../lib/apiAuth';
 import { logger } from '../../../../../lib/logger';
+import { updateCommentSchema } from '../../../../../lib/schemas';
+import { z } from 'zod';
 
 // PUT /api/comments/[id] - Update a comment
-export async function PUT(request: Request, context: unknown) {
-  const { params } = context as { params: { id: string } };
-
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
     const user = await getUserFromToken(request);
-    const { id } = params;
+    const { id } = await params;
     const body = await request.json();
-    const { text } = body;
 
-    if (!text) {
-      return NextResponse.json({ error: 'Text is required' }, { status: 400 });
-    }
+    const { text } = updateCommentSchema.parse(body);
 
-    // First, verify the comment exists and belongs to the user
-    const { data: existingComment, error: fetchError } = await supabaseAdmin
-      .from('comments')
-      .select('*')
-      .eq('id', id)
-      .eq('user_id', user.id)
-      .single();
-
-    if (fetchError || !existingComment) {
-      return NextResponse.json({ error: 'Comment not found or unauthorized' }, { status: 404 });
-    }
-
-    // Update the comment
+    // Single query: update only if user owns it, return result
     const { data: comment, error } = await supabaseAdmin
       .from('comments')
-      .update({
-        text: text.trim(),
-        updated_at: new Date().toISOString()
-      })
+      .update({ text: text.trim(), updated_at: new Date().toISOString() })
       .eq('id', id)
+      .eq('user_id', user.id)
       .select()
       .single();
 
-    if (error) {
-      logger.error('Error updating comment:', error);
-      return NextResponse.json({ error: 'Failed to update comment' }, { status: 500 });
+    if (error || !comment) {
+      return NextResponse.json({ error: 'Comment not found or unauthorized' }, { status: 404 });
     }
 
     return NextResponse.json(comment);
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Text is required' }, { status: 400 });
+    }
     logger.error('Error in PUT /api/comments/[id]:', error);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -55,37 +43,23 @@ export async function PUT(request: Request, context: unknown) {
 // DELETE /api/comments/[id] - Delete a comment
 export async function DELETE(
   request: Request,
-  context: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const { params } = context;
-  // ... rest of your logic
-
-
   try {
     const user = await getUserFromToken(request);
-    const { id } = params;
+    const { id } = await params;
 
-    // First, verify the comment exists and belongs to the user
-    const { data: existingComment, error: fetchError } = await supabaseAdmin
-      .from('comments')
-      .select('*')
-      .eq('id', id)
-      .eq('user_id', user.id)
-      .single();
-
-    if (fetchError || !existingComment) {
-      return NextResponse.json({ error: 'Comment not found or unauthorized' }, { status: 404 });
-    }
-
-    // Delete the comment
-    const { error } = await supabaseAdmin
+    // Single query: delete only if user owns it
+    const { data, error } = await supabaseAdmin
       .from('comments')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select('id')
+      .single();
 
-    if (error) {
-      logger.error('Error deleting comment:', error);
-      return NextResponse.json({ error: 'Failed to delete comment' }, { status: 500 });
+    if (error || !data) {
+      return NextResponse.json({ error: 'Comment not found or unauthorized' }, { status: 404 });
     }
 
     return new NextResponse(null, { status: 204 });
@@ -93,4 +67,4 @@ export async function DELETE(
     logger.error('Error in DELETE /api/comments/[id]:', error);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-} 
+}
