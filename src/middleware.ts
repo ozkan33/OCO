@@ -8,35 +8,34 @@ const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
-
-  // Probabilistic cleanup — purge expired entries ~1 in 50 calls
   if (loginAttempts.size > 50 && Math.random() < 0.02) {
     loginAttempts.forEach((record, key) => {
       if (now > record.resetAt) loginAttempts.delete(key);
     });
   }
-
   const record = loginAttempts.get(ip);
-
   if (!record || now > record.resetAt) {
     loginAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
     return false;
   }
-
   record.count += 1;
   return record.count > RATE_LIMIT_MAX;
 }
 
-// ─── Decode a JWT payload without verification (just to check exp) ──────────
-function isTokenExpired(token: string): boolean {
+// ─── Decode a JWT payload without verification (just to check exp & metadata)
+function decodeToken(token: string): Record<string, any> | null {
   try {
     const parts = token.split('.');
-    if (parts.length !== 3) return true;
-    const payload = JSON.parse(atob(parts[1]));
-    return !payload.exp || payload.exp < Date.now() / 1000;
+    if (parts.length !== 3) return null;
+    return JSON.parse(atob(parts[1]));
   } catch {
-    return true;
+    return null;
   }
+}
+
+function isTokenExpired(token: string): boolean {
+  const payload = decodeToken(token);
+  return !payload?.exp || payload.exp < Date.now() / 1000;
 }
 
 // ─── Supabase client factory ─────────────────────────────────────────────────
@@ -74,7 +73,6 @@ export async function middleware(request: NextRequest) {
       request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
       request.headers.get('x-real-ip') ??
       'unknown';
-
     if (isRateLimited(ip)) {
       return NextResponse.json(
         { error: 'Too many login attempts. Please try again in 15 minutes.' },
@@ -83,8 +81,9 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // ── Only protect /admin and /vendor routes ─────────────────────────────────
-  if (!pathname.startsWith('/admin') && !pathname.startsWith('/vendor')) {
+  // ── Only protect /admin, /vendor, and /portal routes ───────────────────────
+  const isProtected = pathname.startsWith('/admin') || pathname.startsWith('/vendor') || pathname.startsWith('/portal');
+  if (!isProtected) {
     return NextResponse.next();
   }
 
@@ -97,6 +96,26 @@ export async function middleware(request: NextRequest) {
 
   // ── Fast path: decode JWT locally to check expiration ──────────────────────
   if (accessToken && !isTokenExpired(accessToken)) {
+    // Token valid — now check role-based routing
+    const payload = decodeToken(accessToken);
+    const role = payload?.user_metadata?.role;
+    const mustChangePassword = payload?.user_metadata?.must_change_password;
+
+    // Brand users must change password before accessing portal
+    if (role === 'BRAND' && mustChangePassword && !pathname.startsWith('/auth/change-password') && !pathname.startsWith('/api/auth/change-password')) {
+      return NextResponse.redirect(new URL('/auth/change-password', request.url));
+    }
+
+    // Brand users cannot access /admin
+    if (role === 'BRAND' && pathname.startsWith('/admin')) {
+      return NextResponse.redirect(new URL('/portal', request.url));
+    }
+
+    // Non-admin, non-brand users trying to access admin
+    if (pathname.startsWith('/admin') && role !== 'ADMIN') {
+      return NextResponse.redirect(new URL('/auth/login', request.url));
+    }
+
     return NextResponse.next();
   }
 
@@ -128,5 +147,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/vendor/:path*', '/api/auth/set-session'],
+  matcher: ['/admin/:path*', '/vendor/:path*', '/portal/:path*', '/api/auth/set-session'],
 };

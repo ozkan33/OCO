@@ -51,31 +51,15 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const handleAccountClick = () => {
     if (!user) return;
     
+    const dest = user.role === 'ADMIN' ? '/admin/dashboard'
+      : user.role === 'BRAND' ? '/portal'
+      : '/vendor/dashboard';
+
     if (isSafari) {
-      // Use window.location for Safari
-      if (user.role === 'ADMIN') {
-        window.location.href = '/admin/dashboard';
-      } else if (user.role === 'VENDOR') {
-        window.location.href = '/vendor/dashboard';
-      }
+      window.location.href = dest;
     } else {
-      // Use router for other browsers
-      try {
-        if (user.role === 'ADMIN') {
-          router.push('/admin/dashboard');
-        } else if (user.role === 'VENDOR') {
-          router.push('/vendor/dashboard');
-        }
-      } catch (routerError) {
-        console.error('Router error, falling back to window.location:', routerError);
-        if (typeof window !== 'undefined') {
-          if (user.role === 'ADMIN') {
-            window.location.href = '/admin/dashboard';
-          } else if (user.role === 'VENDOR') {
-            window.location.href = '/vendor/dashboard';
-          }
-        }
-      }
+      try { router.push(dest); }
+      catch { window.location.href = dest; }
     }
   };
 
@@ -121,8 +105,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     }
   };
 
-  // Hide header on all /admin/* and /vendor/* pages
-  const isDashboard = pathname.startsWith('/admin') || pathname.startsWith('/vendor');
+  // Hide header on all /admin/*, /vendor/*, and /portal/* pages (they have their own headers)
+  const isDashboard = pathname.startsWith('/admin') || pathname.startsWith('/vendor') || pathname.startsWith('/portal');
 
   return (
     <div className={inter.className}>

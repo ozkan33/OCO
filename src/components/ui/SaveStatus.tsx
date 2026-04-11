@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { SaveStatus as SaveStatusType } from '../../hooks/useAutoSave';
 
 interface SaveStatusProps {
@@ -11,6 +11,60 @@ interface SaveStatusProps {
   className?: string;
 }
 
+// ─── SVG Icon Components ────────────────────────────────────────────────────
+
+const CheckCircleIcon = ({ className = '' }: { className?: string }) => (
+  <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+);
+
+const SpinnerIcon = ({ className = '' }: { className?: string }) => (
+  <svg className={`animate-spin ${className}`} width="14" height="14" viewBox="0 0 24 24" fill="none">
+    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+  </svg>
+);
+
+const AlertCircleIcon = ({ className = '' }: { className?: string }) => (
+  <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="8" x2="12" y2="12" />
+    <line x1="12" y1="16" x2="12.01" y2="16" />
+  </svg>
+);
+
+const CloudOffIcon = ({ className = '' }: { className?: string }) => (
+  <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2 2l20 20" />
+    <path d="M17.5 21H9a7 7 0 0 1-1.1-13.9" />
+    <path d="M20.7 17.7A4.5 4.5 0 0 0 18 9h-1.3a7 7 0 0 0-4.2-5" />
+  </svg>
+);
+
+const DotIcon = ({ className = '' }: { className?: string }) => (
+  <svg className={className} width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+    <circle cx="4" cy="4" r="4" />
+  </svg>
+);
+
+// ─── Time formatting utility ────────────────────────────────────────────────
+
+function formatLastSaved(date: Date | null): string | null {
+  if (!date) return null;
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(diff / 60000);
+
+  if (seconds <= 5) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  if (minutes < 60) return `${minutes}m ago`;
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// ─── Full SaveStatus (toolbar/header placement) ─────────────────────────────
+
 export const SaveStatus: React.FC<SaveStatusProps> = React.memo(({
   status,
   lastSaved,
@@ -20,137 +74,78 @@ export const SaveStatus: React.FC<SaveStatusProps> = React.memo(({
   onRetry,
   className = '',
 }) => {
-  const getStatusConfig = () => {
-    switch (status) {
-      case 'saved':
-        return {
-          icon: '✅',
-          text: 'All changes saved',
-          color: 'text-green-600',
-          bgColor: 'bg-green-50',
-          borderColor: 'border-green-200',
-        };
-      case 'saving':
-        return {
-          icon: '🔄',
-          text: 'Saving...',
-          color: 'text-blue-600',
-          bgColor: 'bg-blue-50',
-          borderColor: 'border-blue-200',
-          animate: true,
-        };
-      case 'unsaved':
-        return {
-          icon: '●',
-          text: 'Unsaved changes',
-          color: 'text-yellow-600',
-          bgColor: 'bg-yellow-50',
-          borderColor: 'border-yellow-200',
-        };
-      case 'error':
-        return {
-          icon: '⚠️',
-          text: 'Save failed',
-          color: 'text-red-600',
-          bgColor: 'bg-red-50',
-          borderColor: 'border-red-200',
-        };
-      case 'offline':
-        return {
-          icon: '📴',
-          text: 'Offline - changes saved locally',
-          color: 'text-gray-600',
-          bgColor: 'bg-gray-50',
-          borderColor: 'border-gray-200',
-        };
-      default:
-        return {
-          icon: '●',
-          text: 'Unknown status',
-          color: 'text-gray-600',
-          bgColor: 'bg-gray-50',
-          borderColor: 'border-gray-200',
-        };
+  // Auto-refresh the "saved X ago" text
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (status === 'saved' && lastSaved) {
+      const interval = setInterval(() => setTick(t => t + 1), 10000);
+      return () => clearInterval(interval);
     }
-  };
+  }, [status, lastSaved]);
 
-  const config = getStatusConfig();
-  
-  const formatLastSaved = (date: Date | null) => {
-    if (!date) return null;
-    
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const minutes = Math.floor(diff / 60000);
-    const seconds = Math.floor((diff % 60000) / 1000);
-    
-    if (minutes === 0) {
-      return seconds <= 5 ? 'just now' : `${seconds}s ago`;
-    } else if (minutes < 60) {
-      return `${minutes}m ago`;
-    } else {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const renderContent = () => {
+    switch (status) {
+      case 'saving':
+        return (
+          <div className="save-status-indicator save-status-saving">
+            <SpinnerIcon className="text-blue-500" />
+            <span className="text-slate-500 text-xs font-medium">Saving...</span>
+          </div>
+        );
+      case 'saved':
+        return (
+          <div className="save-status-indicator save-status-saved">
+            <CheckCircleIcon className="text-emerald-500 save-status-check" />
+            <span className="text-slate-400 text-xs">
+              {lastSaved ? `Saved ${formatLastSaved(lastSaved)}` : 'All changes saved'}
+            </span>
+          </div>
+        );
+      case 'unsaved':
+        return (
+          <div className="save-status-indicator save-status-unsaved">
+            <DotIcon className="text-amber-400 save-status-pulse" />
+            <span className="text-slate-400 text-xs">Editing...</span>
+          </div>
+        );
+      case 'error':
+        return (
+          <div className="save-status-indicator save-status-error">
+            <AlertCircleIcon className="text-red-500" />
+            <span className="text-red-600 text-xs font-medium">
+              Save failed
+            </span>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="text-xs text-red-600 hover:text-red-800 font-medium underline underline-offset-2 ml-1 transition-colors"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        );
+      case 'offline':
+        return (
+          <div className="save-status-indicator save-status-offline">
+            <CloudOffIcon className="text-slate-400" />
+            <span className="text-slate-400 text-xs">Offline</span>
+          </div>
+        );
+      default:
+        return null;
     }
   };
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      {/* Main status indicator */}
-      <div className={`
-        flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-medium
-        ${config.color} ${config.bgColor} ${config.borderColor}
-        ${config.animate ? 'animate-pulse' : ''}
-      `}>
-        <span className={config.animate ? 'animate-spin' : ''}>
-          {config.icon}
-        </span>
-        <span>{config.text}</span>
-      </div>
-
-      {/* Last saved timestamp */}
-      {lastSaved && status === 'saved' && (
-        <span className="text-xs text-gray-500">
-          {formatLastSaved(lastSaved)}
-        </span>
-      )}
-
-      {/* Error message and retry button */}
-      {status === 'error' && error && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-red-600 max-w-xs truncate" title={error}>
-            {error}
-          </span>
-          {onRetry && (
-            <button
-              onClick={onRetry}
-              className="text-xs text-red-600 hover:text-red-800 underline"
-            >
-              Retry
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Offline indicator */}
-      {!isOnline && (
-        <div className="flex items-center gap-1 text-xs text-gray-500">
-          <span>🔌</span>
-          <span>Offline</span>
-        </div>
-      )}
-
-      {/* Unsaved changes warning */}
-      {hasUnsavedChanges && status !== 'saving' && (
-        <div className="flex items-center gap-1 text-xs text-yellow-600">
-          <span>⚡</span>
-          <span>Changes pending</span>
-        </div>
-      )}
+    <div className={`flex items-center ${className}`} role="status" aria-live="polite" aria-atomic="true">
+      {renderContent()}
     </div>
   );
 });
 
-// Compact version for minimal UI
+// ─── Compact SaveStatus (sidebar inline) ────────────────────────────────────
+
 export const SaveStatusCompact: React.FC<SaveStatusProps> = React.memo(({
   status,
   lastSaved,
@@ -160,25 +155,6 @@ export const SaveStatusCompact: React.FC<SaveStatusProps> = React.memo(({
   onRetry,
   className = '',
 }) => {
-  const getStatusConfig = () => {
-    switch (status) {
-      case 'saved':
-        return { icon: '✅', color: 'text-green-600' };
-      case 'saving':
-        return { icon: '🔄', color: 'text-blue-600', animate: true };
-      case 'unsaved':
-        return { icon: '●', color: 'text-yellow-600' };
-      case 'error':
-        return { icon: '⚠️', color: 'text-red-600' };
-      case 'offline':
-        return { icon: '📴', color: 'text-gray-600' };
-      default:
-        return { icon: '●', color: 'text-gray-600' };
-    }
-  };
-
-  const config = getStatusConfig();
-  
   const getTooltip = () => {
     switch (status) {
       case 'saved':
@@ -186,56 +162,46 @@ export const SaveStatusCompact: React.FC<SaveStatusProps> = React.memo(({
       case 'saving':
         return 'Saving changes...';
       case 'unsaved':
-        return 'You have unsaved changes';
+        return 'Unsaved changes';
       case 'error':
         return error || 'Save failed';
       case 'offline':
         return 'Offline - changes saved locally';
       default:
-        return 'Unknown status';
+        return '';
     }
   };
 
-  const formatLastSaved = (date: Date | null) => {
-    if (!date) return null;
-    
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const minutes = Math.floor(diff / 60000);
-    const seconds = Math.floor((diff % 60000) / 1000);
-    
-    if (minutes === 0) {
-      return seconds <= 5 ? 'just now' : `${seconds}s ago`;
-    } else if (minutes < 60) {
-      return `${minutes}m ago`;
-    } else {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const renderIcon = () => {
+    switch (status) {
+      case 'saving':
+        return <SpinnerIcon className="text-blue-500" />;
+      case 'saved':
+        return <CheckCircleIcon className="text-emerald-500 save-status-check" />;
+      case 'unsaved':
+        return <DotIcon className="text-amber-400 save-status-pulse" />;
+      case 'error':
+        return <AlertCircleIcon className="text-red-500" />;
+      case 'offline':
+        return <CloudOffIcon className="text-slate-400" />;
+      default:
+        return null;
     }
   };
 
   return (
-    <div className={`flex items-center gap-1 ${className}`}>
-      <span
-        className={`
-          text-lg cursor-help
-          ${config.color}
-          ${config.animate ? 'animate-spin' : ''}
-        `}
-        title={getTooltip()}
-      >
-        {config.icon}
-      </span>
-      
-      {!isOnline && (
-        <span className="text-xs text-gray-500" title="Offline">
-          🔌
-        </span>
-      )}
-      
+    <div
+      className={`inline-flex items-center gap-1 ${className}`}
+      role="status"
+      aria-live="polite"
+      aria-label={getTooltip()}
+      title={getTooltip()}
+    >
+      {renderIcon()}
       {status === 'error' && onRetry && (
         <button
-          onClick={onRetry}
-          className="text-xs text-red-600 hover:text-red-800 underline ml-1"
+          onClick={(e) => { e.stopPropagation(); onRetry(); }}
+          className="text-[10px] text-red-600 hover:text-red-800 underline underline-offset-2 transition-colors"
           title="Retry save"
         >
           Retry
@@ -245,7 +211,8 @@ export const SaveStatusCompact: React.FC<SaveStatusProps> = React.memo(({
   );
 });
 
-// Hook for before unload warning
+// ─── Hook for before unload warning ─────────────────────────────────────────
+
 export const useBeforeUnloadWarning = (hasUnsavedChanges: boolean) => {
   React.useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -259,4 +226,4 @@ export const useBeforeUnloadWarning = (hasUnsavedChanges: boolean) => {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
-}; 
+};

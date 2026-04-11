@@ -18,14 +18,24 @@ lerna-debug.log*
 # OS files
 .DS_Store
 Thumbs.db
+Desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
 
 # Env files
 .env
 .env.*
 !.env.example
 
+# Claude Code (local dev tool configs)
+.claude/
+
 # Vercel
 .vercel
+
+# Supabase local dev
+supabase/.temp/
+supabase/.branches/
 
 # TypeScript
 *.tsbuildinfo
@@ -93,12 +103,6 @@ web_modules/
 # JSPM
 jspm_packages/
 
-# dotenv
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
 # Grunt
 .grunt/
 
@@ -108,72 +112,21 @@ lib-cov/
 # Optional npm cache
 .npm/
 
-# Output of 'npm pack'
-*.tgz
-
-# Ignore lock files (optional, comment out if you want to keep them tracked)
+# Lock files (optional, comment out if you want to keep them tracked)
 # package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
-# Ignore IDE/editor folders
+# IDE/editor folders
 .idea/
 .vscode/
 *.sublime-workspace
 *.sublime-project
 
-# Ignore Mac system files
+# Mac system files
 .AppleDouble
 .LSOverride
 Icon?
 
-# Ignore Windows system files
-Thumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-
-# Ignore Linux system files
+# Linux system files
 .Trash-*
-
-# Ignore test coverage
-coverage/
-
-# Ignore other build tools
-build/
-
-# Ignore turbo repo
-.turbo/
-
-# Ignore docusaurus
-.docusaurus/
-
-# Ignore serverless
-.serverless/
-
-# Ignore firebase
-.firebase/
-
-# Ignore sveltekit
-.svelte-kit/
-
-# Ignore nuxt
-.nuxt/
-
-# Ignore vuepress
-.vuepress/dist/
-
-# Ignore vitepress
-.vitepress/dist/
-.vitepress/cache/
-
-# Ignore fusebox
-.fusebox/
-
-# Ignore dynamodb
-.dynamodb/
-
-# Ignore ternjs
-.tern-port
-
-# Ignore vscode test
-.vscode-test/

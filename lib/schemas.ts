@@ -31,3 +31,29 @@ export const updateScorecardSchema = z.object({
   data: z.record(z.any()).optional(),
   is_draft: z.boolean().optional(),
 });
+
+// Brand user management
+export const createBrandUserSchema = z.object({
+  email: z.string().email('Valid email required'),
+  contactName: z.string().min(1, 'Contact name required').max(255),
+  brandName: z.string().min(1, 'Brand name required').max(255),
+  tempPassword: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  scorecardAssignments: z.array(z.object({
+    scorecardId: z.string().min(1),
+    productColumns: z.array(z.string()),
+  })).optional().default([]),
+});
+
+export const updateBrandUserSchema = z.object({
+  contactName: z.string().min(1).max(255).optional(),
+  brandName: z.string().min(1).max(255).optional(),
+  isActive: z.boolean().optional(),
+  scorecardAssignments: z.array(z.object({
+    scorecardId: z.string().min(1),
+    productColumns: z.array(z.string()),
+  })).optional(),
+});
+
+export const changePasswordSchema = z.object({
+  newPassword: z.string().min(8, 'Password must be at least 8 characters').max(128),
+});

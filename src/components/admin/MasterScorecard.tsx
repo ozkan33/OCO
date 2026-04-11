@@ -125,7 +125,7 @@ export default function MasterScorecard({ onCustomerClick, selectedScorecardId, 
     return (
       <div className="p-6 bg-white rounded-lg shadow-lg">
         <div className="flex items-center justify-center h-32">
-          <div className="flex items-center gap-2 text-gray-500">
+          <div className="flex items-center gap-2 text-slate-500">
             <FaSync className="animate-spin" />
             <span>Loading Master Scorecard...</span>
           </div>
@@ -140,7 +140,7 @@ export default function MasterScorecard({ onCustomerClick, selectedScorecardId, 
         <div className="flex items-center justify-center h-32">
           <div className="text-center">
             <div className="text-red-500 mb-2">Error loading Master Scorecard</div>
-            <div className="text-sm text-gray-500 mb-4">{error}</div>
+            <div className="text-sm text-slate-500 mb-4">{error}</div>
             <button
               onClick={handleRefresh}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -157,7 +157,7 @@ export default function MasterScorecard({ onCustomerClick, selectedScorecardId, 
     return (
       <div className="p-6 bg-white rounded-lg shadow-lg">
         <div className="flex items-center justify-center h-32">
-          <div className="text-center text-gray-500">
+          <div className="text-center text-slate-500">
             <div className="mb-2">No data available</div>
             <div className="text-sm">
               {data?.selectedScorecard ? (
@@ -165,7 +165,7 @@ export default function MasterScorecard({ onCustomerClick, selectedScorecardId, 
                   {data.hasProducts === false ? (
                     <>
                       <p className="mb-2">{data.message || `The selected scorecard "${data.selectedScorecard.title}" has no product columns.`}</p>
-                      <p className="text-xs text-gray-400 mb-3">To see master scorecard data, you need to add product columns to this scorecard.</p>
+                      <p className="text-xs text-slate-400 mb-3">To see master scorecard data, you need to add product columns to this scorecard.</p>
                       <button
                         onClick={() => onCustomerClick?.(data.selectedScorecard!.id)}
                         className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
@@ -176,7 +176,7 @@ export default function MasterScorecard({ onCustomerClick, selectedScorecardId, 
                   ) : (
                     <>
                       <p className="mb-2">The selected scorecard "{data.selectedScorecard.title}" has no retailer data.</p>
-                      <p className="text-xs text-gray-400">Add retailers to see authorization data.</p>
+                      <p className="text-xs text-slate-400">Add retailers to see authorization data.</p>
                     </>
                   )}
                 </div>
@@ -195,10 +195,10 @@ export default function MasterScorecard({ onCustomerClick, selectedScorecardId, 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">
+          <h2 className="text-2xl font-bold text-slate-900">
             Master Scorecard - Retailer Authorization Summary
           </h2>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-slate-600">
             Product authorization status for each retailer
           </p>
         </div>
@@ -207,37 +207,37 @@ export default function MasterScorecard({ onCustomerClick, selectedScorecardId, 
           <div className="relative">
             <button
               onClick={() => setShowScorecardDropdown(!showScorecardDropdown)}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 text-sm font-medium"
             >
               <span>{getCurrentScorecardTitle()}</span>
               <FaChevronDown className="w-3 h-3" />
             </button>
             
             {showScorecardDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-300 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+              <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-slate-300 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
                 {availableScorecards.length > 0 ? (
                   availableScorecards.map((scorecard) => (
                     <button
                       key={scorecard.id}
                       onClick={() => handleScorecardChange(scorecard.id)}
-                      className={`w-full text-left px-4 py-2 hover:bg-gray-100 text-sm ${
-                        scorecard.id === currentScorecardId ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
+                      className={`w-full text-left px-4 py-2 hover:bg-slate-100 text-sm ${
+                        scorecard.id === currentScorecardId ? 'bg-blue-50 text-blue-700' : 'text-slate-700'
                       }`}
                     >
                       {scorecard.title}
                     </button>
                   ))
                 ) : (
-                  <div className="px-4 py-3 text-sm text-gray-500">
+                  <div className="px-4 py-3 text-sm text-slate-500">
                     <p className="mb-2">No scorecards with products found.</p>
-                    <p className="text-xs text-gray-400">Add product columns to your scorecards to see them here.</p>
+                    <p className="text-xs text-slate-400">Add product columns to your scorecards to see them here.</p>
                   </div>
                 )}
               </div>
             )}
           </div>
 
-          <div className="text-sm text-gray-500">
+          <div className="text-sm text-slate-500">
             Last updated: {data ? new Date(data.lastUpdated).toLocaleString() : ''}
           </div>
           <button
@@ -251,44 +251,44 @@ export default function MasterScorecard({ onCustomerClick, selectedScorecardId, 
       </div>
 
       {/* Retailer Summary Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse border border-gray-300">
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full border-collapse">
           <thead>
-            <tr className="bg-gray-50">
-              <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-700">
+            <tr className="bg-slate-50">
+              <th className="border-b border-slate-200 px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-slate-500">
                 Retailer
               </th>
-              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-700">
+              <th className="border-b border-slate-200 px-4 py-3 text-center text-xs uppercase tracking-wider font-medium text-slate-500">
                 Authorization Summary
               </th>
-              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-700">
+              <th className="border-b border-slate-200 px-4 py-3 text-center text-xs uppercase tracking-wider font-medium text-slate-500">
                 Percentage
               </th>
-              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-700">
+              <th className="border-b border-slate-200 px-4 py-3 text-center text-xs uppercase tracking-wider font-medium text-slate-500">
                 Products
               </th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-100">
             {data.retailerSummary.map((retailer, index) => (
-              <tr key={retailer.retailer} className="hover:bg-gray-50">
-                <td className="border border-gray-300 px-4 py-3 font-medium text-gray-900">
+              <tr key={retailer.retailer} className="hover:bg-slate-50 transition-colors duration-150">
+                <td className="px-4 py-3 font-medium text-slate-900">
                   {retailer.retailer}
                 </td>
-                <td className="border border-gray-300 px-4 py-3 text-center">
+                <td className="px-4 py-3 text-center">
                   <span className={`px-3 py-1 rounded-full text-sm border ${getColorClass(retailer.percentage)} ${getColorIntensity(retailer.percentage)}`}>
                     {retailer.authorized}/{retailer.total} ({retailer.percentage}%)
                   </span>
                 </td>
-                <td className="border border-gray-300 px-4 py-3 text-center">
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
+                <td className="px-4 py-3 text-center">
+                  <div className="w-full bg-slate-200 rounded-full h-2">
+                    <div
                       className={`h-2 rounded-full ${retailer.percentage >= 80 ? 'bg-green-500' : retailer.percentage >= 50 ? 'bg-yellow-500' : retailer.percentage >= 25 ? 'bg-orange-500' : 'bg-red-500'}`}
                       style={{ width: `${retailer.percentage}%` }}
                     ></div>
                   </div>
                 </td>
-                <td className="border border-gray-300 px-4 py-3">
+                <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1">
                     {retailer.products.map((product, productIndex) => (
                       <span
@@ -298,7 +298,7 @@ export default function MasterScorecard({ onCustomerClick, selectedScorecardId, 
                             ? 'bg-green-100 text-green-800'
                             : product.status.toLowerCase() === 'buyer passed'
                             ? 'bg-red-100 text-red-800'
-                            : 'bg-gray-100 text-gray-800'
+                            : 'bg-slate-100 text-slate-800'
                         }`}
                         title={`${product.name}: ${product.status}`}
                       >
@@ -319,24 +319,24 @@ export default function MasterScorecard({ onCustomerClick, selectedScorecardId, 
       </div>
 
       {/* Legend */}
-      <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-        <div className="text-sm font-medium text-gray-700 mb-2">Color Legend:</div>
+      <div className="mt-6 p-4 bg-slate-50 rounded-lg">
+        <div className="text-sm font-medium text-slate-700 mb-2">Color Legend:</div>
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded bg-green-100 border border-green-300"></div>
-            <span className="text-sm text-gray-600">80-100% (Excellent)</span>
+            <span className="text-sm text-slate-600">80-100% (Excellent)</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded bg-yellow-100 border border-yellow-300"></div>
-            <span className="text-sm text-gray-600">50-79% (Good)</span>
+            <span className="text-sm text-slate-600">50-79% (Good)</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded bg-orange-100 border border-orange-300"></div>
-            <span className="text-sm text-gray-600">25-49% (Moderate)</span>
+            <span className="text-sm text-slate-600">25-49% (Moderate)</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded bg-red-100 border border-red-300"></div>
-            <span className="text-sm text-gray-600">0-24% (Poor)</span>
+            <span className="text-sm text-slate-600">0-24% (Poor)</span>
           </div>
         </div>
       </div>

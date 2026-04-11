@@ -5,29 +5,23 @@ export type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error' | 'offline';
 interface AutoSaveOptions {
   debounceMs?: number;
   enableOfflineBackup?: boolean;
+  maxRetries?: number;
   onSaveSuccess?: (savedData?: any) => void;
   onSaveError?: (error: Error) => void;
 }
 
-interface AutoSaveHookReturn<T> {
-  status: SaveStatus;
-  lastSaved: Date | null;
-  error: string | null;
-  forceSave: () => Promise<void>;
-  isOnline: boolean;
-  hasUnsavedChanges: boolean;
-}
-
+// ─── Generic auto-save hook ──────────────────────────────────────────────────
 export function useAutoSave<T>(
   data: T,
   saveFunction: (data: T) => Promise<any>,
   options: AutoSaveOptions = {},
   resetKey?: string | number,
   resetValue?: T
-): AutoSaveHookReturn<T> {
+) {
   const {
-    debounceMs = 2000,
+    debounceMs = 3000,
     enableOfflineBackup = true,
+    maxRetries = 3,
     onSaveSuccess,
     onSaveError,
   } = options;
@@ -35,73 +29,68 @@ export function useAutoSave<T>(
   const [status, setStatus] = useState<SaveStatus>('saved');
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const lastDataRef = useRef<string>('');
   const isInitialRender = useRef(true);
+  const isSavingRef = useRef(false);        // mutex: only one save at a time
+  const pendingSaveRef = useRef<T | null>(null); // queued data while save is in-flight
+  const retryCountRef = useRef(0);
+  const latestDataRef = useRef<T>(data);     // always points to the latest data (for forceSave)
 
-  // Monitor online/offline status
+  // Keep latestDataRef in sync
+  latestDataRef.current = data;
+
+  // ── Online/offline ─────────────────────────────────────────────────────────
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      setStatus('unsaved'); // Trigger save when back online
+      // Flush any dirty data when coming back online
+      if (hasUnsavedChanges) {
+        executeSave(latestDataRef.current);
+      }
     };
-    
     const handleOffline = () => {
       setIsOnline(false);
       setStatus('offline');
+      // Immediately persist to localStorage when going offline
+      if (enableOfflineBackup && hasUnsavedChanges) {
+        writeBackup(latestDataRef.current);
+      }
     };
-
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    return () => { window.removeEventListener('online', handleOnline); window.removeEventListener('offline', handleOffline); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasUnsavedChanges]);
 
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
+  // ── localStorage backup (keyed per resetKey so scorecards don't collide) ───
+  const backupKey = `auto-save-backup-${resetKey || 'default'}`;
 
-  // Save to localStorage for offline backup
-  const saveToLocalStorage = useCallback((data: T, key: string) => {
-    if (enableOfflineBackup) {
-      try {
-        localStorage.setItem(key, JSON.stringify({
-          data,
-          timestamp: Date.now(),
-          version: 'auto-save'
-        }));
-      } catch (err) {
-        console.warn('Failed to save to localStorage:', err);
-      }
-    }
-  }, [enableOfflineBackup]);
+  function writeBackup(value: T) {
+    try { localStorage.setItem(backupKey, JSON.stringify({ data: value, timestamp: Date.now() })); } catch { /* full */ }
+  }
+  function clearBackup() {
+    try { localStorage.removeItem(backupKey); } catch { /* */ }
+  }
 
-  // Load from localStorage
-  const loadFromLocalStorage = useCallback((key: string): T | null => {
-    if (!enableOfflineBackup) return null;
-    
-    try {
-      const stored = localStorage.getItem(key);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return parsed.data;
-      }
-    } catch (err) {
-      console.warn('Failed to load from localStorage:', err);
-    }
-    return null;
-  }, [enableOfflineBackup]);
-
-  // Debounced save function
-  const debouncedSave = useCallback(async (value: T) => {
+  // ── Core save executor (serialized — only one in-flight at a time) ─────────
+  const executeSave = useCallback(async (value: T) => {
     if (!isOnline) {
       setStatus('offline');
-      saveToLocalStorage(value, 'auto-save-backup');
+      writeBackup(value);
       return;
     }
 
+    // If already saving, queue this data for after current save completes
+    if (isSavingRef.current) {
+      pendingSaveRef.current = value;
+      return;
+    }
+
+    isSavingRef.current = true;
     setStatus('saving');
     setError(null);
 
@@ -110,138 +99,109 @@ export function useAutoSave<T>(
       setStatus('saved');
       setLastSaved(new Date());
       setHasUnsavedChanges(false);
-      
-      // Clear localStorage backup after successful save
-      if (enableOfflineBackup) {
-        localStorage.removeItem('auto-save-backup');
-      }
-      
+      retryCountRef.current = 0;
+      clearBackup();
       onSaveSuccess?.(result);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Save failed';
-      setError(errorMessage);
+      const msg = err instanceof Error ? err.message : 'Save failed';
+
+      // Retry with exponential backoff
+      if (retryCountRef.current < maxRetries) {
+        retryCountRef.current++;
+        isSavingRef.current = false;
+        const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), 10000);
+        timeoutRef.current = setTimeout(() => executeSave(value), delay);
+        setStatus('unsaved');
+        return;
+      }
+
+      // All retries exhausted
+      setError(msg);
       setStatus('error');
-      
-      // Save to localStorage as fallback
-      saveToLocalStorage(value, 'auto-save-backup');
-      
-      onSaveError?.(err instanceof Error ? err : new Error(errorMessage));
+      retryCountRef.current = 0;
+      writeBackup(value);
+      onSaveError?.(err instanceof Error ? err : new Error(msg));
+    } finally {
+      isSavingRef.current = false;
     }
-  }, [isOnline, saveFunction, saveToLocalStorage, enableOfflineBackup, onSaveSuccess, onSaveError]);
 
-  // Force save function
-  const forceSave = useCallback(async () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    await debouncedSave(data);
-  }, [data, debouncedSave]);
-
-  // Memoize data serialization to prevent unnecessary comparisons
-  const serializedData = useMemo(() => {
-    try {
-      return JSON.stringify(data);
-    } catch {
-      return String(data);
-    }
-  }, [data]);
-
-  // Memoize resetValue serialization
-  const serializedResetValue = useMemo(() => {
-    if (resetValue === undefined) return undefined;
-    try {
-      return JSON.stringify(resetValue);
-    } catch {
-      return String(resetValue);
-    }
-  }, [resetValue]);
-
-  // Reset lastDataRef when resetKey or resetValue changes
-  useEffect(() => {
-    if (resetKey !== undefined) {
-      lastDataRef.current = serializedResetValue !== undefined ? serializedResetValue : serializedData;
+    // Process queued save (if data changed while we were saving)
+    if (pendingSaveRef.current !== null) {
+      const queued = pendingSaveRef.current;
+      pendingSaveRef.current = null;
+      // Use setTimeout(0) to avoid deep recursion
+      setTimeout(() => executeSave(queued), 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetKey, serializedResetValue]);
+  }, [isOnline, saveFunction, maxRetries, onSaveSuccess, onSaveError]);
 
-  // Main effect to handle data changes
+  // ── Force save (flush pending debounce immediately) ────────────────────────
+  const forceSave = useCallback(async () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    // Wait for any in-flight save to finish
+    if (isSavingRef.current) {
+      pendingSaveRef.current = latestDataRef.current;
+      // Wait for the queue to flush (max 5s)
+      await new Promise<void>(resolve => {
+        const check = setInterval(() => { if (!isSavingRef.current) { clearInterval(check); resolve(); } }, 100);
+        setTimeout(() => { clearInterval(check); resolve(); }, 5000);
+      });
+      if (pendingSaveRef.current !== null) return; // queued save handled it
+    }
+    await executeSave(latestDataRef.current);
+  }, [executeSave]);
+
+  // ── Serialize data for comparison ──────────────────────────────────────────
+  const serializedData = useMemo(() => {
+    try { return JSON.stringify(data); } catch { return ''; }
+  }, [data]);
+
+  // ── Reset when switching scorecards ────────────────────────────────────────
   useEffect(() => {
-    // Skip initial render
+    if (resetKey !== undefined) {
+      const resetSerialized = resetValue !== undefined
+        ? ((() => { try { return JSON.stringify(resetValue); } catch { return ''; } })())
+        : serializedData;
+      lastDataRef.current = resetSerialized;
+      isInitialRender.current = true; // treat next render as initial
+      retryCountRef.current = 0;
+      pendingSaveRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
+
+  // ── Main effect: detect changes and schedule debounced save ────────────────
+  useEffect(() => {
     if (isInitialRender.current) {
       isInitialRender.current = false;
       lastDataRef.current = serializedData;
       return;
     }
 
-    // Check if data actually changed
     if (serializedData === lastDataRef.current) return;
 
     lastDataRef.current = serializedData;
     setHasUnsavedChanges(true);
     setStatus('unsaved');
 
-    // Clear existing timeout
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
-    // Set new timeout for debounced save
     timeoutRef.current = setTimeout(() => {
-      debouncedSave(data);
+      executeSave(data);
     }, debounceMs);
 
-    // Cleanup timeout on unmount
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, [serializedData, data, debouncedSave, debounceMs]);
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
+  }, [serializedData, data, executeSave, debounceMs]);
 
-  // Cleanup on unmount
+  // ── Cleanup ────────────────────────────────────────────────────────────────
   useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
   }, []);
 
-  return {
-    status,
-    lastSaved,
-    error,
-    forceSave,
-    isOnline,
-    hasUnsavedChanges,
-  };
+  return { status, lastSaved, error, forceSave, isOnline, hasUnsavedChanges };
 }
 
-// Compute which cells changed between two row snapshots.
-// Returns an array of { rowId, columnKey, value } for every changed cell.
-function diffRows(
-  prevRows: any[],
-  nextRows: any[],
-  columnKeys: string[]
-): { rowId: number; columnKey: string; value: string }[] {
-  const changes: { rowId: number; columnKey: string; value: string }[] = [];
-  const prevById = new Map(prevRows.map(r => [r.id, r]));
-
-  for (const row of nextRows) {
-    if (!row.id || row.isAddRow) continue;
-    const prev = prevById.get(row.id) ?? {};
-    for (const key of columnKeys) {
-      const oldVal = String(prev[key] ?? '');
-      const newVal = String(row[key] ?? '');
-      if (oldVal !== newVal) {
-        changes.push({ rowId: row.id, columnKey: key, value: newVal });
-      }
-    }
-  }
-  return changes;
-}
-
-// Hook specifically for scorecards using API endpoints
+// ─── Scorecard-specific auto-save ────────────────────────────────────────────
 export function useScoreCardAutoSave(
   scoreCardId: string | null,
   data: any,
@@ -249,95 +209,98 @@ export function useScoreCardAutoSave(
   resetKey?: string | number,
   resetValue?: any
 ) {
-  // Track the last saved rows snapshot so we can diff on next save
-  const lastSavedRowsRef = useRef<any[]>([]);
+  // Ref to hold the real DB ID after migration (prevents ghost creation)
+  const resolvedIdRef = useRef<string | null>(scoreCardId);
+  const isMigratingRef = useRef(false);
+
+  // Keep ref in sync with prop, but don't overwrite during migration
+  useEffect(() => {
+    if (!isMigratingRef.current) {
+      resolvedIdRef.current = scoreCardId;
+    }
+  }, [scoreCardId]);
 
   const saveToAPI = useCallback(async (data: any) => {
-    if (!scoreCardId) {
-      throw new Error('No scorecard ID provided');
-    }
+    const id = resolvedIdRef.current;
+    if (!id) throw new Error('No scorecard ID');
 
-    // ── Handle local (pre-DB) scorecards ─────────────────────────────────────
-    if (scoreCardId.startsWith('scorecard_')) {
-      const createResponse = await fetch('/api/scorecards', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ title: data?.name || 'Untitled Scorecard', data, is_draft: true }),
-      });
+    // ── Local scorecard → create in DB first ─────────────────────────────────
+    if (id.startsWith('scorecard_')) {
+      // Prevent double-creation: if already migrating, skip
+      if (isMigratingRef.current) return null;
+      isMigratingRef.current = true;
 
-      if (!createResponse.ok) {
-        const errorData = await createResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to create scorecard: ${createResponse.status}`);
+      try {
+        const res = await fetch('/api/scorecards', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ title: data?.name || 'Untitled Scorecard', data, is_draft: true }),
+        });
+
+        if (!res.ok) {
+          isMigratingRef.current = false;
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Failed to create scorecard');
+        }
+
+        const created = await res.json();
+
+        // Update the resolved ID immediately (before React re-renders)
+        resolvedIdRef.current = created.id;
+
+        // Update localStorage with the new ID
+        try {
+          const all = JSON.parse(localStorage.getItem('scorecards') || '[]');
+          localStorage.setItem('scorecards', JSON.stringify(
+            all.map((sc: any) => sc.id === id ? { ...sc, id: created.id, lastModified: new Date().toISOString() } : sc)
+          ));
+        } catch { /* */ }
+
+        isMigratingRef.current = false;
+        return created;
+      } catch (err) {
+        isMigratingRef.current = false;
+        throw err;
       }
-
-      const createdScorecard = await createResponse.json();
-
-      const existingScoreCards = JSON.parse(localStorage.getItem('scorecards') || '[]');
-      localStorage.setItem('scorecards', JSON.stringify(
-        existingScoreCards.map((sc: any) =>
-          sc.id === scoreCardId
-            ? { ...sc, id: createdScorecard.id, ...data, lastModified: new Date().toISOString() }
-            : sc
-        )
-      ));
-      lastSavedRowsRef.current = data?.rows ?? [];
-      return createdScorecard;
     }
 
-    // ── Blob save (keeps existing behaviour, source of truth for the grid) ───
-    const response = await fetch(`/api/scorecards/${scoreCardId}`, {
+    // ── Normal save: PUT to existing scorecard ───────────────────────────────
+    const res = await fetch(`/api/scorecards/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ title: data?.name || 'Untitled Scorecard', data, is_draft: true }),
     });
 
-    if (!response.ok) {
-      const text = await response.text();
-      let errorData: any = {};
-      try { errorData = JSON.parse(text); } catch { errorData = { error: text }; }
-      throw new Error(errorData.error || `Failed to save scorecard: ${response.status}`);
+    if (!res.ok) {
+      const text = await res.text();
+      let errData: any = {};
+      try { errData = JSON.parse(text); } catch { errData = { error: text }; }
+      throw new Error(errData.error || `Save failed: ${res.status}`);
     }
 
-    const savedScorecard = await response.json();
+    const saved = await res.json();
 
-    // ── Cell-level normalized save (fire-and-forget, won't break the UI) ─────
-    const currentRows: any[] = data?.rows ?? [];
-    const columnKeys: string[] = (data?.columns ?? [])
-      .map((c: any) => c.key)
-      .filter((k: string) => k && !k.startsWith('_') && k !== 'comments');
+    // Sync localStorage with server state
+    try {
+      const all = JSON.parse(localStorage.getItem('scorecards') || '[]');
+      localStorage.setItem('scorecards', JSON.stringify(
+        all.map((sc: any) => sc.id === id ? { ...sc, lastModified: new Date().toISOString() } : sc)
+      ));
+    } catch { /* */ }
 
-    const changes = diffRows(lastSavedRowsRef.current, currentRows, columnKeys);
-    lastSavedRowsRef.current = currentRows;
-
-    if (changes.length > 0) {
-      fetch(`/api/scorecards/${scoreCardId}/cells`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ changes }),
-      }).catch(() => {
-        // Non-fatal: normalized save failed, blob is still authoritative
-      });
-    }
-
-    return savedScorecard;
-  }, [scoreCardId]);
+    return saved;
+  }, []); // No deps — uses refs internally so it never goes stale
 
   return useAutoSave(data, saveToAPI, options, resetKey, resetValue);
 }
 
-// Utility function to restore from localStorage
-export function restoreFromLocalStorage<T>(key: string = 'auto-save-backup'): T | null {
+// ─── Utility: restore backup ─────────────────────────────────────────────────
+export function restoreFromLocalStorage<T>(key: string = 'auto-save-backup-default'): T | null {
   try {
     const stored = localStorage.getItem(key);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return parsed.data;
-    }
-  } catch (err) {
-    console.warn('Failed to restore from localStorage:', err);
-  }
+    if (stored) return JSON.parse(stored).data;
+  } catch { /* */ }
   return null;
-} 
+}

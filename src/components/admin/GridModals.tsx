@@ -5,8 +5,8 @@ import type { ScoreCard } from './types';
 // ─── Shared modal shell ───────────────────────────────────────────────────────
 function Modal({ children }: { children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg shadow-xl w-96">{children}</div>
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 modal-backdrop">
+      <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md border border-slate-200 modal-content">{children}</div>
     </div>
   );
 }
@@ -27,13 +27,13 @@ function ConfirmDialog({
   confirmClass?: string;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xs flex flex-col items-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm modal-backdrop">
+      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm flex flex-col items-center border border-slate-200 modal-content">
         <h2 className="text-lg font-bold mb-2">{title}</h2>
-        <p className="mb-4 text-center text-gray-700">{message}</p>
+        <p className="mb-4 text-center text-slate-700">{message}</p>
         <div className="flex gap-4 w-full justify-center">
           <button
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+            className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
             onClick={onCancel}
           >Cancel</button>
           <button
@@ -65,20 +65,20 @@ export function AddColumnModal({
       <h3 className="text-lg font-bold mb-4">Add New Column</h3>
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700">Column Name</label>
+          <label className="block text-sm font-medium text-slate-700">Column Name</label>
           <input type="password" style={{ display: 'none' }} autoComplete="new-password" />
           <input
             type="text"
             value={newColName}
             onChange={e => onNameChange(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 pr-8"
+            className="mt-1 block w-full rounded-md border border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 pr-8"
             placeholder="e.g., Phone Number"
             autoComplete="new-password"
           />
         </div>
         {colError && <p className="text-red-500 text-sm">{colError}</p>}
         <div className="flex justify-end gap-2">
-          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200">Cancel</button>
           <button onClick={onConfirm} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">Add Column</button>
         </div>
       </div>
@@ -103,18 +103,18 @@ export function CreateScoreCardModal({
       <h3 className="text-lg font-bold mb-4">Create New ScoreCard</h3>
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700">ScoreCard Name</label>
+          <label className="block text-sm font-medium text-slate-700">ScoreCard Name</label>
           <input
             type="text"
             value={name}
             onChange={e => onNameChange(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            className="mt-1 block w-full rounded-md border border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
             placeholder="e.g., Sales Performance"
             onKeyPress={e => e.key === 'Enter' && onCreate()}
           />
         </div>
         <div className="flex justify-end gap-2">
-          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200">Cancel</button>
           <button onClick={onCreate} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">Create ScoreCard</button>
         </div>
       </div>
@@ -139,17 +139,17 @@ export function EditScoreCardModal({
       <h3 className="text-lg font-bold mb-4">Edit ScoreCard</h3>
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700">ScoreCard Name</label>
+          <label className="block text-sm font-medium text-slate-700">ScoreCard Name</label>
           <input
             type="text"
             value={scorecard.name}
             onChange={e => onNameChange(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            className="mt-1 block w-full rounded-md border border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
             placeholder="e.g., Sales Performance"
           />
         </div>
         <div className="flex justify-end gap-2">
-          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200">Cancel</button>
           <button onClick={onSave} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">Save Changes</button>
         </div>
       </div>
@@ -227,12 +227,12 @@ export function SaveTemplateModal({
       <h3 className="text-lg font-bold mb-4">Save ScoreCard as Template</h3>
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700">Template Name</label>
+          <label className="block text-sm font-medium text-slate-700">Template Name</label>
           <input
             type="text"
             value={templateName}
             onChange={e => onNameChange(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            className="mt-1 block w-full rounded-md border border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
             placeholder="e.g., Product Columns"
           />
         </div>
@@ -247,7 +247,7 @@ export function SaveTemplateModal({
         </div>
         {templateError && <p className="text-red-500 text-sm">{templateError}</p>}
         <div className="flex justify-end gap-2">
-          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200">Cancel</button>
           <button onClick={onSave} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">Save Template</button>
         </div>
       </div>
@@ -282,20 +282,20 @@ export function ImportTemplateModal({
       <h3 className="text-lg font-bold mb-4">Import Template</h3>
       <div className="space-y-4">
         {templates.length === 0 ? (
-          <div className="text-center text-gray-500 text-sm mb-4">
+          <div className="text-center text-slate-500 text-sm mb-4">
             No templates available. Please save a template first.
           </div>
         ) : (
           <>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Select Template</label>
+              <label className="block text-sm font-medium text-slate-700">Select Template</label>
               <div className="flex gap-2 items-center">
                 <select
                   value={selectedTemplateName}
                   onChange={e => {
                     onTemplateChange(e.target.value);
                   }}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="mt-1 block w-full rounded-md border border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 >
                   <option value="">-- Select --</option>
                   {templates.map(t => (
@@ -326,7 +326,7 @@ export function ImportTemplateModal({
         )}
         {templateError && <p className="text-red-500 text-sm">{templateError}</p>}
         <div className="flex justify-end gap-2">
-          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200">Cancel</button>
           <button
             onClick={onImport}
             className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-md hover:bg-cyan-700"
@@ -358,7 +358,7 @@ export function ExportExcelModal({
           <strong>Modern Hierarchical Export</strong><br />
           Includes all main grid data and any subgrid data with clear parent-child relationships.
         </div>
-        <div className="bg-gray-50 p-3 rounded text-xs text-gray-600">
+        <div className="bg-slate-50 p-3 rounded text-xs text-slate-600">
           <strong>Features:</strong>
           <ul className="mt-1 list-disc list-inside space-y-1">
             <li>🔵 PARENT - Rows with children</li>
@@ -377,7 +377,7 @@ export function ExportExcelModal({
           <label htmlFor="excludeSubgridExport" className="text-sm">Exclude subgrid data (export only main grid)</label>
         </div>
         <div className="flex justify-end gap-2">
-          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200">Cancel</button>
           <button onClick={onExport} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700">Export</button>
         </div>
       </div>
@@ -398,33 +398,33 @@ export function ContactCardModal({
   onCancel: () => void;
 }) {
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg shadow-xl w-96">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 modal-backdrop">
+      <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md border border-slate-200 modal-content">
         <h3 className="text-lg font-bold mb-4">Edit 3B Contact</h3>
         <div className="space-y-4">
           {(['name', 'telephone', 'address'] as const).map(field => (
             <div key={field}>
-              <label className="block text-sm font-medium text-gray-700 capitalize">{field}</label>
+              <label className="block text-sm font-medium text-slate-700 capitalize">{field}</label>
               <input
                 type={field === 'telephone' ? 'tel' : 'text'}
                 value={contactData[field]}
                 onChange={e => onContactDataChange(field, e.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                className="mt-1 block w-full rounded-md border border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
               />
             </div>
           ))}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Notes</label>
+            <label className="block text-sm font-medium text-slate-700">Notes</label>
             <textarea
               value={contactData.notes}
               onChange={e => onContactDataChange('notes', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              className="mt-1 block w-full rounded-md border border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               placeholder="Notes"
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+            <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200">Cancel</button>
             <button onClick={onSave} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">Save</button>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from 'react';
 import { BRANDS } from '@/constants/brands';
 import { extractExifFromFile } from '@/utils/extractExif';
 import { reverseGeocode } from '@/utils/reverseGeocode';
+import AddressAutocomplete from './AddressAutocomplete';
 
 interface MarketVisitUploadProps {
   onUploaded: () => void;
@@ -243,10 +244,14 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-        <input
-          type="text"
+        <AddressAutocomplete
           value={address}
-          onChange={e => setAddress(e.target.value)}
+          onChange={setAddress}
+          onSelect={(addr, lat, lng) => {
+            setAddress(addr);
+            setLatitude(lat);
+            setLongitude(lng);
+          }}
           placeholder={noGps ? 'Enter the store address' : 'Auto-filled from photo GPS'}
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none"
         />

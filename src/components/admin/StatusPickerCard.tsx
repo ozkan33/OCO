@@ -54,12 +54,12 @@ export default function StatusPickerCard({ position, value, onSelect, onClose }:
         position: 'fixed',
         top: position.top,
         left: position.left,
-        minWidth: position.width,
+        minWidth: Math.max(position.width, 180),
         background: '#fff',
         zIndex: 99999,
-        boxShadow: position.openUpward ? '0 -4px 24px #0002' : '0 4px 24px #0002',
-        border: '1px solid #e5e7eb',
-        borderRadius: 10,
+        boxShadow: '0 4px 16px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)',
+        border: 'none',
+        borderRadius: 8,
         padding: 4,
         marginTop: 2,
         maxHeight: position.maxHeight,
@@ -76,24 +76,25 @@ export default function StatusPickerCard({ position, value, onSelect, onClose }:
             onClick={() => onSelect(opt.value)}
             onMouseEnter={() => setFocusedIdx(idx)}
             style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '10px 16px',
-              borderRadius: 8,
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '6px 10px',
+              borderRadius: 6,
               cursor: 'pointer',
-              background: isSelected ? opt.bg : isFocused ? '#f3f4f6' : 'transparent',
-              fontWeight: isSelected ? 700 : 400,
+              background: isSelected ? opt.bg : isFocused ? '#f8fafc' : 'transparent',
+              fontWeight: isSelected ? 600 : 400,
               color: opt.color,
-              boxShadow: isSelected ? '0 2px 8px #0001' : undefined,
-              marginBottom: 2,
-              transition: 'background 0.15s',
+              fontSize: 13,
+              marginBottom: 1,
+              transition: 'background 0.1s ease',
             }}
           >
-            <span style={{ fontSize: 18, width: 22, display: 'flex', justifyContent: 'center' }}>
-              {statusIcons[opt.value] || ''}
-            </span>
-            <span style={{ width: 12, height: 12, borderRadius: '50%', background: opt.bg, border: `2px solid ${opt.color}`, display: 'inline-block' }} />
-            <span style={{ color: opt.color, fontWeight: isSelected ? 700 : 500 }}>{opt.label}</span>
-            {isSelected && <span style={{ marginLeft: 'auto', color: opt.color, fontSize: 20 }}>&#10003;</span>}
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: opt.color, opacity: 0.8, flexShrink: 0 }} />
+            <span style={{ flex: 1 }}>{opt.label}</span>
+            {isSelected && (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={opt.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
           </div>
         );
       })}
