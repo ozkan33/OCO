@@ -18,7 +18,8 @@
       "Bash(git -C /c/Users/kahve/OneDrive/Desktop/OCO log --all --format='%h %s' --name-status)",
       "Bash(find /c/Users/kahve/OneDrive/Desktop/OCO/src/app/api -name \"route.ts\" -exec grep -l \"export async function\" {} \\\\;)",
       "Bash(node -e ':*)",
-      "Bash(grep -A10 \"const body = await request\\\\.json\\(\\)\" /c/Users/kahve/OneDrive/Desktop/OCO/src/app/api/scorecards/[id]/route.ts)"
+      "Bash(grep -A10 \"const body = await request\\\\.json\\(\\)\" /c/Users/kahve/OneDrive/Desktop/OCO/src/app/api/scorecards/[id]/route.ts)",
+      "Bash(node scripts/import-recovered-data.js)"
     ]
   }
 }
