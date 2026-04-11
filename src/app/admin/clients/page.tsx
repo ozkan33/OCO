@@ -55,37 +55,34 @@ export default function ClientsPage() {
         ]);
         if (userRes.ok) { const d = await userRes.json(); setUser(d.user); }
         if (usersRes.ok) setBrandUsers(await usersRes.json());
-        // Use localStorage as primary source — it matches exactly what the
-        // dashboard sidebar shows. The API has ghost scorecards from auto-save
-        // artifacts with wrong titles. localStorage is synced by AdminDataGrid
-        // on every save and reflects the admin's actual working scorecards.
-        try {
-          const local = JSON.parse(localStorage.getItem('scorecards') || '[]');
-          const source = local.length > 0 ? local.map((s: any) => ({
+        // Always use API as primary source for scorecard IDs (needed for portal).
+        // Enrich with localStorage titles if available (localStorage has
+        // user-friendly names that match the dashboard sidebar).
+        if (scRes.ok) {
+          const apiData = await scRes.json();
+          let localNames = new Map<string, string>();
+          try {
+            const local = JSON.parse(localStorage.getItem('scorecards') || '[]');
+            local.forEach((s: any) => { if (s.id && (s.name || s.title)) localNames.set(s.id, s.name || s.title); });
+          } catch { /* */ }
+
+          const all = apiData.map((s: any) => ({
             id: s.id,
-            title: s.name || s.title || 'Untitled',
-            columns: s.columns || s.data?.columns || [],
-            rowCount: s.rows?.length || s.data?.rows?.length || 0,
-          })) : scRes.ok ? (await scRes.json()).map((s: any) => ({
-            id: s.id, title: s.title || 'Untitled',
+            title: localNames.get(s.id) || s.title || 'Untitled',
             columns: s.data?.columns || [],
             rowCount: s.data?.rows?.length || 0,
-          })) : [];
+          }));
 
-          // Filter out ghost/test scorecards: ones with generic titles like
-          // "12 retailers", "474 retailers", "Item 1", "Untitled" that were
-          // created by auto-save artifacts. Real scorecards have brand names.
-          const filtered = source.filter((sc: Scorecard) => {
+          // Filter out ghost scorecards (auto-save artifacts with no real data)
+          const filtered = all.filter((sc: Scorecard) => {
             const t = sc.title.toLowerCase().trim();
-            // Skip obviously auto-generated titles
             if (/^\d+\s*retailers?$/i.test(t)) return false;
             if (t === 'untitled' || t === 'untitled scorecard') return false;
-            if (t === 'item 1' || t === 'item 2') return false;
             return true;
           });
 
           setScorecards(filtered.sort((a: Scorecard, b: Scorecard) => a.title.localeCompare(b.title)));
-        } catch { /* silent */ }
+        }
       } catch { /* silent */ }
       setLoading(false);
     })();

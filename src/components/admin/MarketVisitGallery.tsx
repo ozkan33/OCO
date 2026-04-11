@@ -32,6 +32,9 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Visit | null>(null);
+  const [editForm, setEditForm] = useState({ store_name: '', address: '', visit_date: '', note: '', brands: [] as string[] });
+  const [saving, setSaving] = useState(false);
 
   const fetchVisits = useCallback(async (pageNum: number, append = false) => {
     setLoading(true);
@@ -84,6 +87,45 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
     } finally {
       setDeleting(null);
     }
+  };
+
+  const openEdit = (visit: Visit) => {
+    setEditing(visit);
+    setEditForm({
+      store_name: visit.store_name || '',
+      address: visit.address || '',
+      visit_date: visit.visit_date || '',
+      note: visit.note || '',
+      brands: visit.brands || [],
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editing) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/market-visits/${editing.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(editForm),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setVisits(prev => prev.map(v => v.id === editing.id ? { ...v, ...updated } : v));
+        setEditing(null);
+      }
+    } catch { /* silent */ }
+    setSaving(false);
+  };
+
+  const toggleEditBrand = (brand: string) => {
+    setEditForm(prev => ({
+      ...prev,
+      brands: prev.brands.includes(brand)
+        ? prev.brands.filter(b => b !== brand)
+        : [...prev.brands, brand],
+    }));
   };
 
   const clearFilters = () => {
@@ -212,12 +254,20 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
                       })}
                     </p>
                   </div>
-                  <button
-                    onClick={() => handleDelete(visit.id)}
-                    disabled={deleting === visit.id}
-                    className="text-gray-300 hover:text-red-500 transition-colors shrink-0 p-1"
-                    aria-label={`Delete visit${visit.store_name ? ` from ${visit.store_name}` : ''}`}
-                  >
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => openEdit(visit)}
+                      className="text-gray-300 hover:text-blue-500 transition-colors p-1"
+                      aria-label="Edit visit"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>
+                    </button>
+                    <button
+                      onClick={() => handleDelete(visit.id)}
+                      disabled={deleting === visit.id}
+                      className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                      aria-label={`Delete visit${visit.store_name ? ` from ${visit.store_name}` : ''}`}
+                    >
                     {deleting === visit.id ? (
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-400" />
                     ) : (
@@ -225,7 +275,8 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
                         <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                       </svg>
                     )}
-                  </button>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Address */}
@@ -267,6 +318,65 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
       {/* Lightbox */}
       {lightbox && (
         <PhotoLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />
+      )}
+
+      {/* Edit Modal */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">Edit Visit</h2>
+              <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              {/* Photo preview */}
+              <div className="rounded-lg overflow-hidden bg-gray-100">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={editing.photo_url} alt="Visit" className="w-full h-40 object-cover" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Store Name</label>
+                  <input type="text" value={editForm.store_name} onChange={e => setEditForm(f => ({ ...f, store_name: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none" placeholder="Store name" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Visit Date</label>
+                  <input type="date" value={editForm.visit_date} onChange={e => setEditForm(f => ({ ...f, visit_date: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                <input type="text" value={editForm.address} onChange={e => setEditForm(f => ({ ...f, address: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none" placeholder="Store address" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Note</label>
+                <textarea value={editForm.note} onChange={e => setEditForm(f => ({ ...f, note: e.target.value }))} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none resize-none" placeholder="Shelf position, stock level..." />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Brands</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {BRANDS.map(b => (
+                    <button key={b} type="button" onClick={() => toggleEditBrand(b)}
+                      className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${editForm.brands.includes(b) ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-gray-600 border-gray-300 hover:border-amber-400'}`}>
+                      {b}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setEditing(null)} className="flex-1 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">Cancel</button>
+                <button onClick={handleSaveEdit} disabled={saving} className="flex-1 py-2.5 text-sm font-semibold text-white bg-amber-500 rounded-lg hover:bg-amber-600 disabled:opacity-50">
+                  {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

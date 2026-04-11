@@ -106,6 +106,19 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/auth/change-password', request.url));
     }
 
+    // 2FA enforcement: if user has TOTP enabled but hasn't verified this session,
+    // block access to portal (allow auth API routes so they can verify)
+    const totpEnabled = payload?.user_metadata?.totp_enabled;
+    const has2FAVerified = request.cookies.get('2fa_verified')?.value === 'true';
+    const hasTrustedDevice = !!request.cookies.get('trusted_device')?.value;
+    if (role === 'BRAND' && totpEnabled && !has2FAVerified && !hasTrustedDevice && !mustChangePassword) {
+      // Allow 2FA-related API calls and login page
+      const allowed = pathname.startsWith('/api/auth/2fa') || pathname.startsWith('/api/auth/log-session') || pathname.startsWith('/auth/login');
+      if (!allowed && pathname.startsWith('/portal')) {
+        return NextResponse.redirect(new URL('/auth/login', request.url));
+      }
+    }
+
     // Brand users cannot access /admin
     if (role === 'BRAND' && pathname.startsWith('/admin')) {
       return NextResponse.redirect(new URL('/portal', request.url));

@@ -31,6 +31,7 @@ export async function POST(request: Request) {
   response.cookies.set('supabase-access-token',  '', clear);
   response.cookies.set('supabase-refresh-token', '', clear);
   response.cookies.set('supabase-user',          '', clear);
+  response.cookies.set('2fa_verified',           '', clear);
 
   return response;
 }

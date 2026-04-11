@@ -6,7 +6,7 @@ import Image from 'next/image';
 interface Product { name: string; status: string; }
 interface RetailerInfo { priority: string; buyer: string; storeCount: number; hqLocation: string; contact: string; }
 interface Comment { text: string; author: string; date: string; }
-interface Retailer { retailerName: string; products: Product[]; retailerInfo: RetailerInfo; comments?: Comment[]; notes?: string; }
+interface Retailer { rowId: string; retailerName: string; products: Product[]; retailerInfo: RetailerInfo; comments?: Comment[]; notes?: string; }
 interface Scorecard { id: string; scorecardName: string; retailers: Retailer[]; }
 interface Summary { totalRetailers: number; authorized: number; inProcess: number; buyerPassed: number; presented: number; other: number; }
 interface MarketVisit { id: string; photo_url: string; visit_date: string; store_name: string; address: string; note: string; }
@@ -41,6 +41,9 @@ export default function PortalDashboard() {
   const [visits, setVisits] = useState<MarketVisit[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'visits'>('overview');
+  const [addingNoteFor, setAddingNoteFor] = useState<{ scorecardId: string; rowId: string } | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [submittingNote, setSubmittingNote] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -52,6 +55,46 @@ export default function PortalDashboard() {
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
+
+  const handleAddNote = async (scorecardId: string, rowId: string) => {
+    if (!noteText.trim() || submittingNote) return;
+    setSubmittingNote(true);
+    try {
+      const res = await fetch('/api/portal/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ scorecard_id: scorecardId, row_id: rowId, text: noteText.trim() }),
+      });
+      if (!res.ok) throw new Error('Failed to add note');
+      const newComment = await res.json();
+      // Add the new comment to local state
+      setData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          scorecards: prev.scorecards.map(sc => {
+            if (sc.id !== scorecardId) return sc;
+            return {
+              ...sc,
+              retailers: sc.retailers.map(r => {
+                if (r.rowId !== rowId) return r;
+                return {
+                  ...r,
+                  comments: [...(r.comments || []), { text: newComment.text || noteText.trim(), author: newComment.author || 'You', date: newComment.created_at || new Date().toISOString() }],
+                };
+              }),
+            };
+          }),
+        };
+      });
+      setNoteText('');
+      setAddingNoteFor(null);
+    } catch {
+      // Could add error toast here
+    }
+    setSubmittingNote(false);
+  };
 
   const handleLogout = async () => {
     await fetch('/api/auth/log-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'logout' }) }).catch(() => {});
@@ -138,7 +181,9 @@ export default function PortalDashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {sc.retailers.map((r, i) => (
+                      {sc.retailers.map((r, i) => {
+                        const isAddingNote = addingNoteFor?.scorecardId === sc.id && addingNoteFor?.rowId === r.rowId;
+                        return (
                         <Fragment key={i}>
                           <tr className="border-b border-slate-50 hover:bg-slate-50/50">
                             <td className="px-4 py-3">
@@ -147,6 +192,23 @@ export default function PortalDashboard() {
                                 {(r.comments?.length ?? 0) > 0 && (
                                   <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">{r.comments!.length}</span>
                                 )}
+                                <button
+                                  onClick={() => {
+                                    if (isAddingNote) {
+                                      setAddingNoteFor(null);
+                                      setNoteText('');
+                                    } else {
+                                      setAddingNoteFor({ scorecardId: sc.id, rowId: r.rowId });
+                                      setNoteText('');
+                                    }
+                                  }}
+                                  className="text-slate-400 hover:text-blue-600 transition-colors ml-1"
+                                  title="Add a note"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                  </svg>
+                                </button>
                               </div>
                             </td>
                             {r.products.map(p => (
@@ -155,6 +217,48 @@ export default function PortalDashboard() {
                             <td className="px-4 py-3 text-slate-600">{r.retailerInfo.priority}</td>
                             <td className="px-4 py-3 text-slate-600">{r.retailerInfo.buyer}</td>
                           </tr>
+                          {/* Add note form */}
+                          {isAddingNote && (
+                            <tr className="bg-blue-50/50">
+                              <td colSpan={r.products.length + 3} className="px-4 py-2.5">
+                                <div className="flex items-start gap-2 max-w-lg">
+                                  <textarea
+                                    value={noteText}
+                                    onChange={(e) => setNoteText(e.target.value)}
+                                    placeholder={`Add a note for ${r.retailerName}...`}
+                                    className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    rows={2}
+                                    autoFocus
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleAddNote(sc.id, r.rowId);
+                                      }
+                                      if (e.key === 'Escape') {
+                                        setAddingNoteFor(null);
+                                        setNoteText('');
+                                      }
+                                    }}
+                                  />
+                                  <div className="flex flex-col gap-1">
+                                    <button
+                                      onClick={() => handleAddNote(sc.id, r.rowId)}
+                                      disabled={!noteText.trim() || submittingNote}
+                                      className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                      {submittingNote ? 'Sending...' : 'Send'}
+                                    </button>
+                                    <button
+                                      onClick={() => { setAddingNoteFor(null); setNoteText(''); }}
+                                      className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
                           {/* Notes and comments row */}
                           {((r.comments?.length ?? 0) > 0 || r.notes) && (
                             <tr className="bg-slate-50/50">
@@ -175,7 +279,8 @@ export default function PortalDashboard() {
                             </tr>
                           )}
                         </Fragment>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

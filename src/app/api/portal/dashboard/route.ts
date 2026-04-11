@@ -123,6 +123,7 @@ export async function GET(request: Request) {
           .map((c: any) => ({ text: c.text, author: c.user_email || 'Admin', date: c.created_at }));
 
         return {
+          rowId: String(row.id),
           retailerName: row.name || '',
           products,
           retailerInfo: {

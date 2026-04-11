@@ -319,6 +319,15 @@ aside::-webkit-scrollbar-thumb:hover,
   }
 }
 
+/* ── Notification dropdown animation ─────────────────────────── */
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeInDown {
+  animation: fadeInDown 0.15s ease-out;
+}
+
 /* ── Modal animations ────────────────────────────────────────── */
 @keyframes modalFadeIn {
   from { opacity: 0; }

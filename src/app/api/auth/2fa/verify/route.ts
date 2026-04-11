@@ -79,19 +79,21 @@ export async function POST(request: Request) {
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days
       });
 
-      // Set trusted device cookie
+      // Set trusted device cookie + 2FA verified session cookie
       const res = NextResponse.json(response);
-      res.cookies.set('trusted_device', deviceToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 30 * 24 * 60 * 60, // 30 days
-      });
+      const cookieOpts = { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, path: '/' };
+      res.cookies.set('trusted_device', deviceToken, { ...cookieOpts, maxAge: 30 * 24 * 60 * 60 });
+      res.cookies.set('2fa_verified', 'true', { ...cookieOpts, maxAge: 60 * 60 * 24 * 7 }); // 7 day session
       return res;
     }
 
-    return NextResponse.json(response);
+    // No trusted device — set session-level 2FA verified cookie
+    const res = NextResponse.json(response);
+    res.cookies.set('2fa_verified', 'true', {
+      httpOnly: true, secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 7, // 7 days
+    });
+    return res;
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
