@@ -141,7 +141,7 @@ export async function GET(request: Request) {
       return {
         id: sc.id,
         scorecardName: sc.title,
-        retailers: filteredRows,
+        retailers: filteredRows.sort((a: any, b: any) => (a.retailerName || '').localeCompare(b.retailerName || '')),
       };
     });
 

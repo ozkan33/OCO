@@ -122,6 +122,54 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to create comment' }, { status: 500 });
     }
 
+    // Notify brand users assigned to this scorecard
+    try {
+      const { data: scData } = await supabaseAdmin
+        .from('user_scorecards')
+        .select('data')
+        .eq('id', scorecard.id)
+        .single();
+
+      const rows = scData?.data?.rows || [];
+      const matchedRow = rows.find((r: { id: string | number }) => String(r.id) === String(row_id));
+      const rowName = matchedRow?.name || `Row ${row_id}`;
+      const scorecardName = scorecard.title || 'Untitled Scorecard';
+
+      const { data: assignments } = await supabaseAdmin
+        .from('brand_user_assignments')
+        .select('user_id')
+        .eq('scorecard_id', scorecard.id);
+
+      if (assignments && assignments.length > 0) {
+        const message = `Volkan added a note on ${rowName} in ${scorecardName}`;
+        const notifs = assignments.map((a: { user_id: string }) => ({
+          recipient_role: 'BRAND',
+          recipient_user_id: a.user_id,
+          actor_user_id: user.id,
+          actor_name: 'Volkan',
+          action_type: 'comment_added',
+          scorecard_id: scorecard.id,
+          scorecard_name: scorecardName,
+          row_id: String(row_id),
+          row_name: rowName,
+          comment_id: comment.id,
+          message,
+          is_read: false,
+        }));
+
+        const { error: notifErr } = await supabaseAdmin
+          .from('notifications')
+          .insert(notifs);
+
+        if (notifErr) {
+          logger.error('Failed to insert brand user notifications:', notifErr);
+        }
+      }
+    } catch (notifError) {
+      // Non-fatal: don't fail the comment creation
+      logger.error('Error creating brand notifications:', notifError);
+    }
+
     const response = {
       ...comment,
       row_id,
