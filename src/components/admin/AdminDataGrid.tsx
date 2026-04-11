@@ -3809,10 +3809,11 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
             lastModified: new Date(sc.last_modified),
             data: sc.data,
           }));
-          setScorecards(formattedScorecards);
-          if (formattedScorecards.length > 0) {
-            setEditingScoreCard(formattedScorecards[0]);
-            setSelectedCategory(formattedScorecards[0].id);
+          const sorted = formattedScorecards.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+          setScorecards(sorted);
+          if (sorted.length > 0) {
+            setEditingScoreCard(sorted[0]);
+            setSelectedCategory(sorted[0].id);
           }
         } else {
           // Fall back to localStorage if API fails
@@ -3829,10 +3830,11 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
                 return col;
               })
           }));
-          setScorecards(filteredLocalScorecards);
-          if (filteredLocalScorecards.length > 0) {
-            setEditingScoreCard(filteredLocalScorecards[0]);
-            setSelectedCategory(filteredLocalScorecards[0].id);
+          const sortedLocal = filteredLocalScorecards.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+          setScorecards(sortedLocal);
+          if (sortedLocal.length > 0) {
+            setEditingScoreCard(sortedLocal[0]);
+            setSelectedCategory(sortedLocal[0].id);
           }
         }
       } catch (error) {
