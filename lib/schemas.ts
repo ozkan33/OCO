@@ -57,3 +57,19 @@ export const updateBrandUserSchema = z.object({
 export const changePasswordSchema = z.object({
   newPassword: z.string().min(8, 'Password must be at least 8 characters').max(128),
 });
+
+// Portal comment (brand users adding notes)
+export const portalCommentSchema = z.object({
+  scorecard_id: z.string().uuid('Valid scorecard ID required'),
+  row_id: z.union([z.string(), z.number()]).transform(String),
+  text: z.string().min(1, 'Comment text is required').max(5000),
+});
+
+// Notification mark-as-read
+export const markNotificationsReadSchema = z.object({
+  ids: z.array(z.string().uuid()).optional(),
+  markAllRead: z.boolean().optional(),
+}).refine(
+  (data) => data.ids?.length || data.markAllRead,
+  { message: 'Provide either ids or markAllRead' },
+);

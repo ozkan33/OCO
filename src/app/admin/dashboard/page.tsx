@@ -3,8 +3,9 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import AdminDataGrid from '@/components/admin/AdminDataGrid';
+import AdminDataGrid, { NavigateToPayload } from '@/components/admin/AdminDataGrid';
 import { SafariErrorBoundary } from '@/components/ui/SafariErrorBoundary';
+import NotificationBell from '@/components/admin/NotificationBell';
 import { FiLogOut } from 'react-icons/fi';
 
 export default function AdminDashboard() {
@@ -14,6 +15,7 @@ export default function AdminDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const navigateToRef = useRef<((payload: NavigateToPayload) => void) | null>(null);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -161,6 +163,12 @@ export default function AdminDashboard() {
               </button>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <NotificationBell
+              onNotificationClick={(payload) => {
+                navigateToRef.current?.(payload);
+              }}
+            />
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
@@ -197,12 +205,13 @@ export default function AdminDashboard() {
               </div>
             )}
           </div>
+          </div>
         </nav>
       </header>
       <main className="w-full max-w-none px-0 py-0 flex justify-center">
         <div className="w-full">
           <SafariErrorBoundary>
-            <AdminDataGrid userRole={user.role} key={user.role} />
+            <AdminDataGrid userRole={user.role} key={user.role} navigateToRef={navigateToRef} />
           </SafariErrorBoundary>
         </div>
       </main>

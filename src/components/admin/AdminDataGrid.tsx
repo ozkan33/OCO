@@ -62,8 +62,14 @@ interface ScoreCard {
   lastModified?: Date;
 }
 
+export interface NavigateToPayload {
+  scorecardId: string;
+  rowId?: string;
+}
+
 interface AdminDataGridProps {
   userRole: string;
+  navigateToRef?: React.MutableRefObject<((payload: NavigateToPayload) => void) | null>;
 }
 
 const DatePicker = DatePickerOrig as unknown as React.FC<any>;
@@ -103,7 +109,7 @@ function ScorecardAutoSaveWrapper({ scorecard, onSaveSuccess, onSaveError }: { s
   return null;
 }
 
-export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
+export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGridProps) {
   const router = useRouter();
 
   // Remove/hide Retailers from dataCategories
@@ -1666,6 +1672,29 @@ export default function AdminDataGrid({ userRole }: AdminDataGridProps) {
 
     // console.log('Switching to', category, 'found scorecard:', !!scorecard);
   }
+
+  // Expose navigation function for notification clicks
+  useEffect(() => {
+    if (navigateToRef) {
+      navigateToRef.current = (payload: NavigateToPayload) => {
+        const { scorecardId, rowId } = payload;
+        // Switch to the scorecard
+        handleCategoryChange(scorecardId);
+        // Open comment drawer for the row after a short delay to let the scorecard load
+        if (rowId) {
+          setTimeout(() => {
+            const numericRowId = Number(rowId);
+            if (!isNaN(numericRowId)) {
+              setOpenCommentRowId(numericRowId);
+            }
+          }, 300);
+        }
+      };
+    }
+    return () => {
+      if (navigateToRef) navigateToRef.current = null;
+    };
+  }, [navigateToRef, scorecards]);
 
   // Update current scorecard
   const updateCurrentScorecard = useCallback((updates: Partial<ScoreCard>) => {
