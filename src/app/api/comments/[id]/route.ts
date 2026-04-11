@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../lib/apiAuth';
+import { logger } from '../../../../../lib/logger';
 
 // PUT /api/comments/[id] - Update a comment
 export async function PUT(request: Request, context: unknown) {
@@ -40,13 +41,13 @@ export async function PUT(request: Request, context: unknown) {
       .single();
 
     if (error) {
-      console.error('Error updating comment:', error);
+      logger.error('Error updating comment:', error);
       return NextResponse.json({ error: 'Failed to update comment' }, { status: 500 });
     }
 
     return NextResponse.json(comment);
   } catch (error) {
-    console.error('Error in PUT /api/comments/[id]:', error);
+    logger.error('Error in PUT /api/comments/[id]:', error);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 }
@@ -83,13 +84,13 @@ export async function DELETE(
       .eq('id', id);
 
     if (error) {
-      console.error('Error deleting comment:', error);
+      logger.error('Error deleting comment:', error);
       return NextResponse.json({ error: 'Failed to delete comment' }, { status: 500 });
     }
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {
-    console.error('Error in DELETE /api/comments/[id]:', error);
+    logger.error('Error in DELETE /api/comments/[id]:', error);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 } 

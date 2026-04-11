@@ -4,7 +4,21 @@
       "Bash(xargs wc:*)",
       "Bash(xargs grep:*)",
       "Bash(find \"/c/Users/kahve/OneDrive/Desktop/OCO/src/components\" -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -exec wc -l {} +)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(xargs ls:*)",
+      "Bash(grep -n \"SECURITY\\\\|VOLATILE\\\\|STABLE\\\\|IMMUTABLE\\\\|COST\\\\|ROWS\\\\|LEAKPROOF\" /c/Users/kahve/OneDrive/Desktop/OCO/supabase_schema.sql /c/Users/kahve/OneDrive/Desktop/OCO/supabase/migrations/*.sql)",
+      "Bash(pip show:*)",
+      "Bash(python -c \"import openpyxl; print\\('openpyxl available'\\)\")",
+      "Bash(git -C /c/Users/kahve/OneDrive/Desktop/OCO log --all --full-history --source -- \".env.local\")",
+      "Bash(pip install:*)",
+      "Bash(pip3 install:*)",
+      "Bash(python -m pip install openpyxl)",
+      "Bash(npx xlsx:*)",
+      "Bash(npm list:*)",
+      "Bash(git -C /c/Users/kahve/OneDrive/Desktop/OCO log --all --format='%h %s' --name-status)",
+      "Bash(find /c/Users/kahve/OneDrive/Desktop/OCO/src/app/api -name \"route.ts\" -exec grep -l \"export async function\" {} \\\\;)",
+      "Bash(node -e ':*)",
+      "Bash(grep -A10 \"const body = await request\\\\.json\\(\\)\" /c/Users/kahve/OneDrive/Desktop/OCO/src/app/api/scorecards/[id]/route.ts)"
     ]
   }
 }
