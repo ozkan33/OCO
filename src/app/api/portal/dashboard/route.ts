@@ -154,7 +154,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       brand: profile?.brand_name || user.user_metadata?.brand || '',
       contactName: profile?.contact_name || user.user_metadata?.name || '',
-      scorecards: filteredScorecards,
+      scorecards: filteredScorecards.sort((a: any, b: any) => (a.scorecardName || '').localeCompare(b.scorecardName || '')),
       summary: {
         totalRetailers: filteredScorecards.reduce((sum: number, sc: any) => sum + sc.retailers.length, 0),
         ...statusCounts,
