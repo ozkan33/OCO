@@ -2,6 +2,7 @@
 
 import { useEffect, useState, Fragment } from 'react';
 import Image from 'next/image';
+import PortalNotificationBell from '@/components/portal/PortalNotificationBell';
 
 interface Product { name: string; status: string; }
 interface RetailerInfo { priority: string; buyer: string; storeCount: number; hqLocation: string; contact: string; }
@@ -132,7 +133,10 @@ export default function PortalDashboard() {
               <p className="text-xs text-slate-500">Welcome, {contactName}</p>
             </div>
           </div>
-          <button onClick={handleLogout} className="text-sm text-slate-500 hover:text-slate-800 font-medium transition-colors">Sign out</button>
+          <div className="flex items-center gap-3">
+            <PortalNotificationBell />
+            <button onClick={handleLogout} className="text-sm text-slate-500 hover:text-slate-800 font-medium transition-colors">Sign out</button>
+          </div>
         </div>
       </header>
 
