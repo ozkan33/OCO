@@ -303,10 +303,22 @@ export default function PortalDashboard() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {visits.map(v => (
-                  <div key={v.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div key={v.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden group">
                     {v.photo_url && (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img src={v.photo_url} alt={v.store_name || 'Market visit'} className="w-full h-48 object-cover" />
+                      <div className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={v.photo_url} alt={v.store_name || 'Market visit'} className="w-full h-48 object-cover" />
+                        <a
+                          href={v.photo_url}
+                          download={`${(v.store_name || 'visit').replace(/[^a-zA-Z0-9_-]/g, '_')}_${v.visit_date}.jpg`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-lg p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Download photo"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12M12 16.5V3" /></svg>
+                        </a>
+                      </div>
                     )}
                     <div className="p-4">
                       <h4 className="font-semibold text-slate-900 text-sm">{v.store_name || 'Store Visit'}</h4>
