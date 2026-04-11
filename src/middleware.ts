@@ -2,14 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 // ─── In-memory rate limiter ───────────────────────────────────────────────────
-// Limits login attempts per IP: max 10 per 15-minute window.
-// Note: resets on cold starts (acceptable for a small business portal).
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_MAX    = 10;
-const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes in ms
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
+
+  // Probabilistic cleanup — purge expired entries ~1 in 50 calls
+  if (loginAttempts.size > 50 && Math.random() < 0.02) {
+    loginAttempts.forEach((record, key) => {
+      if (now > record.resetAt) loginAttempts.delete(key);
+    });
+  }
+
   const record = loginAttempts.get(ip);
 
   if (!record || now > record.resetAt) {
@@ -18,19 +24,28 @@ function isRateLimited(ip: string): boolean {
   }
 
   record.count += 1;
-  if (record.count > RATE_LIMIT_MAX) return true;
-
-  loginAttempts.set(ip, record);
-  return false;
+  return record.count > RATE_LIMIT_MAX;
 }
 
-// ─── Supabase client factory (anon key only — no service role in middleware) ──
+// ─── Decode a JWT payload without verification (just to check exp) ──────────
+function isTokenExpired(token: string): boolean {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return true;
+    const payload = JSON.parse(atob(parts[1]));
+    return !payload.exp || payload.exp < Date.now() / 1000;
+  } catch {
+    return true;
+  }
+}
+
+// ─── Supabase client factory ─────────────────────────────────────────────────
 function makeSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
 }
 
 // ─── Try to refresh an expired access token ──────────────────────────────────
@@ -53,7 +68,7 @@ async function tryRefresh(
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // ── Rate-limit the login page POST ─────────────────────────────────────────
+  // ── Rate-limit the login endpoint ──────────────────────────────────────────
   if (pathname === '/api/auth/set-session' && request.method === 'POST') {
     const ip =
       request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
@@ -68,7 +83,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // ── Protect /admin and /vendor routes ──────────────────────────────────────
+  // ── Only protect /admin and /vendor routes ─────────────────────────────────
   if (!pathname.startsWith('/admin') && !pathname.startsWith('/vendor')) {
     return NextResponse.next();
   }
@@ -80,18 +95,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/auth/login', request.url));
   }
 
-  const supabase = makeSupabase();
-
-  // ── Try current access token ────────────────────────────────────────────────
-  if (accessToken) {
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
-    if (!error && user) {
-      return NextResponse.next(); // Token valid — allow through
-    }
+  // ── Fast path: decode JWT locally to check expiration ──────────────────────
+  if (accessToken && !isTokenExpired(accessToken)) {
+    return NextResponse.next();
   }
 
-  // ── Access token expired — try refresh ─────────────────────────────────────
+  // ── Access token missing or expired — try refresh ──────────────────────────
   if (refreshToken) {
     const refreshed = await tryRefresh(refreshToken);
 
@@ -110,7 +119,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // ── Both tokens invalid — clear and redirect ────────────────────────────────
+  // ── Both tokens invalid — clear and redirect ──────────────────────────────
   const redirect = NextResponse.redirect(new URL('/auth/login', request.url));
   redirect.cookies.delete('supabase-access-token');
   redirect.cookies.delete('supabase-refresh-token');

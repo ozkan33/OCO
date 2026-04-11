@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import AdminDataGrid from '@/components/admin/AdminDataGrid';
 import { SafariErrorBoundary } from '@/components/ui/SafariErrorBoundary';
 
@@ -91,7 +92,7 @@ export default function AdminDashboard() {
         <nav className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push('/') }>
-              <img src="https://i.hizliresim.com/rm69m47.png" alt="3BrothersMarketing Logo" width={36} height={36} />
+              <Image src="https://i.hizliresim.com/rm69m47.png" alt="3BrothersMarketing Logo" width={36} height={36} />
               <span className="text-xl font-bold text-gray-800">3Brothers Marketing</span>
             </div>
             <span className="text-gray-300 hidden sm:inline">|</span>

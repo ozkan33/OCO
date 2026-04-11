@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import MarketVisitUpload from '@/components/admin/MarketVisitUpload';
 import MarketVisitGallery from '@/components/admin/MarketVisitGallery';
 
@@ -64,8 +65,7 @@ export default function MarketVisitsPage() {
               className="flex items-center gap-2 cursor-pointer"
               onClick={() => router.push('/')}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://i.hizliresim.com/rm69m47.png" alt="Logo" width={36} height={36} />
+              <Image src="https://i.hizliresim.com/rm69m47.png" alt="Logo" width={36} height={36} />
               <span className="text-xl font-bold text-gray-800 hidden sm:block">3Brothers</span>
             </div>
             <span className="text-gray-300 hidden sm:inline">|</span>

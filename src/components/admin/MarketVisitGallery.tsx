@@ -31,9 +31,11 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
   const [filterDateTo, setFilterDateTo] = useState('');
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchVisits = useCallback(async (pageNum: number, append = false) => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams({ page: String(pageNum), limit: '18' });
       if (filterBrand) params.set('brand', filterBrand);
@@ -41,13 +43,13 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
       if (filterDateTo) params.set('date_to', filterDateTo);
 
       const res = await fetch(`/api/market-visits?${params}`, { credentials: 'include' });
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw new Error(`Failed to load visits (${res.status})`);
       const json = await res.json();
 
       setVisits(prev => append ? [...prev, ...json.data] : json.data);
       setTotalCount(json.count ?? 0);
-    } catch {
-      // silent
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load visits');
     } finally {
       setLoading(false);
     }
@@ -138,8 +140,21 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
         </div>
       </div>
 
+      {/* Error state */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center justify-between">
+          <p className="text-sm text-red-700">{error}</p>
+          <button
+            onClick={() => fetchVisits(1)}
+            className="text-sm font-medium text-red-600 hover:text-red-800 underline ml-4"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Results count */}
-      {!loading && (
+      {!loading && !error && (
         <p className="text-sm text-gray-500">
           {totalCount === 0 ? 'No visits yet' : `${totalCount} visit${totalCount === 1 ? '' : 's'} found`}
         </p>
@@ -201,12 +216,12 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
                     onClick={() => handleDelete(visit.id)}
                     disabled={deleting === visit.id}
                     className="text-gray-300 hover:text-red-500 transition-colors shrink-0 p-1"
-                    title="Delete visit"
+                    aria-label={`Delete visit${visit.store_name ? ` from ${visit.store_name}` : ''}`}
                   >
                     {deleting === visit.id ? (
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-400" />
                     ) : (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                       </svg>
                     )}
