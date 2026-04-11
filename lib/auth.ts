@@ -1,7 +1,10 @@
 // lib/auth.ts
 import jwt, { JwtPayload } from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'default_secret_key';
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
+const JWT_SECRET: string = process.env.JWT_SECRET;
 
 export function verifyToken(req: any): JwtPayload {
   const authHeader = req.headers.authorization;

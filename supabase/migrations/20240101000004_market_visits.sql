@@ -30,6 +30,11 @@ CREATE POLICY "Users can insert own visits"
   ON market_visits FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+CREATE POLICY "Users can update own visits"
+  ON market_visits FOR UPDATE
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
 CREATE POLICY "Users can delete own visits"
   ON market_visits FOR DELETE
   USING (auth.uid() = user_id);

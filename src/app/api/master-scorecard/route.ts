@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
+import { logger } from '../../../../lib/logger';
 
 // Helper function to detect retailer columns from scorecard data
 function detectRetailerColumns(columns: any[]): string[] {
@@ -29,15 +30,15 @@ function calculatePenetration(rows: any[], retailerColumn: string): number {
 
 // GET /api/master-scorecard - Get aggregated retailer penetration data
 export async function GET(request: Request) {
-  console.log('📊 GET /api/master-scorecard called');
+  logger.debug('📊 GET /api/master-scorecard called');
   try {
     const user = await getUserFromToken(request);
-    console.log('✅ User authenticated for master scorecard:', user.id);
+    logger.debug('✅ User authenticated for master scorecard:', user.id);
 
     // Get the selected scorecard ID from query parameters
     const { searchParams } = new URL(request.url);
     const selectedScorecardId = searchParams.get('scorecardId');
-    console.log('🎯 Selected scorecard ID:', selectedScorecardId);
+    logger.debug('🎯 Selected scorecard ID:', selectedScorecardId);
 
     // Fetch all scorecards for the user
     const { data: scorecards, error } = await supabaseAdmin
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('❌ Error fetching scorecards:', error);
+      logger.error('❌ Error fetching scorecards:', error);
       return NextResponse.json({ error: 'Failed to fetch scorecards' }, { status: 500 });
     }
 
@@ -74,7 +75,7 @@ export async function GET(request: Request) {
       });
     }
 
-    console.log('📊 Processing scorecard:', selectedScorecard.title);
+    logger.debug('📊 Processing scorecard:', selectedScorecard.title);
 
     // Process the selected scorecard data
     const columns = selectedScorecard.data?.columns || [];
@@ -99,7 +100,7 @@ export async function GET(request: Request) {
       col.key !== '_delete_row'
     );
 
-    console.log('📦 Found product columns:', productCols.map((col: { name?: string }) => col.name));
+    logger.debug('📦 Found product columns:', productCols.map((col: { name?: string }) => col.name));
 
     // If no product columns found, return early with helpful message
     if (productCols.length === 0) {
@@ -171,7 +172,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('❌ Error in GET /api/master-scorecard:', error);
+    logger.error('❌ Error in GET /api/master-scorecard:', error);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 } 

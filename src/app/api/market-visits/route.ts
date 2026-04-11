@@ -56,7 +56,9 @@ export async function POST(request: Request) {
     }
 
     // Upload to Supabase Storage
-    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic'];
+    const rawExt = file.name.split('.').pop()?.toLowerCase() || '';
+    const ext = ALLOWED_EXTENSIONS.includes(rawExt) ? rawExt : 'jpg';
     const storagePath = `${user.id}/${crypto.randomUUID()}.${ext}`;
 
     const arrayBuffer = await file.arrayBuffer();

@@ -83,3 +83,6 @@ CREATE POLICY "owner_all_cells" ON scorecard_cells
 
 CREATE POLICY "owner_read_history" ON scorecard_cell_history
   FOR SELECT USING (scorecard_id IN (SELECT id FROM user_scorecards WHERE user_id = auth.uid()));
+
+CREATE POLICY "owner_insert_history" ON scorecard_cell_history
+  FOR INSERT WITH CHECK (scorecard_id IN (SELECT id FROM user_scorecards WHERE user_id = auth.uid()));

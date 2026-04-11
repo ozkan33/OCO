@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
+import { logger } from '../../../../lib/logger';
 
 // GET /api/scorecards - Get all scorecards for the current user
 export async function GET(request: Request) {
@@ -27,12 +28,12 @@ export async function GET(request: Request) {
 // POST /api/scorecards - Create a new scorecard
 export async function POST(request: Request) {
   try {
-    console.log('POST /api/scorecards - Starting request');
+    logger.debug('POST /api/scorecards - Starting request');
     const user = await getUserFromToken(request);
-    console.log('User from token:', user);
+    logger.debug('User from token:', user);
     
     const body = await request.json();
-    console.log('Request body:', body);
+    logger.debug('Request body:', body);
     
     const { title, vendor_id, data: scorecardData } = body;
     
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
       data: scorecardData || {},
       is_draft: true,
     };
-    console.log('Insert data:', insertData);
+    logger.debug('Insert data:', insertData);
     
     const { data: scorecard, error } = await supabaseAdmin
       .from('user_scorecards')
@@ -52,14 +53,14 @@ export async function POST(request: Request) {
       .single();
     
     if (error) {
-      console.error('Supabase error:', error);
+      logger.error('Supabase error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
     
-    console.log('Created scorecard:', scorecard);
+    logger.debug('Created scorecard:', scorecard);
     return NextResponse.json(scorecard, { status: 201 });
   } catch (error) {
-    console.error('Catch error:', error);
+    logger.error('Catch error:', error);
     return NextResponse.json({ error: (error as Error).message || 'Internal server error' }, { status: 500 });
   }
 }
