@@ -12,6 +12,72 @@ interface Row {
 
 type MyColumn = Column<Row> & { locked?: boolean; isDefault?: boolean };
 
+function SubGridHeaderCell({ col, idx, parentId, subgridSortColumns, setSubgridSortColumns, handleSubGridColumnNameChange, handleSubGridDeleteColumn }: {
+  col: any; idx: number; parentId: string | number; subgridSortColumns: SortColumn[];
+  setSubgridSortColumns: React.Dispatch<React.SetStateAction<SortColumn[]>>;
+  handleSubGridColumnNameChange: any; handleSubGridDeleteColumn: any;
+}) {
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [inputValue, setInputValue] = React.useState(typeof col.name === 'string' ? col.name : '');
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => { setInputValue(typeof col.name === 'string' ? col.name : ''); }, [col.name]);
+
+  const startEditing = () => { setIsEditing(true); setTimeout(() => inputRef.current?.focus(), 0); };
+  const commitChange = () => {
+    setIsEditing(false);
+    if (inputValue !== col.name && inputValue.trim()) handleSubGridColumnNameChange(parentId, idx, inputValue.trim());
+    else setInputValue(typeof col.name === 'string' ? col.name : '');
+  };
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') commitChange();
+    else if (e.key === 'Escape') { setIsEditing(false); setInputValue(typeof col.name === 'string' ? col.name : ''); }
+  };
+
+  const sortColumn = subgridSortColumns.find((sc: SortColumn) => sc.columnKey === col.key);
+  const sortIcon = sortColumn ? (sortColumn.direction === 'ASC' ? '\u2191' : '\u2193') : null;
+
+  const canDelete = !col.isDefault && col.key !== 'name' && col.key !== 'priority' && col.key !== 'retailPrice' &&
+    col.key !== 'categoryReviewDate' && col.key !== 'buyer' && col.key !== 'storeContact' && col.key !== 'delete' &&
+    col.key !== 'retailerName' && typeof col.name === 'string' && !col.name.toLowerCase().includes('retailer') &&
+    !col.name.toLowerCase().includes('priority') && !col.name.toLowerCase().includes('price') &&
+    !col.name.toLowerCase().includes('category') && !col.name.toLowerCase().includes('buyer') &&
+    !col.name.toLowerCase().includes('contact');
+
+  return (
+    <div className="flex items-center justify-between w-full">
+      {isEditing ? (
+        <input ref={inputRef} value={inputValue} onChange={e => setInputValue(e.target.value)} onBlur={commitChange} onKeyDown={handleKeyDown}
+          className="border border-blue-300 px-2 py-1 rounded text-xs bg-white" style={{ fontSize: '12px', height: 24, width: '100%', minWidth: '80px' }} maxLength={20} />
+      ) : (
+        <>
+          <div className="flex items-center gap-1 flex-1">
+            <span className="text-[11px] font-medium text-slate-600 truncate">{typeof col.name === 'string' ? col.name : ''}</span>
+            <button onClick={startEditing} className="text-slate-300 hover:text-blue-500 transition-colors p-0.5" title="Edit Column Name" style={{ fontSize: 10 }}>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z" /></svg>
+            </button>
+          </div>
+          <div className="flex items-center gap-1 ml-2">
+            {canDelete && (
+              <button onClick={e => { e.stopPropagation(); handleSubGridDeleteColumn(parentId, col.key); }} className="text-slate-300 hover:text-red-500 transition-colors p-0.5" title="Delete Column" style={{ fontSize: 10 }}>
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+              </button>
+            )}
+            <button onClick={e => {
+              e.stopPropagation();
+              const currentSort = subgridSortColumns.find((sc: SortColumn) => sc.columnKey === col.key);
+              const newDirection = currentSort?.direction === 'ASC' ? 'DESC' : 'ASC';
+              setSubgridSortColumns(prev => [...prev.filter((sc: SortColumn) => sc.columnKey !== col.key), { columnKey: col.key, direction: newDirection }]);
+            }} className="text-slate-300 hover:text-blue-500 transition-colors p-0.5" title="Sort Column" style={{ fontSize: 10 }}>
+              {sortIcon || <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5 7.5 3m0 0L12 7.5M7.5 3v13.5m13.5-3L16.5 18m0 0L12 13.5m4.5 4.5V4.5" /></svg>}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function SubGridRenderer({ parentId }: { parentId: string | number | undefined }) {
   const ctx = useAdminGrid();
   const {
@@ -24,12 +90,11 @@ export default function SubGridRenderer({ parentId }: { parentId: string | numbe
 
   const [subgridSortColumns, setSubgridSortColumns] = useState<SortColumn[]>([]);
 
-  if (parentId === undefined) return null;
-  const grid = subGrids[parentId];
-  if (!grid || expandedRowId !== parentId) return null;
+  const grid = parentId !== undefined ? subGrids[parentId] : null;
+  const isVisible = !!grid && expandedRowId === parentId;
 
   const sortedSubgridRows = useMemo(() => {
-    if (subgridSortColumns.length === 0) return grid.rows;
+    if (!grid || subgridSortColumns.length === 0) return grid?.rows || [];
     return [...grid.rows].sort((a, b) => {
       for (const { columnKey, direction } of subgridSortColumns) {
         const aValue = a[columnKey];
@@ -40,7 +105,9 @@ export default function SubGridRenderer({ parentId }: { parentId: string | numbe
       }
       return 0;
     });
-  }, [grid.rows, subgridSortColumns]);
+  }, [grid?.rows, subgridSortColumns]);
+
+  if (!isVisible || parentId === undefined || !grid) return null;
 
   const subgridRows = [...sortedSubgridRows, { isAddRow: true, id: 'add-row' }];
 
@@ -58,67 +125,15 @@ export default function SubGridRenderer({ parentId }: { parentId: string | numbe
   const subEditableColumns: MyColumn[] = grid.columns.map((col: MyColumn, idx: number) => ({
     ...col,
     width: calculateColumnWidth(col),
-    renderHeaderCell: () => {
-      const [isEditing, setIsEditing] = React.useState(false);
-      const [inputValue, setInputValue] = React.useState(col.name as string);
-      const inputRef = React.useRef<HTMLInputElement>(null);
-
-      React.useEffect(() => { setInputValue(typeof col.name === 'string' ? col.name : ''); }, [col.name]);
-
-      const startEditing = () => { setIsEditing(true); setTimeout(() => inputRef.current?.focus(), 0); };
-      const commitChange = () => {
-        setIsEditing(false);
-        if (inputValue !== col.name && inputValue.trim()) handleSubGridColumnNameChange(parentId, idx, inputValue.trim());
-        else setInputValue(typeof col.name === 'string' ? col.name : '');
-      };
-      const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter') commitChange();
-        else if (e.key === 'Escape') { setIsEditing(false); setInputValue(typeof col.name === 'string' ? col.name : ''); }
-      };
-
-      const sortColumn = subgridSortColumns.find(sc => sc.columnKey === col.key);
-      const sortIcon = sortColumn ? (sortColumn.direction === 'ASC' ? '↑' : '↓') : null;
-
-      const canDelete = !col.isDefault && col.key !== 'name' && col.key !== 'priority' && col.key !== 'retailPrice' &&
-        col.key !== 'categoryReviewDate' && col.key !== 'buyer' && col.key !== 'storeContact' && col.key !== 'delete' &&
-        col.key !== 'retailerName' && typeof col.name === 'string' && !col.name.toLowerCase().includes('retailer') &&
-        !col.name.toLowerCase().includes('priority') && !col.name.toLowerCase().includes('price') &&
-        !col.name.toLowerCase().includes('category') && !col.name.toLowerCase().includes('buyer') &&
-        !col.name.toLowerCase().includes('contact');
-
-      return (
-        <div className="flex items-center justify-between w-full">
-          {isEditing ? (
-            <input ref={inputRef} value={inputValue} onChange={e => setInputValue(e.target.value)} onBlur={commitChange} onKeyDown={handleKeyDown}
-              className="border border-blue-300 px-2 py-1 rounded text-xs bg-white" style={{ fontSize: '12px', height: 24, width: '100%', minWidth: '80px' }} maxLength={20} />
-          ) : (
-            <>
-              <div className="flex items-center gap-1 flex-1">
-                <span className="text-[11px] font-medium text-slate-600 truncate">{typeof col.name === 'string' ? col.name : ''}</span>
-                <button onClick={startEditing} className="text-slate-300 hover:text-blue-500 transition-colors p-0.5" title="Edit Column Name" style={{ fontSize: 10 }}>
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z" /></svg>
-                </button>
-              </div>
-              <div className="flex items-center gap-1 ml-2">
-                {canDelete && (
-                  <button onClick={e => { e.stopPropagation(); handleSubGridDeleteColumn(parentId, col.key); }} className="text-slate-300 hover:text-red-500 transition-colors p-0.5" title="Delete Column" style={{ fontSize: 10 }}>
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
-                  </button>
-                )}
-                <button onClick={e => {
-                  e.stopPropagation();
-                  const currentSort = subgridSortColumns.find(sc => sc.columnKey === col.key);
-                  const newDirection = currentSort?.direction === 'ASC' ? 'DESC' : 'ASC';
-                  setSubgridSortColumns(prev => [...prev.filter(sc => sc.columnKey !== col.key), { columnKey: col.key, direction: newDirection }]);
-                }} className="text-slate-300 hover:text-blue-500 transition-colors p-0.5" title="Sort Column" style={{ fontSize: 10 }}>
-                  {sortIcon || <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5 7.5 3m0 0L12 7.5M7.5 3v13.5m13.5-3L16.5 18m0 0L12 13.5m4.5 4.5V4.5" /></svg>}
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      );
-    },
+    renderHeaderCell: () => (
+      <SubGridHeaderCell
+        col={col} idx={idx} parentId={parentId}
+        subgridSortColumns={subgridSortColumns}
+        setSubgridSortColumns={setSubgridSortColumns}
+        handleSubGridColumnNameChange={handleSubGridColumnNameChange}
+        handleSubGridDeleteColumn={handleSubGridDeleteColumn}
+      />
+    ),
     renderCell: (props: { row: Row }) => {
       if (props.row.isDummy) return null;
       if (props.row.isAddRow) {
