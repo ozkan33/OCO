@@ -8,6 +8,7 @@ import { getMobileBrowserInfo } from '@/utils/mobileDetection';
 
 interface HeaderProps {
   user: any;
+  loading?: boolean;
   onAccountClick: () => void;
   onLogout: () => void;
 }
@@ -18,7 +19,7 @@ const navLinks = [
   { href: '#contact', label: 'Contact' },
 ];
 
-export function Header({ user, onAccountClick, onLogout }: HeaderProps) {
+export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [isSafari, setIsSafari] = useState(false);
@@ -67,45 +68,52 @@ export function Header({ user, onAccountClick, onLogout }: HeaderProps) {
     <header
       className={`sticky top-0 z-50 transition-all duration-300 ${
         scrolled
-          ? 'bg-white/95 backdrop-blur-md shadow-sm border-b border-gray-100'
+          ? 'bg-white/90 backdrop-blur-xl shadow-sm border-b border-slate-200/60'
           : 'bg-transparent'
       }`}
     >
       <nav className="max-w-6xl mx-auto px-5 py-4 flex items-center justify-between">
-        <Logo />
+        <Logo variant={scrolled ? 'dark' : 'light'} />
 
         {/* Desktop nav */}
-        <div className="hidden md:flex items-center gap-8">
+        <div className="hidden md:flex items-center gap-6">
           {navLinks.map(l => (
             <a
               key={l.href}
               href={l.href}
-              className={`text-sm font-medium transition ${
-                scrolled ? 'text-gray-600 hover:text-[#0f172a]' : 'text-white/80 hover:text-white'
+              className={`text-sm font-medium transition-colors duration-300 ${
+                scrolled
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-white/80 hover:text-white'
               }`}
             >
               {l.label}
             </a>
           ))}
-          <AuthButtons user={user} onAccountClick={onAccountClick} onLogout={onLogout} variant={scrolled ? 'dark' : 'light'} />
+          <AuthButtons user={user} loading={loading} onAccountClick={onAccountClick} onLogout={onLogout} variant={scrolled ? 'dark' : 'light'} />
         </div>
 
-        {/* Mobile hamburger */}
-        <button
-          ref={btnRef}
-          onClick={() => setMenuOpen(o => !o)}
-          className={`md:hidden p-2 rounded-lg transition ${
-            scrolled ? 'text-gray-700 hover:bg-gray-100' : 'text-white hover:bg-white/10'
-          }`}
-          aria-label="Toggle menu"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            {menuOpen
-              ? <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              : <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            }
-          </svg>
-        </button>
+        {/* Mobile */}
+        <div className="md:hidden flex items-center gap-2">
+          <AuthButtons user={user} loading={loading} onAccountClick={onAccountClick} onLogout={onLogout} variant={scrolled ? 'dark' : 'light'} />
+          <button
+            ref={btnRef}
+            onClick={() => setMenuOpen(o => !o)}
+            className={`p-2 rounded-lg transition-colors duration-300 ${
+              scrolled
+                ? 'text-slate-700 hover:bg-slate-100'
+                : 'text-white hover:bg-white/10'
+            }`}
+            aria-label="Toggle menu"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              {menuOpen
+                ? <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                : <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              }
+            </svg>
+          </button>
+        </div>
       </nav>
 
       {/* Mobile menu — slides down */}

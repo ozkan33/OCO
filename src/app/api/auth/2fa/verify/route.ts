@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../../lib/apiAuth';
 import { features } from '../../../../../../lib/features';
+import { decryptSecret, signDeviceToken } from '../../../../../../lib/crypto';
 
 // POST /api/auth/2fa/verify - Verify TOTP code (during setup or login)
 export async function POST(request: Request) {
@@ -27,8 +28,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '2FA not set up. Please set up 2FA first.' }, { status: 400 });
     }
 
-    // Verify the code
-    const result = await verifyTOTP({ token: code, secret: totpData.encrypted_secret });
+    // Decrypt and verify the code
+    const secret = decryptSecret(totpData.encrypted_secret);
+    const result = await verifyTOTP({ token: code, secret });
 
     if (!result.valid) {
       return NextResponse.json({ error: 'Invalid code. Please try again.' }, { status: 400 });
@@ -79,10 +81,11 @@ export async function POST(request: Request) {
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days
       });
 
-      // Set trusted device cookie + 2FA verified session cookie
+      // Set trusted device cookie (signed to prevent forgery) + 2FA verified session cookie
+      const signedToken = signDeviceToken(deviceToken);
       const res = NextResponse.json(response);
       const cookieOpts = { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, path: '/' };
-      res.cookies.set('trusted_device', deviceToken, { ...cookieOpts, maxAge: 30 * 24 * 60 * 60 });
+      res.cookies.set('trusted_device', signedToken, { ...cookieOpts, maxAge: 30 * 24 * 60 * 60 });
       res.cookies.set('2fa_verified', 'true', { ...cookieOpts, maxAge: 60 * 60 * 24 * 7 }); // 7 day session
       return res;
     }

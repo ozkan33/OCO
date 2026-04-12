@@ -1,6 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+// ─── Trusted device token verification (Edge-compatible HMAC-SHA256) ─────────
+async function verifyDeviceTokenEdge(signedToken: string): Promise<boolean> {
+  const dotIndex = signedToken.lastIndexOf('.');
+  if (dotIndex === -1) return false;
+
+  const token = signedToken.substring(0, dotIndex);
+  const sig = signedToken.substring(dotIndex + 1);
+  if (!token || !sig || sig.length !== 64) return false;
+
+  const secret = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || '';
+  if (!secret) return false;
+
+  try {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    );
+    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(token));
+    const expected = Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+    return sig === expected;
+  } catch {
+    return false;
+  }
+}
+
 // ─── In-memory rate limiter ───────────────────────────────────────────────────
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_MAX    = 10;
@@ -107,14 +132,18 @@ export async function middleware(request: NextRequest) {
     }
 
     // 2FA enforcement: if user has TOTP enabled but hasn't verified this session,
-    // block access to portal (allow auth API routes so they can verify)
+    // block access to protected routes (allow auth API routes so they can verify)
     const totpEnabled = payload?.user_metadata?.totp_enabled;
     const has2FAVerified = request.cookies.get('2fa_verified')?.value === 'true';
-    const hasTrustedDevice = !!request.cookies.get('trusted_device')?.value;
-    if (role === 'BRAND' && totpEnabled && !has2FAVerified && !hasTrustedDevice && !mustChangePassword) {
-      // Allow 2FA-related API calls and login page
-      const allowed = pathname.startsWith('/api/auth/2fa') || pathname.startsWith('/api/auth/log-session') || pathname.startsWith('/auth/login');
-      if (!allowed && pathname.startsWith('/portal')) {
+    const trustedDeviceCookie = request.cookies.get('trusted_device')?.value || '';
+    // Validate trusted device token signature (not just existence)
+    const hasTrustedDevice = trustedDeviceCookie ? await verifyDeviceTokenEdge(trustedDeviceCookie) : false;
+    if (totpEnabled && !has2FAVerified && !hasTrustedDevice && !mustChangePassword) {
+      // Only allow 2FA-related API calls and login page — NOT settings or other pages
+      const allowed = pathname.startsWith('/api/auth/2fa') ||
+        pathname.startsWith('/api/auth/log-session') ||
+        pathname.startsWith('/auth/login');
+      if (!allowed) {
         return NextResponse.redirect(new URL('/auth/login', request.url));
       }
     }
@@ -137,6 +166,18 @@ export async function middleware(request: NextRequest) {
     const refreshed = await tryRefresh(refreshToken);
 
     if (refreshed) {
+      // Check 2FA on refreshed token too
+      const refreshedPayload = decodeToken(refreshed.access_token);
+      const refreshedTotpEnabled = refreshedPayload?.user_metadata?.totp_enabled;
+      const refreshedHas2FA = request.cookies.get('2fa_verified')?.value === 'true';
+      const refreshedHasTrusted = !!request.cookies.get('trusted_device')?.value;
+      if (refreshedTotpEnabled && !refreshedHas2FA && !refreshedHasTrusted) {
+        const allowed = pathname.startsWith('/api/auth/2fa') || pathname.startsWith('/auth/login') || pathname.startsWith('/admin/settings');
+        if (!allowed) {
+          return NextResponse.redirect(new URL('/auth/login', request.url));
+        }
+      }
+
       const response = NextResponse.next();
       const opts = {
         httpOnly: true,

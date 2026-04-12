@@ -1,30 +1,35 @@
-import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 
-export function Logo() {
-  const [imgError, setImgError] = useState(false);
-  
+interface LogoProps {
+  variant?: 'light' | 'dark';
+}
+
+/**
+ * Logo mark — renders the original logo.png image at the given size.
+ */
+export function LogoMark({ size = 32, className = '' }: { size?: number; className?: string }) {
+  return (
+    <Image
+      src="/logo.png"
+      alt="3Brothers Marketing"
+      width={size}
+      height={size}
+      className={`rounded-lg flex-shrink-0 ${className}`}
+    />
+  );
+}
+
+export function Logo({ variant = 'dark' }: LogoProps) {
+  const isLight = variant === 'light';
+
   return (
     <Link href="/" className="flex items-center gap-2">
-      {imgError ? (
-        <svg width="32" height="32" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" className="flex-shrink-0">
-          <rect width="36" height="36" rx="8" fill="#2563eb"/>
-          <text x="50%" y="55%" textAnchor="middle" fill="white" fontSize="16" fontFamily="Arial" dy=".3em">3B</text>
-        </svg>
-      ) : (
-        <img 
-          src="https://i.hizliresim.com/rm69m47.png" 
-          alt="3Brothers Logo" 
-          width={32} 
-          height={32} 
-          className="flex-shrink-0"
-          onError={() => setImgError(true)} 
-        />
-      )}
+      <LogoMark size={32} />
       <div className="flex flex-col">
-        <span className="text-lg md:text-xl font-bold text-gray-800 leading-tight">3Brothers</span>
-        <span className="text-xs md:text-sm text-gray-600 leading-tight hidden sm:block">Marketing</span>
+        <span className={`text-lg md:text-xl font-bold leading-tight transition-colors ${isLight ? 'text-white' : 'text-slate-800'}`}>3Brothers</span>
+        <span className={`text-xs md:text-sm leading-tight hidden sm:block transition-colors ${isLight ? 'text-white/70' : 'text-slate-500'}`}>Marketing</span>
       </div>
     </Link>
   );
-} 
+}

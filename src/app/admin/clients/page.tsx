@@ -1,10 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 import { useBrands } from '@/hooks/useBrands';
-import { FiLogOut, FiPlus, FiEdit2, FiTrash2, FiCopy, FiCheck, FiEye, FiEyeOff, FiClock } from 'react-icons/fi';
+import AdminHeader from '@/components/admin/AdminHeader';
+import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiCheck, FiEye, FiEyeOff, FiClock } from 'react-icons/fi';
 import { Fragment } from 'react';
 
 interface Assignment { scorecardId: string; productColumns: string[]; }
@@ -16,7 +15,6 @@ interface BrandUser {
 interface Scorecard { id: string; title: string; columns: any[]; rowCount: number; }
 
 export default function ClientsPage() {
-  const router = useRouter();
   const { brands } = useBrands();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -36,6 +34,13 @@ export default function ClientsPage() {
   const [createdUser, setCreatedUser] = useState<{ email: string; tempPassword: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Password confirmation state
+  const [confirmAction, setConfirmAction] = useState<{ type: 'create' | 'delete' | 'permanent-delete'; id?: string; name?: string } | null>(null);
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [confirmError, setConfirmError] = useState('');
+  const [confirmLoading, setConfirmLoading] = useState(false);
+
   // Login sessions state
   const [selectedUserSessions, setSelectedUserSessions] = useState<string | null>(null);
   const [sessions, setSessions] = useState<any[]>([]);
@@ -94,7 +99,7 @@ export default function ClientsPage() {
     setFormAssignments([]); setShowPassword(false); setError(null);
   };
 
-  const handleCreate = async () => {
+  const handleCreateWithConfirm = () => {
     setError(null);
     if (!formEmail || !formName || !formBrand || !formPassword) {
       setError('All fields are required.'); return;
@@ -102,6 +107,12 @@ export default function ClientsPage() {
     if (formPassword.length < 8) {
       setError('Password must be at least 8 characters.'); return;
     }
+    setConfirmAction({ type: 'create' });
+    setConfirmPassword('');
+    setConfirmError('');
+  };
+
+  const handleCreate = async () => {
     setSubmitting(true);
     try {
       const res = await fetch('/api/admin/brand-users', {
@@ -169,7 +180,12 @@ export default function ClientsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Deactivate this brand user? They will no longer be able to log in.')) return;
+    setConfirmAction({ type: 'delete', id });
+    setConfirmPassword('');
+    setConfirmError('');
+  };
+
+  const executeDelete = async (id: string) => {
     await fetch(`/api/admin/brand-users/${id}`, { method: 'DELETE', credentials: 'include' });
     setBrandUsers(prev => prev.map(u => u.id === id ? { ...u, is_active: false } : u));
   };
@@ -185,10 +201,15 @@ export default function ClientsPage() {
     setLoadingSessions(false);
   };
 
-  const handlePermanentDelete = async (bu: BrandUser) => {
-    if (!confirm(`Permanently delete ${bu.contact_name} (${bu.brand_name})? This will remove their account, login history, and all access. This cannot be undone.`)) return;
-    const res = await fetch(`/api/admin/brand-users/${bu.id}`, { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ permanent: true }) });
-    if (res.ok) setBrandUsers(prev => prev.filter(u => u.id !== bu.id));
+  const handlePermanentDelete = (bu: BrandUser) => {
+    setConfirmAction({ type: 'permanent-delete', id: bu.id, name: `${bu.contact_name} (${bu.brand_name})` });
+    setConfirmPassword('');
+    setConfirmError('');
+  };
+
+  const executePermanentDelete = async (id: string) => {
+    const res = await fetch(`/api/admin/brand-users/${id}`, { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ permanent: true }) });
+    if (res.ok) setBrandUsers(prev => prev.filter(u => u.id !== id));
   };
 
   const handleReactivate = async (id: string) => {
@@ -199,9 +220,32 @@ export default function ClientsPage() {
     if (res.ok) setBrandUsers(prev => prev.map(u => u.id === id ? { ...u, is_active: true } : u));
   };
 
-  const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    window.location.href = '/';
+  const handleConfirmAction = async () => {
+    if (!confirmPassword.trim()) { setConfirmError('Please enter your password.'); return; }
+    setConfirmLoading(true);
+    setConfirmError('');
+    try {
+      const res = await fetch('/api/auth/verify-password', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: confirmPassword }),
+      });
+      if (!res.ok) { setConfirmError('Incorrect password.'); setConfirmLoading(false); return; }
+
+      // Password verified — execute the action
+      if (confirmAction?.type === 'create') {
+        await handleCreate();
+      } else if (confirmAction?.type === 'delete' && confirmAction.id) {
+        await executeDelete(confirmAction.id);
+      } else if (confirmAction?.type === 'permanent-delete' && confirmAction.id) {
+        await executePermanentDelete(confirmAction.id);
+      }
+      setConfirmAction(null);
+      setConfirmPassword('');
+    } catch {
+      setConfirmError('Verification failed.');
+    }
+    setConfirmLoading(false);
   };
 
   const getProductColumns = (scorecardId: string) => {
@@ -231,25 +275,7 @@ export default function ClientsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-50">
-        <nav className="w-full px-4 sm:px-6 py-2.5 flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => router.push('/admin/dashboard')}>
-              <Image src="/logo.png" alt="Logo" width={32} height={32} className="rounded-lg" />
-              <span className="text-base font-bold text-slate-800 hidden sm:inline">3Brothers Marketing</span>
-            </div>
-            <div className="hidden sm:block w-px h-5 bg-slate-200" />
-            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
-              <button onClick={() => router.push('/admin/dashboard')} className="px-3.5 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-md hover:bg-white/60 transition-all">Dashboard</button>
-              <button onClick={() => router.push('/admin/market-visits')} className="px-3.5 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-md hover:bg-white/60 transition-all">Market Visits</button>
-              <button className="px-3.5 py-1.5 text-sm font-medium rounded-md bg-white text-slate-800 shadow-sm" aria-current="page">Clients</button>
-              <button onClick={() => router.push('/admin/client-logos')} className="px-3.5 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-md hover:bg-white/60 transition-all">Logos</button>
-            </div>
-          </div>
-          <button onClick={handleLogout} className="text-sm text-slate-500 hover:text-slate-700 flex items-center gap-1.5"><FiLogOut className="w-4 h-4" />Sign out</button>
-        </nav>
-      </header>
+      <AdminHeader />
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-center justify-between mb-6">
@@ -278,7 +304,7 @@ export default function ClientsPage() {
             </thead>
             <tbody>
               {brandUsers.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-12 text-center text-slate-400">No brand users yet. Click "Add Client" to create one.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-12 text-center text-slate-400">No brand users yet. Click &ldquo;Add Client&rdquo; to create one.</td></tr>
               ) : brandUsers.map(bu => (
                 <Fragment key={bu.id}>
                   <tr className="border-b border-slate-50 hover:bg-slate-50/50">
@@ -460,7 +486,7 @@ export default function ClientsPage() {
 
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => { setShowCreateModal(false); resetForm(); }} className="flex-1 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200">Cancel</button>
-                  <button onClick={handleCreate} disabled={submitting} className="flex-1 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                  <button onClick={handleCreateWithConfirm} disabled={submitting} className="flex-1 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
                     {submitting ? 'Creating...' : 'Create Client'}
                   </button>
                 </div>
@@ -577,6 +603,52 @@ export default function ClientsPage() {
                   {submitting ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Password Confirmation Modal */}
+      {confirmAction && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm border border-slate-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Confirm with Password</h3>
+                <p className="text-xs text-slate-500">
+                  {confirmAction.type === 'create' && 'Enter your password to create this user.'}
+                  {confirmAction.type === 'delete' && 'Enter your password to deactivate this user.'}
+                  {confirmAction.type === 'permanent-delete' && `Enter your password to permanently delete ${confirmAction.name}.`}
+                </p>
+              </div>
+            </div>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={e => { setConfirmPassword(e.target.value); setConfirmError(''); }}
+              placeholder="Your admin password"
+              className="w-full border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-2"
+              autoFocus
+              onKeyDown={e => e.key === 'Enter' && handleConfirmAction()}
+            />
+            {confirmError && <p className="text-xs text-red-500 mb-2">{confirmError}</p>}
+            <div className="flex gap-3 mt-3">
+              <button
+                onClick={() => { setConfirmAction(null); setConfirmPassword(''); setConfirmError(''); }}
+                className="flex-1 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200"
+              >Cancel</button>
+              <button
+                onClick={handleConfirmAction}
+                disabled={confirmLoading || !confirmPassword.trim()}
+                className={`flex-1 py-2.5 text-sm font-semibold text-white rounded-lg disabled:opacity-50 ${
+                  confirmAction.type === 'permanent-delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                {confirmLoading ? 'Verifying...' : 'Confirm'}
+              </button>
             </div>
           </div>
         </div>

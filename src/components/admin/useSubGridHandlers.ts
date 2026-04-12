@@ -86,11 +86,13 @@ export function useSubGridHandlers({
     const colKey = `col_${Date.now()}`;
     setSubGrids((prev: any) => {
       const grid = prev[parentId] || { columns: [], rows: [] };
+      const existingCount = grid.columns.length;
+      const colName = `Column ${existingCount + 1}`;
       const updated = {
         ...prev,
         [parentId]: {
           ...grid,
-          columns: [...grid.columns, { key: colKey, name: 'New Column', editable: true, sortable: true }],
+          columns: [...grid.columns, { key: colKey, name: colName, editable: true, sortable: true }],
           rows: grid.rows.map((row: any) => ({ ...row, [colKey]: '' }))
         }
       };
@@ -186,13 +188,27 @@ export function useSubGridHandlers({
     toast.success('Subgrid template imported!');
   }
 
+  // Build unique header names for export/import — disambiguates duplicate column names
+  function getUniqueHeaders(columns: any[]) {
+    const nameCounts: Record<string, number> = {};
+    return columns
+      .filter((col: any) => col.key !== 'delete')
+      .map((col: any) => {
+        const baseName = String(col.name || col.key);
+        nameCounts[baseName] = (nameCounts[baseName] || 0) + 1;
+        const header = nameCounts[baseName] > 1 ? `${baseName} (${nameCounts[baseName]})` : baseName;
+        return { key: col.key, header };
+      });
+  }
+
   async function handleExportSubgridExcel(parentId: string | number) {
     const XLSX = await import('xlsx');
     const grid = subGrids[parentId];
     if (!grid) { toast.error('No subgrid data to export'); return; }
+    const colHeaders = getUniqueHeaders(grid.columns);
     const exportRows = grid.rows.map((row: any) => {
       const obj: any = {};
-      grid.columns.forEach((col: any) => { if (col.key !== 'delete') obj[String(col.name || col.key)] = row[col.key] ?? ''; });
+      colHeaders.forEach(({ key, header }) => { obj[header] = row[key] ?? ''; });
       return obj;
     });
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
@@ -223,30 +239,18 @@ export function useSubGridHandlers({
       const headers = rows2D[0];
       if (!headers || headers.length === 0) { toast.error('No headers found in Excel/CSV file!'); return; }
 
-      function normalizeColName(name: string) { return (name || '').toLowerCase().replace(/\s+/g, '').replace(/_/g, '').trim(); }
-      const gridColNames = grid.columns.filter((col: any) => col.key !== 'delete').map((col: any) => normalizeColName(String(col.name)));
-      const excelColNames = headers.map((h: any) => normalizeColName(String(h)));
+      // Match columns by position — this handles duplicate column names correctly
+      // The Excel was exported with columns in the same order as the grid
+      const gridCols = grid.columns.filter((col: any) => col.key !== 'delete');
 
-      const counts: Record<string, number> = {};
-      excelColNames.forEach((n: string) => { counts[n] = (counts[n] || 0) + 1; });
-      const dupes = Object.entries(counts).filter(([_, c]) => c > 1).map(([n]) => n);
-      if (dupes.length > 0) { toast.error(`Duplicate columns: ${dupes.join(', ')}`); return; }
-
-      const missing = gridColNames.filter((n: string) => !excelColNames.includes(n));
-      const extra = excelColNames.filter((n: string) => !gridColNames.includes(n));
-      if (gridColNames.length !== excelColNames.length || missing.length > 0 || extra.length > 0) {
-        let msg = 'Column names do not match.';
-        if (missing.length) msg += `\nMissing: ${missing.join(', ')}`;
-        if (extra.length) msg += `\nExtra: ${extra.join(', ')}`;
-        toast.error(msg); return;
+      if (headers.length !== gridCols.length) {
+        toast.error(`Column count mismatch: Excel has ${headers.length} columns, grid has ${gridCols.length}. Please ensure the file matches the current subgrid structure.`);
+        return;
       }
 
+      // Map each grid column to its Excel column index by position
       const colKeyToIdx: Record<string, number> = {};
-      grid.columns.forEach((col: any) => {
-        if (col.key === 'delete') return;
-        const idx = excelColNames.indexOf(normalizeColName(String(col.name)));
-        if (idx !== -1) colKeyToIdx[col.key] = idx;
-      });
+      gridCols.forEach((col: any, idx: number) => { colKeyToIdx[col.key] = idx; });
 
       const dataRows = rows2D.slice(1).filter((row: any[]) => row.some(cell => cell && String(cell).trim() !== ''));
       const formattedRows = dataRows.map((rowArr: any[], idx: number) => {

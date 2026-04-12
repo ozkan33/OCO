@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Image from 'next/image';
+import { LogoMark } from '@/components/layout/Logo';
 
 type Step = 'password' | '2fa-setup' | '2fa-verify' | 'done';
 
@@ -81,7 +81,7 @@ export default function ChangePasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
-          <Image src="/logo.png" alt="3Brothers Marketing" width={48} height={48} className="mx-auto rounded-xl mb-4" />
+          <div className="flex justify-center mb-4"><LogoMark size={48} /></div>
           <h1 className="text-2xl font-bold text-slate-900">
             {step === 'password' ? 'Set Your Password' : step === 'done' ? 'All Set!' : 'Set Up 2FA'}
           </h1>

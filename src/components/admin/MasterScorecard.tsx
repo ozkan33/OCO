@@ -175,7 +175,7 @@ export default function MasterScorecard({ onCustomerClick, selectedScorecardId, 
                     </>
                   ) : (
                     <>
-                      <p className="mb-2">The selected scorecard "{data.selectedScorecard.title}" has no retailer data.</p>
+                      <p className="mb-2">The selected scorecard &ldquo;{data.selectedScorecard.title}&rdquo; has no retailer data.</p>
                       <p className="text-xs text-slate-400">Add retailers to see authorization data.</p>
                     </>
                   )}

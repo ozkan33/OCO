@@ -7,36 +7,25 @@ import { Autoplay } from 'swiper/modules';
 import 'swiper/css';
 import { useState, useEffect } from 'react';
 
-const fallbackLogos = [
-  { src: "https://i.hizliresim.com/4foaurk.jpg", alt: "Nature Blessed" },
-  { src: "https://i.hizliresim.com/52p13eh.jpg", alt: "Cry Baby Craigs" },
-  { src: "https://i.hizliresim.com/krii546.jpg", alt: "Buon Giorno Italia" },
-  { src: "https://i.hizliresim.com/qfb79rk.png", alt: "Northstar Kombucha" },
-  { src: "https://i.hizliresim.com/tvz3il4.png", alt: "Taco Terco" },
-  { src: "/logos/jomommas.jpg", alt: "JoMomma's" },
-  { src: "https://i.hizliresim.com/d2zwezj.jpg", alt: "Sturdiwheat" },
-  { src: "https://i.hizliresim.com/gj0kg4t.jpg", alt: "Big Watt Beverage" },
-  { src: "https://i.hizliresim.com/krf2p1g.jpg", alt: "Seven Bridges" },
-  { src: "https://i.hizliresim.com/m4yzvq2.jpg", alt: "KenDavis" },
-  { src: "https://i.hizliresim.com/69suf7c.jpg", alt: "Dinos" },
-  { src: "https://i.hizliresim.com/q3bhb2t.jpg", alt: "Coloma Frozen Foods" },
-  { src: "https://i.hizliresim.com/69le7h5.jpg", alt: "Mama Stoen's" },
-  { src: "https://i.hizliresim.com/88g01lk.jpg", alt: "Smude" },
-  { src: "https://i.hizliresim.com/24tt7vi.jpeg", alt: "Superior Water" },
-  { src: "https://i.hizliresim.com/mui2jgt.jpg", alt: "La Perla" },
-  { src: "https://i.hizliresim.com/iv5mkd3.jpeg", alt: "Skinny Sticks" },
-  { src: "https://i.hizliresim.com/61u7kde.jpeg", alt: "Calvin Cleo" },
-];
-
 const services = [
   {
     icon: (
       <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-1.5 6M17 13l1.5 6M9 19a1 1 0 11-2 0 1 1 0 012 0zm8 0a1 1 0 11-2 0 1 1 0 012 0z" />
       </svg>
     ),
-    title: "Retail Placement",
-    desc: "Deep relationships with key buyers across MN, ND & WI to get your products on shelves.",
+    title: "Store Visits & Retail Audits",
+    desc: "We get on the floor, verify shelf placement, check inventory, and fix execution gaps before they cost you velocity.",
+  },
+  {
+    icon: (
+      <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+      </svg>
+    ),
+    title: "HQ Calls & Relationship Management",
+    desc: "Direct buyer contact at the category level. We build and maintain the relationships that get your items reviewed, listed, and reordered.",
   },
   {
     icon: (
@@ -44,24 +33,18 @@ const services = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
     ),
-    title: "Sales Strategy",
-    desc: "Customized go-to-market plans that drive velocity, distribution growth, and brand equity.",
+    title: "Category Reviews & Positioning",
+    desc: "We prepare data-driven presentations that show buyers exactly where your brand fills a gap and why it belongs on their shelf.",
   },
   {
     icon: (
       <svg className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 00-5-3.87M9 20H4v-2a4 4 0 015-3.87m6-4.13a4 4 0 11-8 0 4 4 0 018 0zm6 0a4 4 0 11-2-3.46" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
       </svg>
     ),
-    title: "Account Management",
-    desc: "Ongoing communication, reorder tracking, and relationship nurturing with every account.",
+    title: "Promotion Planning & Execution Tracking",
+    desc: "We plan, coordinate, and track VPPs, features, BOGOs, and ad events to maximize ROI and ensure nothing falls through the cracks.",
   },
-];
-
-const stats = [
-  { value: "18+", label: "Brand Partners" },
-  { value: "3", label: "States Covered" },
-  { value: "800+", label: "Retail Doors" },
 ];
 
 export default function LandingPage() {
@@ -69,17 +52,15 @@ export default function LandingPage() {
   const [form, setForm] = useState({ name: '', email: '', message: '' });
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
-  const [clientLogos, setClientLogos] = useState(fallbackLogos.map(l => ({ src: l.src, alt: l.alt })));
+  const [clientLogos, setClientLogos] = useState<{ src: string; alt: string }[]>([]);
 
   useEffect(() => {
     fetch('/api/client-logos')
-      .then(res => res.ok ? res.json() : null)
+      .then(res => res.ok ? res.json() : [])
       .then(data => {
-        if (data && data.length > 0) {
-          setClientLogos(data.map((l: any) => ({ src: l.image_url, alt: l.label })));
-        }
+        setClientLogos((data || []).map((l: any) => ({ src: l.image_url, alt: l.label })));
       })
-      .catch(() => { /* keep fallback logos */ });
+      .catch(() => setClientLogos([]));
   }, []);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
@@ -110,8 +91,8 @@ export default function LandingPage() {
           "food retail display", "grocery store bokeh" — 1920×1080+, landscape. */}
       <section
         id="home"
-        className="relative overflow-hidden text-white"
-        style={{ minHeight: 'min(100svh, 740px)' }}
+        className="relative overflow-hidden text-white -mt-[72px]"
+        style={{ minHeight: 'min(100svh, 740px)', paddingTop: '72px' }}
       >
         {/* Full-bleed background photo */}
         <div
@@ -161,18 +142,29 @@ export default function LandingPage() {
         </div>
 
         {/* bottom fade into stats bar */}
-        <div aria-hidden className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent z-10" />
+        <div aria-hidden className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-slate-50 to-transparent z-10" />
       </section>
 
-      {/* ── Stats bar ─────────────────────────────────────────────────────── */}
-      <section className="border-y border-gray-100 bg-white">
-        <div className="max-w-4xl mx-auto px-5 py-8 grid grid-cols-3 gap-6 text-center">
-          {stats.map(s => (
-            <div key={s.label}>
-              <p className="text-3xl md:text-4xl font-extrabold text-[#0f172a]">{s.value}</p>
-              <p className="text-sm text-gray-500 mt-1">{s.label}</p>
-            </div>
-          ))}
+      {/* ── Territory bar ────────────────────────────────────────────────── */}
+      <section className="relative bg-slate-50 border-b border-slate-200/60">
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/40 to-transparent" />
+        <div className="max-w-5xl mx-auto px-5 py-10">
+          <p className="text-center text-xs font-medium text-slate-400 uppercase tracking-wider mb-6">Our Territory &amp; Reach</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+            {[
+              { value: "2,465", label: "Minnesota" },
+              { value: "1,401", label: "Wisconsin" },
+              { value: "163", label: "ND + SD" },
+              { value: "4,029", label: "Total Doors" },
+            ].map(s => (
+              <div key={s.label}>
+                <p className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight">
+                  <span className="bg-gradient-to-b from-slate-900 to-slate-600 bg-clip-text text-transparent">{s.value}</span>
+                </p>
+                <p className="text-xs sm:text-sm font-medium text-slate-500 mt-2 uppercase tracking-wider">{s.label}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -181,21 +173,21 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-14">
             <h2 className="text-3xl md:text-4xl font-extrabold text-[#0f172a]">What We Do</h2>
-            <p className="text-gray-500 mt-3 max-w-xl mx-auto text-base">
+            <p className="text-slate-500 mt-3 max-w-xl mx-auto text-base">
               We bridge the gap between emerging brands and the retailers that matter most.
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {services.map(s => (
               <div
                 key={s.title}
-                className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm hover:shadow-md transition-shadow group"
+                className="bg-white rounded-2xl p-7 border border-slate-100 shadow-sm hover:shadow-md transition-shadow group"
               >
                 <div className="w-12 h-12 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center mb-5 group-hover:bg-blue-200 transition-colors">
                   {s.icon}
                 </div>
                 <h3 className="text-lg font-bold text-[#0f172a] mb-2">{s.title}</h3>
-                <p className="text-gray-500 text-sm leading-relaxed">{s.desc}</p>
+                <p className="text-slate-500 text-sm leading-relaxed">{s.desc}</p>
               </div>
             ))}
           </div>
@@ -210,23 +202,23 @@ export default function LandingPage() {
               We care about brands<br />
               <span className="text-blue-600">that deserve the spotlight</span>
             </h2>
-            <p className="text-gray-600 leading-relaxed mb-4">
-              At 3 Brothers Marketing, our mission is to provide exceptional sales and account management with a deep commitment to the brands that often go unnoticed in MN, ND, and WI markets.
+            <p className="text-slate-600 leading-relaxed mb-4">
+              3 Brothers Marketing is a boutique CPG sales and strategy partner built for emerging brands. Founded in August 2024, we saw that small and mid-sized brands were being overlooked in massive portfolios at the largest distributors and brokerage agencies.
             </p>
-            <p className="text-gray-600 leading-relaxed">
-              We build meaningful relationships with key retailers and distributors, ensuring your products receive the visibility and strategic placement they deserve — rooted in integrity, collaboration, and real results.
+            <p className="text-slate-600 leading-relaxed">
+              We created 3 Brothers Marketing to give these brands the attention they deserve — with hands-on execution, tailored strategies, and deep Midwest retail expertise. Most brokers are built for volume. We are built for impact.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             {[
-              { label: "Customized Strategy", desc: "Tailored plans for each brand's unique needs" },
-              { label: "Retail Relationships", desc: "Direct buyer access at top regional chains" },
-              { label: "Thoughtful Execution", desc: "Hands-on management of every detail" },
-              { label: "Sustainable Growth", desc: "Long-term velocity, not one-time placement" },
+              { label: "Boutique Attention", desc: "Your brand isn't lost in a 500-SKU portfolio. You get a dedicated partner." },
+              { label: "Buyer Relationships", desc: "Direct buyer contact at the category level across MN, WI, ND & SD." },
+              { label: "Execution Focused", desc: "Store visits, HQ calls, category reviews — we handle the ground game." },
+              { label: "Built for Growth", desc: "We've helped brands expand from 20 doors to 200+ with sustainable velocity." },
             ].map(item => (
-              <div key={item.label} className="bg-[#f8fafc] rounded-xl p-5 border border-gray-100">
+              <div key={item.label} className="bg-[#f8fafc] rounded-xl p-5 border border-slate-100">
                 <p className="font-semibold text-[#0f172a] text-sm mb-1">{item.label}</p>
-                <p className="text-gray-500 text-xs leading-relaxed">{item.desc}</p>
+                <p className="text-slate-500 text-xs leading-relaxed">{item.desc}</p>
               </div>
             ))}
           </div>
@@ -234,6 +226,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Clients ───────────────────────────────────────────────────────── */}
+      {clientLogos.length > 0 && (
       <section id="clients" className="py-20 px-5 bg-[#f8fafc]">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
@@ -268,6 +261,7 @@ export default function LandingPage() {
           </Swiper>
         </div>
       </section>
+      )}
 
       {/* ── Contact ───────────────────────────────────────────────────────── */}
       <section id="contact" className="py-20 px-5 bg-white">
@@ -275,7 +269,7 @@ export default function LandingPage() {
           <div className="text-center mb-10">
             <h2 className="text-3xl md:text-4xl font-extrabold text-[#0f172a]">Get in Touch</h2>
             <p className="text-gray-500 mt-3 text-base">
-              Ready to grow? We'd love to hear about your brand.
+              Ready to grow? We&apos;d love to hear about your brand.
             </p>
           </div>
 
@@ -361,7 +355,7 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
             <img
-              src="https://i.hizliresim.com/rm69m47.png"
+              src="/logo.png"
               alt="3Brothers Logo"
               width={32}
               height={32}
@@ -369,7 +363,7 @@ export default function LandingPage() {
             />
             <div>
               <p className="text-white font-bold text-sm">3Brothers Marketing</p>
-              <p className="text-xs text-slate-500">MN · ND · WI</p>
+              <p className="text-xs text-slate-500">MN · WI · ND · SD</p>
             </div>
           </div>
           <div className="flex gap-6 text-sm">

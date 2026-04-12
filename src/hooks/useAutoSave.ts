@@ -159,6 +159,9 @@ export function useAutoSave<T>(
   // ── Reset when switching scorecards ────────────────────────────────────────
   useEffect(() => {
     if (resetKey !== undefined) {
+      // Cancel any pending debounce or retry timer
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
       const resetSerialized = resetValue !== undefined
         ? ((() => { try { return JSON.stringify(resetValue); } catch { return ''; } })())
         : serializedData;
@@ -166,9 +169,19 @@ export function useAutoSave<T>(
       isInitialRender.current = true; // treat next render as initial
       retryCountRef.current = 0;
       pendingSaveRef.current = null;
+      isSavingRef.current = false;
+
+      // Reset status so the new scorecard starts clean
+      setStatus('saved');
+      setHasUnsavedChanges(false);
+      setError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey]);
+
+  // Keep a ref to executeSave so the timer closure always calls the latest version
+  const executeSaveRef = useRef(executeSave);
+  executeSaveRef.current = executeSave;
 
   // ── Main effect: detect changes and schedule debounced save ────────────────
   useEffect(() => {
@@ -187,11 +200,25 @@ export function useAutoSave<T>(
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
     timeoutRef.current = setTimeout(() => {
-      executeSave(data);
+      executeSaveRef.current(latestDataRef.current);
     }, debounceMs);
 
-    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
-  }, [serializedData, data, executeSave, debounceMs]);
+    // Only clean up the timer on unmount, not on every re-run
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serializedData, debounceMs]);
+
+  // ── Save on tab hide (flush unsaved changes when user leaves) ──────────────
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && hasUnsavedChanges && !isSavingRef.current) {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        executeSaveRef.current(latestDataRef.current);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange, { passive: true });
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [hasUnsavedChanges]);
 
   // ── Cleanup ────────────────────────────────────────────────────────────────
   useEffect(() => {
