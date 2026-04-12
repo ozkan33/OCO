@@ -127,6 +127,7 @@ export default function ScorecardSidebar({
 
       <div className="flex-1 overflow-y-auto px-3 pb-4" style={{ scrollbarWidth: 'thin', scrollbarColor: '#cbd5e1 transparent' }}>
         {scorecards
+          .filter((sc, idx, arr) => arr.findIndex(s => s.id === sc.id) === idx) // deduplicate by id
           .filter(sc => !sidebarSearch || sc.name.toLowerCase().includes(sidebarSearch.toLowerCase()))
           .map(scorecard => (
           <div key={scorecard.id} className="mb-0.5">

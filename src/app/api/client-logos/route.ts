@@ -89,3 +89,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 }
+
+// PUT /api/client-logos — seed logos from URL (no file upload, admin only)
+export async function PUT(request: Request) {
+  try {
+    await getUserFromToken(request);
+
+    const body = await request.json();
+    const logos: { label: string; image_url: string; sort_order: number }[] = body.logos;
+
+    if (!Array.isArray(logos) || logos.length === 0) {
+      return NextResponse.json({ error: 'logos array is required' }, { status: 400 });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('client_logos')
+      .insert(logos.map((l, i) => ({
+        label: l.label,
+        image_url: l.image_url,
+        sort_order: l.sort_order ?? i,
+      })))
+      .select();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json(data, { status: 201 });
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+}

@@ -105,7 +105,7 @@ export const SaveStatus: React.FC<SaveStatusProps> = React.memo(({
         return (
           <div className="save-status-indicator save-status-unsaved">
             <DotIcon className="text-amber-400 save-status-pulse" />
-            <span className="text-slate-400 text-xs">Editing...</span>
+            <span className="text-slate-400 text-xs">Unsaved changes</span>
           </div>
         );
       case 'error':
@@ -143,6 +143,7 @@ export const SaveStatus: React.FC<SaveStatusProps> = React.memo(({
     </div>
   );
 });
+SaveStatus.displayName = 'SaveStatus';
 
 // ─── Compact SaveStatus (sidebar inline) ────────────────────────────────────
 
@@ -210,6 +211,7 @@ export const SaveStatusCompact: React.FC<SaveStatusProps> = React.memo(({
     </div>
   );
 });
+SaveStatusCompact.displayName = 'SaveStatusCompact';
 
 // ─── Hook for before unload warning ─────────────────────────────────────────
 

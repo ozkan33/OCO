@@ -73,40 +73,6 @@ interface AdminDataGridProps {
 }
 
 
-// --- Robust prevention of save on scorecard switch ---
-// Move auto-save logic into a wrapper component keyed by editingScoreCard?.id
-function ScorecardAutoSaveWrapper({ scorecard, onSaveSuccess, onSaveError }: { scorecard: any, onSaveSuccess: any, onSaveError: (error: any) => void }) {
-  const currentScoreCardData = React.useMemo(() => {
-    if (!scorecard) return null;
-    return {
-      id: scorecard.id,
-      name: scorecard.name,
-      columns: scorecard.columns,
-      rows: scorecard.rows,
-      data: scorecard,
-    };
-  }, [scorecard?.id, scorecard?.name, scorecard?.columns, scorecard?.rows]);
-
-  const {
-    status,
-    lastSaved,
-    error,
-    forceSave,
-    isOnline,
-    hasUnsavedChanges,
-  } = useScoreCardAutoSave(
-    scorecard?.id || null,
-    currentScoreCardData,
-    {
-      debounceMs: 3000,
-      enableOfflineBackup: true,
-      onSaveSuccess,
-      onSaveError,
-    }
-  );
-  // Expose these to parent via a ref or context if needed
-  return null;
-}
 
 export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGridProps) {
   const router = useRouter();
@@ -128,8 +94,21 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   // Log the react-data-grid version for debugging
   // @ts-ignore
 
+  // Deduplicate scorecards by id (keeps last occurrence)
+  const dedup = (arr: ScoreCard[]) => {
+    const seen = new Map<string, ScoreCard>();
+    arr.forEach(sc => seen.set(sc.id, sc));
+    return Array.from(seen.values());
+  };
+
   // ScoreCard state
-  const [scorecards, setScorecards] = useState<ScoreCard[]>(() => loadScoreCardsFromStorage());
+  const [scorecards, setScorecardsRaw] = useState<ScoreCard[]>(() => loadScoreCardsFromStorage());
+  const setScorecards: typeof setScorecardsRaw = (action) => {
+    setScorecardsRaw(prev => {
+      const next = typeof action === 'function' ? action(prev) : action;
+      return dedup(next);
+    });
+  };
   const [showCreateScoreCardModal, setShowCreateScoreCardModal] = useState(false);
   const [newScoreCardName, setNewScoreCardName] = useState('');
   const [editingScoreCard, setEditingScoreCard] = useState<ScoreCard | null>(null);
@@ -306,35 +285,20 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     selectedCategory, isScorecard,
   });
 
-  // --- Robust prevention of save on scorecard switch ---
-  // Track last saved serialized data for each scorecard
-  const lastSavedDataByIdRef = React.useRef<{ [id: string]: string }>({});
-
-  // --- Robust auto-save logic in main component ---
-  const lastScorecardIdRef = React.useRef<string | null>(null);
-  const skipNextSaveRef = React.useRef(false);
-  React.useEffect(() => {
-    if (editingScoreCard?.id !== lastScorecardIdRef.current) {
-      skipNextSaveRef.current = true;
-      lastScorecardIdRef.current = editingScoreCard?.id || null;
-    }
-  }, [editingScoreCard?.id]);
+  // Auto-save uses resetKey (editingScoreCard?.id) to cleanly reset on switch
 
   const currentScoreCardData = React.useMemo(() => {
     if (!editingScoreCard) return null;
 
-    // If dropdown is open, return null to prevent auto-save
-    if (dropdownOpenRef.current) {
-      return null;
-    }
-
+    // Only include serialization-stable fields — exclude Date objects and metadata
+    // that change on every access to prevent false "unsaved" detection on scorecard switch
     return {
       id: editingScoreCard.id,
       name: editingScoreCard.name,
       columns: editingScoreCard.columns,
       rows: editingScoreCard.rows,
-      data: editingScoreCard,
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally using granular deps to avoid re-memo on every editingScoreCard reference change
   }, [editingScoreCard?.id, editingScoreCard?.name, editingScoreCard?.columns, editingScoreCard?.rows]);
 
   const {
@@ -348,10 +312,12 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     editingScoreCard?.id || null,
     currentScoreCardData,
     {
-      debounceMs: 3000,
+      debounceMs: 1500,
       enableOfflineBackup: true,
       onSaveSuccess: (savedData?: any) => {
         if (savedData && savedData.id && editingScoreCard && editingScoreCard.id !== savedData.id) {
+          // Only migrate if we're still on the same scorecard (prevent stale closure corruption)
+          if (selectedCategory !== editingScoreCard.id) return;
           const oldId = editingScoreCard.id;
           const newId = savedData.id;
           setScorecards(prev => prev.map(sc =>
@@ -389,15 +355,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   const isDropdownOpen = !!(contactPicker || statusPicker || priorityPicker || categoryReviewDatePicker);
   useScrollPrevention(gridContainerRef, scrollPositionRef, preventScrollRef, dropdownOpenRef, isDropdownOpen, currentScoreCardData);
 
-  // Patch: skip first save after scorecard switch
-  React.useEffect(() => {
-    if (skipNextSaveRef.current) {
-      skipNextSaveRef.current = false;
-      return;
-    }
-    // No-op: the useScoreCardAutoSave hook already handles debounced save on data change
-  }, [currentScoreCardData]);
-
   // Auto-focus the name cell after a new row is added
   useEffect(() => {
     if (!pendingFocusRowId || !editingScoreCard) return;
@@ -409,6 +366,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     requestAnimationFrame(() => {
       gridRef.current?.selectCell({ rowIdx, idx: nameColIdx });
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only trigger on pendingFocusRowId and rows change
   }, [pendingFocusRowId, editingScoreCard?.rows]);
 
   // Replace localStorage template logic with API calls
@@ -553,9 +511,12 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   }, [selectedCategory]);
 
 
-  // Save scorecards to localStorage whenever they change
+  // Save scorecards to localStorage (debounced to avoid blocking main thread on every keystroke)
+  const localStorageTimerRef = React.useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
-    saveScoreCardsToStorage(scorecards);
+    if (localStorageTimerRef.current) clearTimeout(localStorageTimerRef.current);
+    localStorageTimerRef.current = setTimeout(() => saveScoreCardsToStorage(scorecards), 2000);
+    return () => { if (localStorageTimerRef.current) clearTimeout(localStorageTimerRef.current); };
   }, [scorecards]);
 
   // ScoreCard functions
@@ -654,6 +615,10 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     return null;
   }
 
+  // Memoized current data for the render path (avoids triple-calling getCurrentData)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- getCurrentData is stable, deps track the data it reads
+  const currentData = React.useMemo(() => getCurrentData(), [selectedCategory, scorecards, categoryData]);
+
   // Update current data
   function updateCurrentData(updates: { columns?: MyColumn[]; rows?: Row[] }) {
     if (updates.columns) {
@@ -737,57 +702,75 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       };
     });
     updateCurrentData({ columns: updatedColumns });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- runs on role/category change only; getCurrentData/updateCurrentData are stable
   }, [userRole, selectedCategory]);
 
   // Handle category switch — flush pending save before switching
+  const switchingRef = useRef(false);
+
   async function handleCategoryChange(category: string) {
-    // Save current scorecard before switching
-    if (hasUnsavedChanges && editingScoreCard) {
-      try { await forceSave(); } catch { /* best effort */ }
+    // Prevent overlapping switches — if we're already mid-switch, just update the target
+    if (switchingRef.current) {
+      setSelectedCategory(category);
+      const sc = scorecards.find(s => s.id === category);
+      setEditingScoreCard(sc || null);
+      if (sc) setLastSelectedScorecardId(sc.id);
+      return;
     }
+
+    switchingRef.current = true;
+    try {
+      // Save current scorecard before switching (best effort, don't block)
+      if (hasUnsavedChanges && editingScoreCard) {
+        try { await forceSave(); } catch { /* best effort */ }
+      }
+    } finally {
+      switchingRef.current = false;
+    }
+
     setSelectedCategory(category);
     setSortColumns([]);
 
-    // Check if it's the master scorecard
     if (category === 'master-scorecard') {
       setEditingScoreCard(null);
       return;
     }
 
-    // Check if it's a scorecard (either local or database)
     const scorecard = scorecards.find(sc => sc.id === category);
     if (scorecard) {
       setEditingScoreCard(scorecard);
       setLastSelectedScorecardId(scorecard.id);
-      // Load comments for this scorecard
       loadScorecardComments(scorecard.id);
     } else {
       setEditingScoreCard(null);
     }
-
   }
 
   // Expose navigation function for notification clicks
   useEffect(() => {
     if (navigateToRef) {
-      navigateToRef.current = (payload: NavigateToPayload) => {
+      navigateToRef.current = async (payload: NavigateToPayload) => {
         const { scorecardId, rowId } = payload;
-        // Switch to the scorecard
-        handleCategoryChange(scorecardId);
-        // Open comment drawer for the row after a short delay to let the scorecard load
+        // Switch to the scorecard and wait for it to finish
+        await handleCategoryChange(scorecardId);
+        // Open the retailer drawer for the row so admin sees full context + comments
         if (rowId) {
+          // Small delay to ensure state has settled after scorecard switch
           setTimeout(() => {
             const numericRowId = Number(rowId);
             if (!isNaN(numericRowId)) {
-              setOpenCommentRowId(numericRowId);
+              setOpenRetailerDrawer(numericRowId);
+              // Also load comments for the scorecard
+              loadScorecardComments(scorecardId);
             }
-          }, 300);
+          }, 500);
         }
       };
     }
     return () => {
       if (navigateToRef) navigateToRef.current = null;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- handleCategoryChange is stable; only re-register when scorecards change
   }, [navigateToRef, scorecards]);
 
   // Update current scorecard
@@ -1072,6 +1055,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       const retailer = getCurrentData()?.rows.find(r => r.id === openCommentRowId);
       setCommentInput('');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset input when comment modal opens/closes
   }, [openCommentRowId]);
 
   useEffect(() => {
@@ -1265,6 +1249,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       }
     };
     loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- initial data load on mount only
   }, []);
 
   // --- Save before logout ---
@@ -1360,7 +1345,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   const [excludeSubgridExport, setExcludeSubgridExport] = useState(false);
 
   // ─── Context value for extracted child components ─────────────────────────
-  const gridContextValue: AdminGridContextValue = {
+  const gridContextValue: AdminGridContextValue = React.useMemo(() => ({
     selectedCategory, userRole, user, editingScoreCard, scorecards,
     comments, commentInput, editCommentIdx, editCommentText,
     openCommentRowId, openRetailerDrawer,
@@ -1383,7 +1368,14 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     handleSubGridDeleteColumn, handleDeleteSubGrid,
     handleImportSubgridExcel, handleExportSubgridExcel,
     handleSaveSubgridTemplate, handleImportSubgridTemplate,
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [
+    selectedCategory, editingScoreCard, scorecards, comments, commentInput,
+    editCommentIdx, editCommentText, openCommentRowId, openRetailerDrawer,
+    subGrids, expandedRowId, subgridTemplates, subgridTemplateName,
+    subgridIncludeRows, subgridTemplateError, subgridSelectedTemplate,
+    subgridImportWithRows,
+  ]);
 
   return (
     <AdminGridProvider value={gridContextValue}>
@@ -1437,30 +1429,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
 
         {/* Main Content */}
         <main className="flex-1 h-full flex flex-col p-6 overflow-auto bg-slate-50">
-          {/* Auto-save wrapper (no toast on routine save — uses inline indicator instead) */}
-          {editingScoreCard && (
-            <ScorecardAutoSaveWrapper
-              key={editingScoreCard.id}
-              scorecard={editingScoreCard}
-              onSaveSuccess={(savedData?: any) => {
-                if (savedData && savedData.id && editingScoreCard && editingScoreCard.id !== savedData.id) {
-                  const oldId = editingScoreCard.id;
-                  const newId = savedData.id;
-                  setScorecards(prev => prev.map(sc =>
-                    sc.id === oldId ? { ...sc, id: newId, ...savedData } : sc
-                  ));
-                  if (selectedCategory === oldId) {
-                    setSelectedCategory(newId);
-                  }
-                  setEditingScoreCard(prev => prev ? { ...prev, id: newId } : null);
-                }
-                // No toast — inline SaveStatus indicator shows feedback
-              }}
-              onSaveError={(error) => {
-                toast.error(`Save failed: ${error.message}`);
-              }}
-            />
-          )}
+          {/* Auto-save handled by useScoreCardAutoSave hook directly */}
 
           {/* Toolbar */}
           {selectedCategory && isScorecard(selectedCategory) && (
@@ -1513,19 +1482,18 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
           )}
 
           {/* DataGrid */}
-          {selectedCategory !== 'master-scorecard' && getCurrentData() && getCurrentData()?.columns && getCurrentData()?.rows ? (
+          {selectedCategory !== 'master-scorecard' && currentData && currentData.columns && currentData.rows ? (
             <div ref={gridContainerRef} className="flex-1 w-full flex flex-col" style={{ position: 'relative', minHeight: 'calc(100vh - 120px)' }}>
               <DataGrid
                 ref={gridRef}
-                key={JSON.stringify(getCurrentData())}
+                key={selectedCategory}
                 style={{
                   height: '100%',
                   width: '100%',
                   // Disable scroll when dropdown is open
                   overflow: (contactPicker || priorityPicker || statusPicker || categoryReviewDatePicker) ? 'hidden' : 'auto'
                 }}
-                // Prevent auto-scroll behavior (ChatGPT's solution)
-                enableVirtualization={false}
+                enableVirtualization={true}
                 onSelectedRowsChange={() => { }} // No-op handler to prevent selection
                 onSelectedCellChange={() => { }} // No-op handler to prevent cell selection
                 columns={columnsWithDelete.map((col, colIdx) => {

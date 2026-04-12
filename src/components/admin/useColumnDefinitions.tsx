@@ -3,16 +3,13 @@ import React from 'react';
 import { type Column, type SortColumn, type RenderEditCellProps } from 'react-data-grid';
 import { FaSort, FaSortUp, FaSortDown, FaRegCommentDots } from 'react-icons/fa';
 import Select, { components } from 'react-select';
-import DatePickerOrig from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css';
-import { format, isToday } from 'date-fns';
+import { format } from 'date-fns';
 import EditableColumnHeader from './EditableColumnHeader';
 import { productStatusOptions, statusIcons, priorityOptions, contactOptions } from './constants';
 import type { PickerState } from './types';
 
 interface Row { id: number | string; name?: string; isAddRow?: boolean; [key: string]: any; }
 type MyColumn = Column<Row> & { locked?: boolean; isDefault?: boolean };
-const DatePicker = DatePickerOrig as unknown as React.FC<any>;
 
 export function useColumnDefinitions({
   editingScoreCard, selectedCategory, userRole,
@@ -45,9 +42,6 @@ export function useColumnDefinitions({
       key: 'retail_price', name: 'Retail Price', editable: true, sortable: true, isDefault: true,
       renderCell: ({ row }) => {
         const value = row['retail_price'];
-        // Debug logging
-        console.log('Retail price value:', value, 'type:', typeof value);
-
         if (value === undefined || value === null || value === '') {
           return '';
         }
@@ -80,7 +74,19 @@ export function useColumnDefinitions({
       key: 'category_review_date', name: 'CategoryReviewDate', editable: false, sortable: true, isDefault: true,
       renderCell: ({ row }) => {
         const value = row['category_review_date'];
-        return value ? format(new Date(value), 'MM/dd/yyyy') : '';
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', width: '100%' }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={value ? '#64748b' : '#cbd5e1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+            <span style={{ fontSize: 13, color: value ? '#334155' : '#94a3b8' }}>
+              {value ? format(new Date(value), 'MM/dd/yyyy') : '\u2014'}
+            </span>
+          </div>
+        );
       },
     },
     {
@@ -868,47 +874,6 @@ export function useColumnDefinitions({
       </components.SingleValue>
     );
   };
-
-
-
-  function CategoryReviewDateEditCell({ row, column, onRowChange }: RenderEditCellProps<Row>) {
-    const [open, setOpen] = React.useState(true);
-    // Parse value as MM/dd/yyyy
-    const value = row[column.key] ? parseDate(row[column.key]) : null;
-    return (
-      <DatePicker
-        selected={value}
-        onChange={(date: Date | null) => {
-          onRowChange({ ...row, [column.key]: date ? format(date, 'MM/dd/yyyy') : '' });
-          setOpen(false);
-        }}
-        dateFormat="MM/dd/yyyy"
-        placeholderText="Select date"
-        className="w-full h-full px-2 py-1"
-        todayButton="Today"
-        dayClassName={(date: Date) => isToday(date) ? 'react-datepicker__day--today' : ''}
-        popperPlacement="bottom"
-        popperClassName="react-datepicker-popper"
-        autoFocus
-        open={open}
-        onClickOutside={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
-      />
-    );
-  }
-
-  // Helper to parse MM/dd/yyyy or ISO
-  function parseDate(val: string): Date | null {
-    if (!val) return null;
-    if (/\d{2}\/\d{2}\/\d{4}/.test(val)) {
-      // MM/dd/yyyy
-      const [month, day, year] = val.split('/').map(Number);
-      return new Date(year, month - 1, day);
-    }
-    // Try ISO
-    const d = new Date(val);
-    return isNaN(d.getTime()) ? null : d;
-  }
 
 
 

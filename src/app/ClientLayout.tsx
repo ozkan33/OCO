@@ -27,10 +27,10 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     // Fetch user info from /api/auth/me using cookies
     const fetchUser = async () => {
       try {
-        const res = await fetch('/api/auth/me', { 
-          credentials: 'include', // Include cookies in request
+        const res = await fetch('/api/auth/me', {
+          credentials: 'include',
         });
-        
+
         if (res.ok) {
           const data = await res.json();
           setUser(data.user);
@@ -44,9 +44,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         setLoading(false);
       }
     };
-    
+
     fetchUser();
-  }, []);
+  }, [pathname]); // Re-check auth when navigating between pages
 
   const handleAccountClick = () => {
     if (!user) return;
@@ -110,7 +110,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   return (
     <div className={inter.className}>
-      {!isDashboard && <Header user={user} onAccountClick={handleAccountClick} onLogout={handleLogout} />}
+      {!isDashboard && <Header user={user} loading={loading} onAccountClick={handleAccountClick} onLogout={handleLogout} />}
       <main className="min-h-screen">
         {children}
       </main>
