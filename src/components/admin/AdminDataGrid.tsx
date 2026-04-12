@@ -36,6 +36,8 @@ import GridToolbar from './GridToolbar';
 import { SimpleCommentDrawer, RetailerDrawer } from './CommentDrawer';
 import SubGridRenderer from './SubGridRenderer';
 import { AdminGridProvider, type AdminGridContextValue } from './AdminDataGridContext';
+import { useCommentHandlers } from './useCommentHandlers';
+import { useSubGridHandlers } from './useSubGridHandlers';
 import { productStatusOptions, statusIcons, priorityOptions, contactOptions } from './constants';
 import { useScrollPrevention } from './useScrollPrevention';
 import type { PickerState } from './types';
@@ -417,6 +419,37 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     return scorecards.some(sc => sc.id === categoryId);
   };
 
+  const {
+    loadScorecardComments, updateComment, deleteComment,
+    handleOpenCommentModal, handleCloseCommentModal, handleAddComment,
+  } = useCommentHandlers({
+    comments, setComments, commentInput, setCommentInput,
+    openCommentRowId, setOpenCommentRowId,
+    selectedCategory, user, editingScoreCard, isScorecard,
+    setScorecards, setEditingScoreCard, setSelectedCategory,
+  });
+
+  const {
+    ensureSubGrid, handleToggleSubGrid, handleDeleteSubGrid, handleAddSubGrid,
+    handleSubGridAddColumn, handleSubGridAddRow, handleSubGridRowsChange,
+    handleSubGridColumnNameChange, handleSubGridDeleteRow, handleSubGridDeleteColumn,
+    updateParentRowSubgrid,
+    handleImportSubgridExcel, handleExportSubgridExcel,
+    handleSaveSubgridTemplate, handleImportSubgridTemplate,
+    saveSubgridTemplates,
+    subgridTemplateModal, setSubgridTemplateModal,
+    subgridTemplateName, setSubgridTemplateName,
+    subgridIncludeRows, setSubgridIncludeRows,
+    subgridSelectedTemplate, setSubgridSelectedTemplate,
+    subgridImportWithRows, setSubgridImportWithRows,
+    subgridTemplateError, setSubgridTemplateError,
+    subgridTemplates, setSubgridTemplates,
+  } = useSubGridHandlers({
+    subGrids, setSubGrids, expandedRowId, setExpandedRowId,
+    editingScoreCard, getCurrentData, updateCurrentData,
+    selectedCategory, isScorecard,
+  });
+
   // --- Robust prevention of save on scorecard switch ---
   // Track last saved serialized data for each scorecard
   const lastSavedDataByIdRef = React.useRef<{ [id: string]: string }>({});
@@ -648,165 +681,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     }
   }
 
-  // Helper to initialize a subgrid if it doesn't exist
-  function ensureSubGrid(parentId: string | number | undefined) {
-    if (parentId === undefined) return;
-    if (!subGrids[parentId]) {
-      setSubGrids(prev => ({
-        ...prev,
-        [parentId]: {
-          columns: [
-            { key: 'task', name: 'Task', editable: true, sortable: true }
-          ],
-          rows: []
-        }
-      }));
-    }
-  }
-
-  function handleToggleSubGrid(parentId: string | number | undefined) {
-    if (parentId === undefined) return;
-    setExpandedRowId(prev => (prev === parentId ? null : parentId));
-    ensureSubGrid(parentId);
-  }
-
-  function handleDeleteSubGrid(parentId: string | number | undefined) {
-    if (parentId === undefined) return;
-    setSubGrids(prev => {
-      const newGrids = { ...prev };
-      delete newGrids[parentId];
-      return newGrids;
-    });
-  }
-
-  function handleAddSubGrid(parentId: string | number) {
-    setSubGrids(prev => ({
-      ...prev,
-      [parentId]: {
-        columns: [{ key: 'note', name: 'Note', editable: true, sortable: true }],
-        rows: []
-      }
-    }));
-    setExpandedRowId(parentId);
-  }
-
-  // Subgrid column/row handlers (same as before, but now recursive)
-  function handleSubGridAddColumn(parentId: string | number | undefined) {
-    if (parentId === undefined) return;
-    const colKey = `col_${Date.now()}`;
-    setSubGrids(prev => {
-      const grid = prev[parentId] || { columns: [], rows: [], expanded: true };
-      const updated = {
-        ...prev,
-        [parentId]: {
-          ...grid,
-          columns: [
-            ...grid.columns,
-            { key: colKey, name: 'New Column', editable: true, sortable: true }
-          ],
-          rows: grid.rows.map((row: Row) => ({ ...row, [colKey]: '' }))
-        }
-      };
-      updateParentRowSubgrid(parentId, updated[parentId]);
-      return updated;
-    });
-  }
-  function handleSubGridAddRow(parentId: string | number | undefined) {
-    if (parentId === undefined) return;
-    setSubGrids(prev => {
-      const grid = prev[parentId] || { columns: [], rows: [], expanded: true };
-      const newId = grid.rows.length > 0 ? Math.max(...grid.rows.map((r: Row) => typeof r.id === 'number' ? r.id : 0)) + 1 : 1;
-      const newRow: Row = { id: newId };
-      grid.columns.forEach((col: MyColumn) => { newRow[col.key] = ''; });
-      return {
-        ...prev,
-        [parentId]: {
-          ...grid,
-          rows: [...grid.rows, newRow]
-        }
-      };
-    });
-  }
-  function handleSubGridRowsChange(parentId: string | number | undefined, newRows: Row[]) {
-    if (parentId === undefined) return;
-    setSubGrids(prev => {
-      const updated = {
-        ...prev,
-        [parentId]: {
-          ...prev[parentId],
-          rows: newRows.filter((r: Row) => !r.isAddRow)
-        }
-      };
-      // Also update the parent row in the main grid
-      updateParentRowSubgrid(parentId, updated[parentId]);
-      return updated;
-    });
-  }
-  function handleSubGridColumnNameChange(parentId: string | number | undefined, idx: number, newName: string) {
-    if (parentId === undefined) return;
-    setSubGrids(prev => {
-      const grid = prev[parentId];
-      if (!grid) return prev;
-      const updatedColumns = grid.columns.map((col: MyColumn, i: number) => i === idx ? { ...col, name: newName } : col);
-      const updated = {
-        ...prev,
-        [parentId]: {
-          ...grid,
-          columns: updatedColumns
-        }
-      };
-      updateParentRowSubgrid(parentId, updated[parentId]);
-      return updated;
-    });
-  }
-  function handleSubGridDeleteRow(parentId: string | number | undefined, rowId: number | string | undefined) {
-    if (parentId === undefined || rowId === undefined) return;
-    setSubGrids(prev => {
-      const grid = prev[parentId];
-      if (!grid) return prev;
-      const updated = {
-        ...prev,
-        [parentId]: {
-          ...grid,
-          rows: grid.rows.filter((row: Row) => row.id !== rowId)
-        }
-      };
-      updateParentRowSubgrid(parentId, updated[parentId]);
-      return updated;
-    });
-  }
-  function handleSubGridDeleteColumn(parentId: string | number | undefined, colKey: string) {
-    if (parentId === undefined) return;
-    setSubGrids(prev => {
-      const grid = prev[parentId];
-      if (!grid) return prev;
-      const updated = {
-        ...prev,
-        [parentId]: {
-          ...grid,
-          columns: grid.columns.filter((col: MyColumn) => col.key !== colKey),
-          rows: grid.rows.map((row: Row) => {
-            const newRow = { ...row };
-            delete newRow[colKey];
-            return newRow;
-          })
-        }
-      };
-      updateParentRowSubgrid(parentId, updated[parentId]);
-      return updated;
-    });
-  }
-  // Helper to update the parent row's subgrid property and trigger save
-  function updateParentRowSubgrid(parentId: string | number, subgrid: { columns: MyColumn[]; rows: Row[] }) {
-    // Only for scorecards
-    if (!selectedCategory || !isScorecard(selectedCategory)) return;
-    const currentData = getCurrentData();
-    if (!currentData) return;
-    const updatedRows = currentData.rows.map(row =>
-      row.id === parentId ? { ...row, subgrid: { columns: subgrid.columns, rows: subgrid.rows } } : row
-    );
-    updateCurrentData({ rows: updatedRows });
-  }
   // On scorecard load, initialize subGrids from any subgrid data in rows
   useEffect(() => {
     if (!selectedCategory || !isScorecard(selectedCategory)) return;
@@ -822,242 +696,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory]);
 
-  // Load comments from database for a specific scorecard
-  async function loadScorecardComments(scorecardId: string) {
-    try {
-
-      // Skip loading for local scorecards (they don't have database comments)
-      if (scorecardId.startsWith('scorecard_')) {
-        setComments(prev => ({
-          ...prev,
-          [scorecardId]: {}
-        }));
-        return;
-      }
-
-      const response = await fetch(`/api/comments?scorecard_id=${scorecardId}`, {
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        console.error('❌ Failed to load comments:', response.status);
-        const errorData = await response.json().catch(() => ({}));
-        console.error('❌ Error details:', errorData);
-        return;
-      }
-
-      const commentsData = await response.json();
-
-      // Group comments by row_id
-      const groupedComments: Record<number, any[]> = {};
-      commentsData.forEach((comment: any) => {
-        const rowId = parseInt(comment.row_id);
-        if (!groupedComments[rowId]) {
-          groupedComments[rowId] = [];
-        }
-        groupedComments[rowId].push(comment);
-      });
-
-      setComments(prev => ({
-        ...prev,
-        [scorecardId]: groupedComments
-      }));
-    } catch (error) {
-      console.error('❌ Error loading comments:', error);
-    }
-  }
-
-  // Update a comment in the database
-  async function updateComment(commentId: string, newText: string) {
-    try {
-      const response = await fetch(`/api/comments/${commentId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ text: newText }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update comment');
-      }
-
-      const updatedComment = await response.json();
-
-      // Update local state
-      setComments(prev => {
-        const updated = { ...prev };
-        const scorecardComments = updated[selectedCategory] || {};
-
-        // Find and update the comment
-        Object.keys(scorecardComments).forEach(rowId => {
-          const rowIdNum = parseInt(rowId);
-          const commentIndex = scorecardComments[rowIdNum]?.findIndex(c => c.id === commentId);
-          if (commentIndex !== -1) {
-            scorecardComments[rowIdNum][commentIndex] = updatedComment;
-          }
-        });
-
-        return updated;
-      });
-
-      return updatedComment;
-    } catch (error) {
-      console.error('Error updating comment:', error);
-      throw error;
-    }
-  }
-
-  // Delete a comment from the database
-  async function deleteComment(commentId: string, rowId: number) {
-    try {
-      const response = await fetch(`/api/comments/${commentId}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete comment');
-      }
-
-      // Update local state
-      setComments(prev => {
-        const updated = { ...prev };
-        const scorecardComments = updated[selectedCategory] || {};
-
-        if (scorecardComments[rowId]) {
-          scorecardComments[rowId] = scorecardComments[rowId].filter(c => c.id !== commentId);
-        }
-
-        return updated;
-      });
-
-      toast.success('Comment deleted successfully!');
-    } catch (error) {
-      console.error('Error deleting comment:', error);
-      toast.error('Failed to delete comment');
-      throw error;
-    }
-  }
-
-  function handleOpenCommentModal(rowId: number) {
-    setOpenCommentRowId(rowId);
-    setCommentInput('');
-  }
-  function handleCloseCommentModal() {
-    setOpenCommentRowId(null);
-    setCommentInput('');
-  }
-  async function handleAddComment() {
-    if (!commentInput.trim() || openCommentRowId == null || !isScorecard(selectedCategory) || !user) return;
-
-    try {
-
-      // Get current scorecard data for potential migration
-      const currentScorecard = editingScoreCard;
-      const requestBody = {
-        scorecard_id: selectedCategory,
-        user_id: openCommentRowId, // This is actually the row_id (API will rename it)
-        text: commentInput.trim(),
-        // Include scorecard data for auto-migration if it's a local scorecard
-        scorecard_data: selectedCategory.startsWith('scorecard_') ? {
-          name: currentScorecard?.name || 'Untitled Scorecard',
-          columns: currentScorecard?.columns || [],
-          rows: currentScorecard?.rows || []
-        } : undefined
-      };
-
-
-      const response = await fetch('/api/comments', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('❌ Comment creation failed:', errorData);
-        throw new Error(errorData.error || 'Failed to add comment');
-      }
-
-      const newComment = await response.json();
-
-      // Handle scorecard migration if it occurred
-      if (newComment.migrated_scorecard) {
-
-        const { old_id, new_id, title } = newComment.migrated_scorecard;
-
-        // Update the scorecard in our state
-        const migratedScorecard: ScoreCard = {
-          ...currentScorecard!,
-          id: new_id,
-          name: title,
-          columns: currentScorecard?.columns || [],
-          rows: currentScorecard?.rows || [],
-          createdAt: currentScorecard?.createdAt || new Date(),
-          lastModified: new Date()
-        };
-
-        // Update scorecards list
-        setScorecards(prev => prev.map(sc =>
-          sc.id === old_id ? migratedScorecard : sc
-        ));
-
-        // Update current editing scorecard
-        setEditingScoreCard(migratedScorecard);
-
-        // Update selected category
-        setSelectedCategory(new_id);
-
-        // Update localStorage
-        const allScorecards = JSON.parse(localStorage.getItem('scorecards') || '[]');
-        const updatedLocalScorecards = allScorecards.map((sc: any) =>
-          sc.id === old_id ? migratedScorecard : sc
-        );
-        localStorage.setItem('scorecards', JSON.stringify(updatedLocalScorecards));
-
-        toast.success('Scorecard migrated to database and comment added!');
-
-        // Use the new scorecard ID for comment grouping
-        const actualScorecardId = new_id;
-
-        // Update local comment state
-        setComments(prev => {
-          const updated = {
-            ...prev,
-            [actualScorecardId]: {
-              ...(prev[actualScorecardId] || {}),
-              [openCommentRowId]: [...((prev[actualScorecardId] || {})[openCommentRowId] || []), newComment],
-            }
-          };
-          return updated;
-        });
-      } else {
-        // Normal comment addition (no migration)
-        setComments(prev => {
-          const updated = {
-            ...prev,
-            [selectedCategory]: {
-              ...(prev[selectedCategory] || {}),
-              [openCommentRowId]: [...((prev[selectedCategory] || {})[openCommentRowId] || []), newComment],
-            }
-          };
-          return updated;
-        });
-
-        toast.success('Comment added successfully!');
-      }
-
-      setCommentInput('');
-    } catch (error) {
-      console.error('❌ Error adding comment:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to add comment');
-    }
-  }
 
   // Save scorecards to localStorage whenever they change
   useEffect(() => {
@@ -2416,81 +2054,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
 
 
   // Subgrid template state and helpers (per subgrid)
-  const [subgridTemplateModal, setSubgridTemplateModal] = useState<null | { parentId: string | number; mode: 'save' | 'import' }>(null);
-  const [subgridTemplateName, setSubgridTemplateName] = useState('');
-  const [subgridIncludeRows, setSubgridIncludeRows] = useState(true);
-  const [subgridSelectedTemplate, setSubgridSelectedTemplate] = useState('');
-  const [subgridImportWithRows, setSubgridImportWithRows] = useState(true);
-  const [subgridTemplateError, setSubgridTemplateError] = useState('');
-
-  function loadSubgridTemplates() {
-    try {
-      const stored = localStorage.getItem('subgridTemplates');
-      if (!stored) return [];
-      const parsed = JSON.parse(stored);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (error) {
-      console.warn('Failed to load subgrid templates from localStorage:', error);
-      return [];
-    }
-  }
-  function saveSubgridTemplates(templates: any[]) {
-    try {
-      localStorage.setItem('subgridTemplates', JSON.stringify(templates));
-    } catch (error) {
-      console.warn('Failed to save subgrid templates to localStorage:', error);
-    }
-  }
-  const [subgridTemplates, setSubgridTemplates] = useState<any[]>(() => loadSubgridTemplates());
-
-  function handleSaveSubgridTemplate(parentId: string | number) {
-    if (!subgridTemplateName.trim()) {
-      setSubgridTemplateError('Template name is required.');
-      return;
-    }
-    if (subgridTemplates.some(t => t.name.trim().toLowerCase() === subgridTemplateName.trim().toLowerCase())) {
-      setSubgridTemplateError('A template with this name already exists.');
-      return;
-    }
-    const grid = subGrids[parentId];
-    if (!grid) {
-      setSubgridTemplateError('No subgrid found.');
-      return;
-    }
-    const newTemplate = {
-      name: subgridTemplateName.trim(),
-      columns: grid.columns,
-      rows: subgridIncludeRows ? grid.rows : undefined
-    };
-    const newTemplates = [...subgridTemplates, newTemplate];
-    setSubgridTemplates(newTemplates);
-    saveSubgridTemplates(newTemplates);
-    setSubgridTemplateModal(null);
-    setSubgridTemplateName('');
-    setSubgridIncludeRows(true);
-    setSubgridTemplateError('');
-    toast.success('Subgrid template saved!');
-  }
-
-  function handleImportSubgridTemplate(parentId: string | number) {
-    const template = subgridTemplates.find(t => t.name === subgridSelectedTemplate);
-    if (!template) {
-      setSubgridTemplateError('Please select a template.');
-      return;
-    }
-    setSubGrids(prev => ({
-      ...prev,
-      [parentId]: {
-        columns: template.columns,
-        rows: subgridImportWithRows && template.rows ? template.rows : prev[parentId]?.rows || []
-      }
-    }));
-    setSubgridTemplateModal(null);
-    setSubgridSelectedTemplate('');
-    setSubgridImportWithRows(true);
-    setSubgridTemplateError('');
-    toast.success('Subgrid template imported!');
-  }
 
   // Add state for comment delete confirmation
   const [confirmDeleteComment, setConfirmDeleteComment] = useState<{ rowId: number, commentIdx: number } | null>(null);
@@ -2662,122 +2225,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   } | null>(null);
 
   // Subgrid Export Excel
-  async function handleExportSubgridExcel(parentId: string | number) {
-    const XLSX = await import('xlsx');
-    const grid = subGrids[parentId];
-    if (!grid) {
-      toast.error('No subgrid data to export');
-      return;
-    }
-    const exportRows = grid.rows.map((row, idx) => {
-      const obj: any = {};
-      grid.columns.forEach(col => {
-        if (col.key !== 'delete') {
-          obj[String(col.name || col.key)] = row[col.key] ?? '';
-        }
-      });
-      return obj;
-    });
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
-    const workbook = XLSX.utils.book_new();
-    const scorecardName = (editingScoreCard?.name || 'scorecard').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const parentRow = getCurrentData()?.rows.find(r => r.id === parentId);
-    const parentName = (parentRow?.name || 'subgrid').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const sheetName = `${scorecardName}_${parentName}`.slice(0, 31);
-    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-    const filename = `${scorecardName}_${parentName}_subgrid_${timestamp}.xlsx`;
-    XLSX.writeFile(workbook, filename);
-    toast.success(`Exported subgrid as ${filename}`);
-  }
-
-  // Subgrid Import Excel
-  function handleImportSubgridExcel(event: React.ChangeEvent<HTMLInputElement>, parentId: string | number) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const grid = subGrids[parentId];
-    if (!grid) {
-      toast.error('No subgrid found for import');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const XLSX = await import('xlsx');
-      const data = new Uint8Array(e.target?.result as ArrayBuffer);
-      const workbook = XLSX.read(data, { type: 'array' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const rows2D: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-      if (rows2D.length === 0) return;
-      const headerRowIndex = 0;
-      const headers = rows2D[headerRowIndex];
-      if (!headers || headers.length === 0) {
-        toast.error('No headers found in Excel/CSV file!');
-        return;
-      }
-      function normalizeColName(name: string) {
-        return (name || '').toLowerCase().replace(/\s+/g, '').replace(/_/g, '').trim();
-      }
-      const gridColNames = grid.columns.filter(col => col.key !== 'delete').map(col => normalizeColName(String(col.name)));
-      const excelColNames = headers.map(h => normalizeColName(String(h)));
-      // Detect duplicates in Excel columns
-      const excelColNameCounts: Record<string, number> = {};
-      excelColNames.forEach(name => {
-        excelColNameCounts[name] = (excelColNameCounts[name] || 0) + 1;
-      });
-      const duplicateExcelCols = Object.entries(excelColNameCounts).filter(([_, count]) => count > 1).map(([name]) => name);
-      if (duplicateExcelCols.length > 0) {
-        toast.error(`Duplicate columns detected in Excel/CSV file after normalization: ${duplicateExcelCols.join(', ')}. Please remove or rename duplicates.`);
-        return;
-      }
-      const missingCols = gridColNames.filter(name => !excelColNames.includes(name));
-      const extraCols = excelColNames.filter(name => !gridColNames.includes(name));
-      if (
-        gridColNames.length !== excelColNames.length ||
-        missingCols.length > 0 ||
-        extraCols.length > 0
-      ) {
-        let msg = 'Column names in the Excel/CSV file do not match the current subgrid columns.';
-        if (missingCols.length > 0) {
-          msg += `\nMissing columns: ${missingCols.join(', ')}`;
-        }
-        if (extraCols.length > 0) {
-          msg += `\nExtra columns: ${extraCols.join(', ')}`;
-        }
-        toast.error(msg);
-        return;
-      }
-      // Build a mapping from grid column key to Excel column index
-      const colKeyToExcelIdx: Record<string, number> = {};
-      grid.columns.forEach((col) => {
-        if (col.key === 'delete') return;
-        const normName = normalizeColName(String(col.name));
-        const excelIdx = excelColNames.findIndex(name => name === normName);
-        if (excelIdx !== -1) {
-          colKeyToExcelIdx[col.key] = excelIdx;
-        }
-      });
-      const dataRows = rows2D.slice(headerRowIndex + 1).filter(row => row.some(cell => cell && String(cell).trim() !== ''));
-      const formattedRows = dataRows.map((rowArr: any[], idx: number) => {
-        const obj: any = {};
-        Object.entries(colKeyToExcelIdx).forEach(([colKey, excelIdx]) => {
-          obj[colKey] = rowArr[excelIdx] ?? '';
-        });
-        obj.id = idx + 1;
-        return obj;
-      });
-      setSubGrids(prev => ({
-        ...prev,
-        [parentId]: {
-          ...prev[parentId],
-          rows: formattedRows
-        }
-      }));
-      toast.success('Subgrid import successful!');
-    };
-    reader.readAsArrayBuffer(file);
-    event.target.value = '';
-  }
 
   // Add state for exclude subgrid data in export modal
   const [excludeSubgridExport, setExcludeSubgridExport] = useState(false);
