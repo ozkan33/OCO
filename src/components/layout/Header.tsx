@@ -87,7 +87,7 @@ export function Header({ user, onAccountClick, onLogout }: HeaderProps) {
               {l.label}
             </a>
           ))}
-          <AuthButtons user={user} onAccountClick={onAccountClick} onLogout={onLogout} />
+          <AuthButtons user={user} onAccountClick={onAccountClick} onLogout={onLogout} variant={scrolled ? 'dark' : 'light'} />
         </div>
 
         {/* Mobile hamburger */}

@@ -244,6 +244,7 @@ export default function ClientsPage() {
               <button onClick={() => router.push('/admin/dashboard')} className="px-3.5 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-md hover:bg-white/60 transition-all">Dashboard</button>
               <button onClick={() => router.push('/admin/market-visits')} className="px-3.5 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-md hover:bg-white/60 transition-all">Market Visits</button>
               <button className="px-3.5 py-1.5 text-sm font-medium rounded-md bg-white text-slate-800 shadow-sm" aria-current="page">Clients</button>
+              <button onClick={() => router.push('/admin/client-logos')} className="px-3.5 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-md hover:bg-white/60 transition-all">Logos</button>
             </div>
           </div>
           <button onClick={handleLogout} className="text-sm text-slate-500 hover:text-slate-700 flex items-center gap-1.5"><FiLogOut className="w-4 h-4" />Sign out</button>

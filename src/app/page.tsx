@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Autoplay } from 'swiper/modules';
 import 'swiper/css';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
-const clientLogos = [
+const fallbackLogos = [
   { src: "https://i.hizliresim.com/4foaurk.jpg", alt: "Nature Blessed" },
   { src: "https://i.hizliresim.com/52p13eh.jpg", alt: "Cry Baby Craigs" },
   { src: "https://i.hizliresim.com/krii546.jpg", alt: "Buon Giorno Italia" },
@@ -69,6 +69,18 @@ export default function LandingPage() {
   const [form, setForm] = useState({ name: '', email: '', message: '' });
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [clientLogos, setClientLogos] = useState(fallbackLogos.map(l => ({ src: l.src, alt: l.alt })));
+
+  useEffect(() => {
+    fetch('/api/client-logos')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && data.length > 0) {
+          setClientLogos(data.map((l: any) => ({ src: l.image_url, alt: l.label })));
+        }
+      })
+      .catch(() => { /* keep fallback logos */ });
+  }, []);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
     setForm(f => ({ ...f, [e.target.name]: e.target.value }));

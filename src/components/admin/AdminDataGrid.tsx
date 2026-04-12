@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { DataGrid, type Column, type RowsChangeData, type SortColumn, type RenderEditCellProps } from 'react-data-grid';
-import { FaSort, FaSortUp, FaSortDown, FaRegCommentDots, FaInfoCircle, FaPlus, FaEdit, FaTrash } from 'react-icons/fa';
-import ReactDOM from 'react-dom';
+import { DataGrid, type Column, type SortColumn, type RenderEditCellProps } from 'react-data-grid';
+import { FaSort, FaSortUp, FaSortDown, FaRegCommentDots } from 'react-icons/fa';
 import 'react-data-grid/lib/styles.css';
 
 import { useRouter } from 'next/navigation';
@@ -11,7 +10,6 @@ import 'react-datepicker/dist/react-datepicker.css';
 import { format, isToday } from 'date-fns';
 import { Toaster, toast } from 'sonner';
 import { useScoreCardAutoSave } from '../../hooks/useAutoSave';
-import { SaveStatus, SaveStatusCompact } from '../ui/SaveStatus';
 import MasterScorecard from './MasterScorecard';
 
 // ─── Extracted components ────────────────────────────────────────────────────
@@ -20,9 +18,6 @@ import PriorityPickerCard from './PriorityPickerCard';
 import ContactPickerCard from './ContactPickerCard';
 import CategoryReviewDatePickerCard from './CategoryReviewDatePickerCard';
 import EditableColumnHeader from './EditableColumnHeader';
-import CommentDrawer from './CommentDrawer';
-import ScorecardSidebar from './ScorecardSidebar';
-import GridToolbar from './GridToolbar';
 import {
   AddColumnModal,
   CreateScoreCardModal,
@@ -33,8 +28,16 @@ import {
   ImportTemplateModal,
   ExportExcelModal,
   ContactCardModal,
+  ImportPreviewModal,
+  SubgridTemplateModal,
 } from './GridModals';
+import ScorecardSidebar from './ScorecardSidebar';
+import GridToolbar from './GridToolbar';
+import { SimpleCommentDrawer, RetailerDrawer } from './CommentDrawer';
+import SubGridRenderer from './SubGridRenderer';
+import { AdminGridProvider, type AdminGridContextValue } from './AdminDataGridContext';
 import { productStatusOptions, statusIcons, priorityOptions, contactOptions } from './constants';
+import { useScrollPrevention } from './useScrollPrevention';
 import type { PickerState } from './types';
 
 interface Row {
@@ -266,7 +269,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
 
   // Log the react-data-grid version for debugging
   // @ts-ignore
-  // console.log('react-data-grid version:', DataGrid.version);
 
   // ScoreCard state
   const [scorecards, setScorecards] = useState<ScoreCard[]>(() => loadScoreCardsFromStorage());
@@ -274,7 +276,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   const [newScoreCardName, setNewScoreCardName] = useState('');
   const [editingScoreCard, setEditingScoreCard] = useState<ScoreCard | null>(null);
   const [showEditScoreCardModal, setShowEditScoreCardModal] = useState(false);
-  const [sidebarSearch, setSidebarSearch] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
 
@@ -303,7 +304,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
         rows
       };
     }
-    // console.log('Initial categoryData:', initial);
     return initial;
   });
   const [selectedCategory, setSelectedCategory] = useState<string>('master-scorecard');
@@ -352,100 +352,12 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   // Add a ref to track if dropdown is open
   const dropdownOpenRef = useRef(false);
 
-  // Add comprehensive scroll prevention effect
-  React.useEffect(() => {
-    const gridElement = gridContainerRef.current;
-    if (!gridElement) return;
-
-    const handleScroll = (e: Event) => {
-      if (preventScrollRef.current && scrollPositionRef.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        // Immediately restore scroll position
-        gridElement.scrollLeft = scrollPositionRef.current.left;
-        gridElement.scrollTop = scrollPositionRef.current.top;
-        return false;
-      }
-    };
-
-    // Add scroll event listener
-    gridElement.addEventListener('scroll', handleScroll, { passive: false });
-
-    // Add MutationObserver to watch for scroll changes
-    const observer = new MutationObserver(() => {
-      if (preventScrollRef.current && scrollPositionRef.current) {
-        // If scroll position changed, restore it
-        if (gridElement.scrollLeft !== scrollPositionRef.current.left ||
-          gridElement.scrollTop !== scrollPositionRef.current.top) {
-          gridElement.scrollLeft = scrollPositionRef.current.left;
-          gridElement.scrollTop = scrollPositionRef.current.top;
-        }
-      }
-    });
-
-    observer.observe(gridElement, {
-      attributes: true,
-      attributeFilter: ['style'],
-      subtree: true
-    });
-
-    // Add focus prevention
-    const handleFocus = (e: Event) => {
-      if (preventScrollRef.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        // Blur any focused elements
-        const activeElement = document.activeElement as HTMLElement;
-        if (activeElement && activeElement.blur) {
-          activeElement.blur();
-        }
-        return false;
-      }
-    };
-
-    // Add focus event listeners to prevent focus-triggered scroll
-    gridElement.addEventListener('focusin', handleFocus, { passive: false });
-    gridElement.addEventListener('focusout', handleFocus, { passive: false });
-
-    // Add wheel event prevention
-    const handleWheel = (e: Event) => {
-      if (preventScrollRef.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-    };
-
-    gridElement.addEventListener('wheel', handleWheel, { passive: false });
-
-    // Add keydown prevention for arrow keys and other navigation
-    const handleKeydown = (e: KeyboardEvent) => {
-      if (preventScrollRef.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-    };
-
-    gridElement.addEventListener('keydown', handleKeydown, { passive: false });
-
-    return () => {
-      gridElement.removeEventListener('scroll', handleScroll);
-      gridElement.removeEventListener('focusin', handleFocus);
-      gridElement.removeEventListener('focusout', handleFocus);
-      gridElement.removeEventListener('wheel', handleWheel);
-      gridElement.removeEventListener('keydown', handleKeydown);
-      observer.disconnect();
-    };
-  }, []);
+  // Scroll prevention is handled by useScrollPrevention hook (see below)
 
 
 
   // Add this to the main component state
   const [contactModalData, setContactModalData] = useState<{ name: string; telephone: string; address: string; notes: string }>({ name: '', telephone: '', address: '', notes: '' });
-
-  // Add state to track expanded rows
-  const [expandedRows, setExpandedRows] = useState<Record<number | string, boolean>>({});
 
   // Subgrid state: per parent row, store columns and rows only
   const [subGrids, setSubGrids] = useState<{ [parentId: string]: { columns: MyColumn[]; rows: Row[] } }>(() => {
@@ -488,53 +400,8 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   // 2. Add state for Contact picker
   const [contactPicker, setContactPicker] = React.useState<PickerState | null>(null);
 
-  // Debug: Track contactPicker state changes
-  React.useEffect(() => {
-    // console.log('🎯 DEBUG: contactPicker state changed to:', contactPicker);
-  }, [contactPicker]);
-
   // 3. Add state for CategoryReviewDatePicker
   const [categoryReviewDatePicker, setCategoryReviewDatePicker] = React.useState<PickerState | null>(null);
-
-  // Track dropdown state changes for auto-save prevention
-  React.useEffect(() => {
-    const hasDropdownOpen = contactPicker || statusPicker || priorityPicker || categoryReviewDatePicker;
-    dropdownOpenRef.current = !!hasDropdownOpen;
-
-    if (hasDropdownOpen) {
-      // console.log('🎯 DEBUG: Dropdown opened, preventing auto-save');
-
-      // Disable grid interaction when dropdown is open
-      const gridElement = gridContainerRef.current;
-      if (gridElement) {
-        gridElement.style.pointerEvents = 'none';
-        gridElement.style.userSelect = 'none';
-      }
-    } else {
-      // console.log('🎯 DEBUG: Dropdown closed, allowing auto-save');
-
-      // Re-enable grid interaction when dropdown is closed
-      const gridElement = gridContainerRef.current;
-      if (gridElement) {
-        gridElement.style.pointerEvents = 'auto';
-        gridElement.style.userSelect = 'auto';
-      }
-    }
-  }, [contactPicker, statusPicker, priorityPicker, categoryReviewDatePicker]);
-
-  // Debug: Track dropdown states and prevent scroll
-  React.useEffect(() => {
-    // Set prevent scroll flag when any dropdown is open
-    const hasOpenDropdown = !!statusPicker || !!priorityPicker || !!contactPicker || !!categoryReviewDatePicker;
-    preventScrollRef.current = hasOpenDropdown;
-
-    // If dropdown is closing, restore scroll position
-    if (!hasOpenDropdown && scrollPositionRef.current && gridContainerRef.current) {
-      const gridElement = gridContainerRef.current;
-      gridElement.scrollLeft = scrollPositionRef.current.left;
-      gridElement.scrollTop = scrollPositionRef.current.top;
-    }
-  }, [statusPicker, priorityPicker, contactPicker, categoryReviewDatePicker]);
 
   // Template state and helpers
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
@@ -569,7 +436,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
 
     // If dropdown is open, return null to prevent auto-save
     if (dropdownOpenRef.current) {
-      // console.log('🎯 DEBUG: Preventing auto-save due to open dropdown');
       return null;
     }
 
@@ -630,247 +496,9 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // Add scroll position preservation effect (ChatGPT's solution)
-  React.useEffect(() => {
-    const gridElement = gridContainerRef.current;
-    if (!gridElement) return;
-
-    // Save scroll position before any data changes
-    const saveScrollPosition = () => {
-      if (gridElement && !dropdownOpenRef.current) {
-        scrollPositionRef.current = {
-          left: gridElement.scrollLeft,
-          top: gridElement.scrollTop
-        };
-      }
-    };
-
-    // Restore scroll position after data changes
-    const restoreScrollPosition = () => {
-      if (gridElement && scrollPositionRef.current && !dropdownOpenRef.current) {
-        // Use requestAnimationFrame to ensure DOM is updated
-        requestAnimationFrame(() => {
-          gridElement.scrollLeft = scrollPositionRef.current!.left;
-          gridElement.scrollTop = scrollPositionRef.current!.top;
-        });
-      }
-    };
-
-    // Add scroll event listener to save position
-    gridElement.addEventListener('scroll', saveScrollPosition);
-
-    // Restore scroll position after data changes
-    restoreScrollPosition();
-
-    return () => {
-      gridElement.removeEventListener('scroll', saveScrollPosition);
-    };
-  }, [currentScoreCardData]); // Trigger when data changes
-
-  // Add comprehensive scroll prevention when dropdown is open
-  useEffect(() => {
-    const gridElement = gridContainerRef.current;
-    if (!gridElement) return;
-
-    const isDropdownOpen = contactPicker || statusPicker || priorityPicker || categoryReviewDatePicker;
-
-    if (isDropdownOpen) {
-      // Store current scroll position
-      scrollPositionRef.current = {
-        left: gridElement.scrollLeft,
-        top: gridElement.scrollTop
-      };
-
-      // Prevent any scroll events
-      const preventScroll = (e: Event) => {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      };
-
-      // Prevent focus-triggered scroll
-      const preventFocus = (e: Event) => {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      };
-
-      // Add event listeners to prevent scroll
-      gridElement.addEventListener('scroll', preventScroll, { passive: false });
-      gridElement.addEventListener('focus', preventFocus, { passive: false });
-      gridElement.addEventListener('focusin', preventFocus, { passive: false });
-
-      // Also prevent scroll on the window/document
-      window.addEventListener('scroll', preventScroll, { passive: false });
-      document.addEventListener('scroll', preventScroll, { passive: false });
-
-      return () => {
-        gridElement.removeEventListener('scroll', preventScroll);
-        gridElement.removeEventListener('focus', preventFocus);
-        gridElement.removeEventListener('focusin', preventFocus);
-        window.removeEventListener('scroll', preventScroll);
-        document.removeEventListener('scroll', preventScroll);
-      };
-    } else {
-      // Restore scroll position when dropdown closes
-      if (scrollPositionRef.current) {
-        setTimeout(() => {
-          gridElement.scrollLeft = scrollPositionRef.current!.left;
-          gridElement.scrollTop = scrollPositionRef.current!.top;
-        }, 0);
-      }
-    }
-  }, [contactPicker, statusPicker, priorityPicker, categoryReviewDatePicker]);
-
-  // ROCK SOLID SOLUTION: Monkey patch scrollIntoView when dropdown is open
-  useEffect(() => {
-    const isDropdownOpen = contactPicker || statusPicker || priorityPicker || categoryReviewDatePicker;
-
-    if (isDropdownOpen) {
-      // Store original scrollIntoView
-      const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-
-      // Override scrollIntoView to do nothing
-      HTMLElement.prototype.scrollIntoView = function () {
-        // Do nothing - prevent any scrollIntoView calls
-        return;
-      };
-
-      return () => {
-        // Restore original scrollIntoView when dropdown closes
-        HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
-      };
-    }
-  }, [contactPicker, statusPicker, priorityPicker, categoryReviewDatePicker]);
-
-  // ROCK SOLID SOLUTION: Restore scroll on next animation frame after dropdown opens
-  useEffect(() => {
-    const isDropdownOpen = contactPicker || statusPicker || priorityPicker || categoryReviewDatePicker;
-
-    if (isDropdownOpen && gridContainerRef.current && scrollPositionRef.current) {
-      // After dropdown opens, forcibly restore scroll on next animation frame
-      requestAnimationFrame(() => {
-        const grid = gridContainerRef.current;
-        if (grid && scrollPositionRef.current) {
-          grid.scrollLeft = scrollPositionRef.current.left;
-          grid.scrollTop = scrollPositionRef.current.top;
-        }
-      });
-    }
-  }, [contactPicker, statusPicker, priorityPicker, categoryReviewDatePicker]);
-
-  // ROCK SOLID SOLUTION: Restore scroll after any data changes
-  useEffect(() => {
-    if (!dropdownOpenRef.current && gridContainerRef.current && scrollPositionRef.current) {
-      requestAnimationFrame(() => {
-        const grid = gridContainerRef.current;
-        if (grid && scrollPositionRef.current) {
-          grid.scrollLeft = scrollPositionRef.current.left;
-          grid.scrollTop = scrollPositionRef.current.top;
-        }
-      });
-    }
-  }, [currentScoreCardData]);
-
-  // ROCK SOLID SOLUTION: Immediately blur any focused elements when dropdown opens
-  useEffect(() => {
-    const isDropdownOpen = contactPicker || statusPicker || priorityPicker || categoryReviewDatePicker;
-
-    if (isDropdownOpen) {
-      // Immediately blur any focused elements to prevent focus-triggered scroll
-      setTimeout(() => {
-        const activeElement = document.activeElement as HTMLElement;
-        if (activeElement && activeElement.blur) {
-          activeElement.blur();
-        }
-      }, 0);
-    }
-  }, [contactPicker, statusPicker, priorityPicker, categoryReviewDatePicker]);
-
-  // ROCK SOLID SOLUTION: Lock the Grid's Internal Scroll Position Constantly While Dropdown is Open
-  useEffect(() => {
-    let raf: number;
-
-    function keepScroll() {
-      if (dropdownOpenRef.current && gridContainerRef.current && scrollPositionRef.current) {
-        gridContainerRef.current.scrollTop = scrollPositionRef.current.top;
-        gridContainerRef.current.scrollLeft = scrollPositionRef.current.left;
-        raf = requestAnimationFrame(keepScroll);
-      }
-    }
-
-    if (dropdownOpenRef.current) {
-      keepScroll();
-    }
-
-    return () => {
-      if (raf) {
-        cancelAnimationFrame(raf);
-      }
-    };
-  }, [contactPicker, statusPicker, priorityPicker, categoryReviewDatePicker]);
-
-  // NUCLEAR OPTION: MutationObserver to detect and revert any scroll changes
-  useEffect(() => {
-    const isDropdownOpen = contactPicker || statusPicker || priorityPicker || categoryReviewDatePicker;
-
-    if (isDropdownOpen && gridContainerRef.current && scrollPositionRef.current) {
-      const gridElement = gridContainerRef.current;
-      const originalScrollTop = scrollPositionRef.current.top;
-      const originalScrollLeft = scrollPositionRef.current.left;
-
-      // Create a MutationObserver to watch for any scroll changes
-      const observer = new MutationObserver((mutations) => {
-        if (gridElement && scrollPositionRef.current) {
-          // If scroll position changed, immediately restore it
-          if (gridElement.scrollTop !== originalScrollTop || gridElement.scrollLeft !== originalScrollLeft) {
-            gridElement.scrollTop = originalScrollTop;
-            gridElement.scrollLeft = originalScrollLeft;
-          }
-        }
-      });
-
-      // Observe the grid element for any attribute changes
-      observer.observe(gridElement, {
-        attributes: true,
-        attributeFilter: ['style', 'class'],
-        subtree: true,
-        childList: true
-      });
-
-      return () => {
-        observer.disconnect();
-      };
-    }
-  }, [contactPicker, statusPicker, priorityPicker, categoryReviewDatePicker]);
-
-  // NUCLEAR OPTION: Scroll event listener to immediately revert any scroll changes
-  useEffect(() => {
-    const isDropdownOpen = contactPicker || statusPicker || priorityPicker || categoryReviewDatePicker;
-
-    if (isDropdownOpen && gridContainerRef.current && scrollPositionRef.current) {
-      const gridElement = gridContainerRef.current;
-      const originalScrollTop = scrollPositionRef.current.top;
-      const originalScrollLeft = scrollPositionRef.current.left;
-
-      const handleScroll = () => {
-        if (gridElement && scrollPositionRef.current) {
-          // If scroll position changed, immediately restore it
-          if (gridElement.scrollTop !== originalScrollTop || gridElement.scrollLeft !== originalScrollLeft) {
-            gridElement.scrollTop = originalScrollTop;
-            gridElement.scrollLeft = originalScrollLeft;
-          }
-        }
-      };
-
-      // Add scroll event listener
-      gridElement.addEventListener('scroll', handleScroll, { passive: false });
-
-      return () => {
-        gridElement.removeEventListener('scroll', handleScroll);
-      };
-    }
-  }, [contactPicker, statusPicker, priorityPicker, categoryReviewDatePicker]);
+  // Scroll prevention — all logic consolidated in useScrollPrevention hook
+  const isDropdownOpen = !!(contactPicker || statusPicker || priorityPicker || categoryReviewDatePicker);
+  useScrollPrevention(gridContainerRef, scrollPositionRef, preventScrollRef, dropdownOpenRef, isDropdownOpen, currentScoreCardData);
 
   // Patch: skip first save after scorecard switch
   React.useEffect(() => {
@@ -901,14 +529,12 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   // Load templates from API
   async function fetchTemplates() {
     try {
-      // console.log('🔍 Fetching templates from API...');
       const res = await fetch('/api/templates', { credentials: 'include' });
       if (!res.ok) {
         console.error('❌ Failed to fetch templates:', res.status, res.statusText);
         throw new Error('Failed to load templates');
       }
       const data = await res.json();
-      // console.log('✅ Templates loaded:', data.length, 'templates found');
       setTemplates(data);
     } catch (e) {
       console.error('❌ Error fetching templates:', e);
@@ -919,7 +545,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
 
   // Save template to API
   async function saveTemplateToAPI(template: { name: string; columns: any; rows?: any }) {
-    // console.log('💾 Saving template to API:', template.name);
     const res = await fetch('/api/templates', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -931,7 +556,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       throw new Error('Failed to save template');
     }
     const data = await res.json();
-    // console.log('✅ Template saved successfully:', data);
     // Refetch templates to ensure consistency
     await fetchTemplates();
     return data;
@@ -939,17 +563,14 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
 
   // Delete template from API
   async function deleteTemplateFromAPI(id: string) {
-    // console.log('🗑️ Deleting template with ID:', id);
     const res = await fetch(`/api/templates/${id}`, {
       method: 'DELETE',
       credentials: 'include',
     });
-    // console.log('Delete response status:', res.status);
     if (!res.ok) {
       console.error('❌ Failed to delete template:', res.status, res.statusText);
       throw new Error('Failed to delete template');
     }
-    // console.log('✅ Template deleted successfully');
     // Refetch templates to ensure consistency
     await fetchTemplates();
   }
@@ -1204,11 +825,9 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   // Load comments from database for a specific scorecard
   async function loadScorecardComments(scorecardId: string) {
     try {
-      // console.log('📥 Loading comments for scorecard:', scorecardId);
 
       // Skip loading for local scorecards (they don't have database comments)
       if (scorecardId.startsWith('scorecard_')) {
-        // console.log('📝 Skipping comment load for local scorecard');
         setComments(prev => ({
           ...prev,
           [scorecardId]: {}
@@ -1228,7 +847,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       }
 
       const commentsData = await response.json();
-      // console.log('✅ Comments loaded:', commentsData.length, 'comments');
 
       // Group comments by row_id
       const groupedComments: Record<number, any[]> = {};
@@ -1335,7 +953,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     if (!commentInput.trim() || openCommentRowId == null || !isScorecard(selectedCategory) || !user) return;
 
     try {
-      // console.log('💬 Adding comment to scorecard:', selectedCategory);
 
       // Get current scorecard data for potential migration
       const currentScorecard = editingScoreCard;
@@ -1351,7 +968,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
         } : undefined
       };
 
-      // console.log('📤 Sending comment request:', requestBody);
 
       const response = await fetch('/api/comments', {
         method: 'POST',
@@ -1369,11 +985,9 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       }
 
       const newComment = await response.json();
-      // console.log('✅ Comment created successfully:', newComment);
 
       // Handle scorecard migration if it occurred
       if (newComment.migrated_scorecard) {
-        // console.log('🔄 Scorecard was migrated:', newComment.migrated_scorecard);
 
         const { old_id, new_id, title } = newComment.migrated_scorecard;
 
@@ -1488,7 +1102,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
             lastModified: new Date(created.last_modified),
             data: created.data,
           };
-          setScorecards(prev => [...prev, formatted]);
+          setScorecards(prev => [...prev, formatted].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
           setEditingScoreCard(formatted);
           setSelectedCategory(formatted.id);
           setNewScoreCardName('');
@@ -1535,7 +1149,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     // Check if it's a scorecard (either local with 'scorecard_' prefix or database with numeric ID)
     const scorecard = scorecards.find(sc => sc.id === selectedCategory);
     if (scorecard) {
-      // console.log('📊 Found scorecard data:', scorecard.name, 'with', scorecard.rows.length, 'rows');
       return { columns: scorecard.columns, rows: scorecard.rows };
     }
 
@@ -1544,7 +1157,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       return categoryData[selectedCategory];
     }
 
-    // console.log('❌ No data found for category:', selectedCategory);
     return null;
   }
 
@@ -1600,12 +1212,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   }
 
   useEffect(() => {
-    // console.log('categoryData:', categoryData);
-    // console.log('selectedCategory:', selectedCategory);
-    // console.log('columns:', getCurrentData()?.columns);
-    // console.log('rows:', getCurrentData()?.rows);
-    // console.log('First row:', getCurrentData()?.rows?.[0]);
-    // console.log('Column keys:', getCurrentData()?.columns?.map(col => col.key));
   }, [categoryData, selectedCategory, scorecards]);
 
   useEffect(() => {
@@ -1614,7 +1220,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
 
     const updatedColumns = currentData.columns.map(col => {
       const editable = userRole === 'ADMIN' && col.key !== 'id' && col.key !== 'delete';
-      // console.log(`Column ${col.key} editable state:`, {
       //   userRole,
       //   isId: col.key === 'id',
       //   isDelete: col.key === 'delete',
@@ -1637,7 +1242,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
         } : undefined)
       };
     });
-    // console.log('Updated columns after useEffect:', updatedColumns);
     updateCurrentData({ columns: updatedColumns });
   }, [userRole, selectedCategory]);
 
@@ -1653,7 +1257,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     // Check if it's the master scorecard
     if (category === 'master-scorecard') {
       setEditingScoreCard(null);
-      // console.log('🎯 Auto-save DISABLED for master scorecard');
       return;
     }
 
@@ -1662,15 +1265,12 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     if (scorecard) {
       setEditingScoreCard(scorecard);
       setLastSelectedScorecardId(scorecard.id);
-      // console.log('🎯 Auto-save ENABLED for scorecard:', scorecard.name, 'ID:', scorecard.id);
       // Load comments for this scorecard
       loadScorecardComments(scorecard.id);
     } else {
       setEditingScoreCard(null);
-      // console.log('🎯 Auto-save DISABLED for regular category:', category);
     }
 
-    // console.log('Switching to', category, 'found scorecard:', !!scorecard);
   }
 
   // Expose navigation function for notification clicks
@@ -1828,34 +1428,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       return [];
     });
   }
-
-  // --- Product Status Dropdown: always clickable, accessible, improved colors ---
-  const productStatusOptions = [
-    { value: 'Authorized', label: 'Authorized', bg: '#e6f4ea', color: '#14532d' }, // soft green
-    { value: 'In Process', label: 'In Process', bg: '#e0e7ff', color: '#1e3a8a' }, // soft blue
-    { value: 'In/Out', label: 'In/Out', bg: '#fef9c3', color: '#92400e' }, // soft yellow
-    { value: 'Buyer Passed', label: 'Buyer Passed', bg: '#fee2e2', color: '#991b1b' }, // soft red
-    { value: 'Presented', label: 'Presented', bg: '#ede9fe', color: '#6d28d9' }, // soft purple
-    { value: 'Discontinued', label: 'Discontinued', bg: '#f3f4f6', color: '#374151' }, // soft gray
-    { value: 'Meeting Secured', label: 'Meeting Secured', bg: '#fff7ed', color: '#b45309' }, // soft orange
-    { value: 'On Hold', label: 'On Hold', bg: '#fdf2f8', color: '#be185d' }, // soft pink
-    { value: 'Category Review', label: 'Category Review', bg: '#f0fdfa', color: '#0f766e' }, // soft teal
-    { value: 'Open Review', label: 'Open Review', bg: '#e0f2fe', color: '#0369a1' }, // soft sky
-  ];
-
-  // Add icon mapping for statuses
-  const statusIcons: Record<string, React.ReactNode> = {
-    'Authorized': <span style={{ fontWeight: 700 }}>&#10003;</span>, // checkmark
-    'In Process': <span style={{ fontWeight: 700 }}>&#9203;</span>, // clock
-    'In/Out': <span style={{ fontWeight: 700 }}>&#8596;</span>, // arrows
-    'Buyer Passed': <span style={{ fontWeight: 700 }}>&#10060;</span>, // cross
-    'Presented': <span style={{ fontWeight: 700 }}>&#128196;</span>, // document
-    'Discontinued': <span style={{ fontWeight: 700 }}>&#9940;</span>, // stop
-    'Meeting Secured': <span style={{ fontWeight: 700 }}>&#128197;</span>, // calendar
-    'On Hold': <span style={{ fontWeight: 700, color: '#2563eb' }}>&#9208;</span>, // blue pause
-    'Category Review': <span style={{ fontWeight: 700 }}>&#128196;</span>, // document
-    'Open Review': <span style={{ fontWeight: 700 }}>&#128065;</span>, // eye
-  };
 
   // Render colored label for product status
   function ProductStatusLabel({ value }: { value: string }) {
@@ -2292,7 +1864,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   columnsWithDeleteRef.current = columnsWithDelete;
 
   // Debug: log columnsWithDelete to check editable property
-  // console.log('Final columnsWithDelete:', columnsWithDelete.map(col => ({
   //   key: col.key,
   //   name: col.name,
   //   editable: col.editable
@@ -2314,7 +1885,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   }
 
   function handleImportExcel(event: React.ChangeEvent<HTMLInputElement>) {
-    // console.log('handleImportExcel called');
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -2330,7 +1900,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       // Find the header row
       const headerRowIndex = 0; // or your logic to find the header row
       const headers = rows2D[headerRowIndex];
-      // console.log('Excel headers:', headers);
       if (!headers || headers.length === 0) {
         toast.error('No headers found in Excel/CSV file!');
         return;
@@ -2345,8 +1914,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       );
       const gridColNames = visibleGridCols.map(col => normalizeColName(String(col.name)));
       const excelColNames = headers.map(h => normalizeColName(String(h)));
-      // console.log('Grid columns:', gridColNames);
-      // console.log('Excel columns:', excelColNames);
 
       // Detect duplicates in Excel columns
       const excelColNameCounts: Record<string, number> = {};
@@ -2514,14 +2081,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       return null;
     }
   }
-  function saveRetailersToStorage(rows: any[]) {
-    try {
-      localStorage.setItem('retailers', JSON.stringify(rows));
-    } catch (error) {
-      console.warn('Failed to save retailers to localStorage:', error);
-    }
-  }
-
   // Helper to get cell position
   function getCellPosition(rowIdx: number, colIdx: number) {
     if (!gridContainerRef.current) return { top: 0, left: 0, width: 200, openUpward: false, maxHeight: 220 };
@@ -2578,105 +2137,10 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       maxHeight
     };
 
-    // console.log('🎯 DEBUG: Final dropdown position:', finalPosition);
 
     return finalPosition;
   }
 
-  // StatusPickerCard is now in StatusPickerCard.tsx — this stub keeps old call-sites compiling
-  // while the return statement is migrated. Remove once JSX is updated.
-  function _StatusPickerCard_REMOVED({
-    rowIdx, colIdx, value, onSelect, onClose, columnKey
-  }: { rowIdx: number; colIdx: number; value: string; onSelect: (v: string) => void; onClose: () => void; columnKey: string }) {
-    const [focusedIdx, setFocusedIdx] = useState(() => productStatusOptions.findIndex(opt => opt.value === value));
-    const cardRef = useRef<HTMLDivElement>(null);
-    const pos = getCellPosition(rowIdx, colIdx);;
-
-    useEffect(() => {
-      function handleKeyDown(e: KeyboardEvent) {
-        if (!cardRef.current) return;
-        if (e.key === 'ArrowDown') {
-          setFocusedIdx(idx => (idx + 1) % productStatusOptions.length);
-          e.preventDefault();
-        } else if (e.key === 'ArrowUp') {
-          setFocusedIdx(idx => (idx - 1 + productStatusOptions.length) % productStatusOptions.length);
-          e.preventDefault();
-        } else if (e.key === 'Enter') {
-          onSelect(productStatusOptions[focusedIdx].value);
-        } else if (e.key === 'Escape') {
-          onClose();
-        }
-      }
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [focusedIdx, onSelect, onClose]);
-
-    useEffect(() => {
-      function handleClickOutside(e: MouseEvent) {
-        if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
-          onClose();
-        }
-      }
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [onClose]);
-
-    return ReactDOM.createPortal(
-      <div
-        ref={cardRef}
-        style={{
-          position: 'fixed',
-          top: pos.top,
-          left: pos.left,
-          minWidth: pos.width,
-          background: '#fff',
-          zIndex: 99999,
-          boxShadow: pos.openUpward ? '0 -4px 24px #0002' : '0 4px 24px #0002',
-          border: '1px solid #e5e7eb',
-          borderRadius: 10,
-          padding: 4,
-          marginTop: 2,
-          maxHeight: pos.maxHeight,
-          overflowY: 'auto',
-        }}
-        tabIndex={-1}
-      >
-        {productStatusOptions.map((opt, idx) => {
-          const isSelected = value === opt.value;
-          const isFocused = idx === focusedIdx;
-          return (
-            <div
-              key={opt.value}
-              onClick={() => onSelect(opt.value)}
-              onMouseEnter={() => setFocusedIdx(idx)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '10px 16px',
-                borderRadius: 8,
-                cursor: 'pointer',
-                background: isSelected ? (opt.bg || '#f3f4f6') : isFocused ? '#f3f4f6' : 'transparent',
-                fontWeight: isSelected ? 700 : 400,
-                color: opt.color,
-                boxShadow: isSelected ? '0 2px 8px #0001' : undefined,
-                marginBottom: 2,
-                transition: 'background 0.15s',
-              }}
-            >
-              {/* Status icon */}
-              <span style={{ fontSize: 18, width: 22, display: 'flex', justifyContent: 'center' }}>{statusIcons[opt.value] || ''}</span>
-              {/* Colored dot */}
-              <span style={{ width: 12, height: 12, borderRadius: '50%', background: opt.bg, border: `2px solid ${opt.color}`, display: 'inline-block' }}></span>
-              {/* Label */}
-              <span style={{ color: opt.color, fontWeight: isSelected ? 700 : 500 }}>{opt.label}</span>
-              {/* Checkmark if selected */}
-              {isSelected && <span style={{ marginLeft: 'auto', color: opt.color, fontSize: 20 }}>&#10003;</span>}
-            </div>
-          );
-        })}
-      </div>,
-      document.body
-    );
-  }
 
   // Update the openContactModal logic to initialize contactModalData
   function handleOpenContactModal(rowId: number, key: string, value: any) {
@@ -2694,45 +2158,24 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     setOpenContactModal({ rowId, key, value });
   }
 
-  // Place this before the return statement in the component
+  // Contact card modal
   let contactCardModal: React.ReactNode = null;
   if (openContactModal) {
     const currentData = getCurrentData();
     const rowIdx = currentData?.rows.findIndex(r => r.id === openContactModal.rowId);
     const key = openContactModal.key;
     contactCardModal = (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white p-6 rounded-lg shadow-xl w-96">
-          <h3 className="text-lg font-bold mb-4">Edit 3B Contact</h3>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700">Name</label>
-              <input type="text" value={contactModalData.name} onChange={e => setContactModalData(c => ({ ...c, name: e.target.value }))} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Name" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700">Telephone</label>
-              <input type="tel" value={contactModalData.telephone} onChange={e => setContactModalData(c => ({ ...c, telephone: e.target.value }))} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Telephone" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700">Address</label>
-              <input type="text" value={contactModalData.address} onChange={e => setContactModalData(c => ({ ...c, address: e.target.value }))} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Address" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700">Notes</label>
-              <textarea value={contactModalData.notes} onChange={e => setContactModalData(c => ({ ...c, notes: e.target.value }))} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Notes" />
-            </div>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setOpenContactModal(null)} className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200">Cancel</button>
-              <button onClick={() => {
-                if (!currentData || rowIdx === undefined || rowIdx === -1) return;
-                const updatedRows = currentData.rows.map((r, i) => i === rowIdx ? { ...r, [key]: { ...contactModalData } } : r);
-                updateCurrentData({ rows: updatedRows });
-                setOpenContactModal(null);
-              }} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">Save</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <ContactCardModal
+        contactData={contactModalData}
+        onContactDataChange={(field, value) => setContactModalData(c => ({ ...c, [field]: value }))}
+        onSave={() => {
+          if (!currentData || rowIdx === undefined || rowIdx === -1) return;
+          const updatedRows = currentData.rows.map((r, i) => i === rowIdx ? { ...r, [key]: { ...contactModalData } } : r);
+          updateCurrentData({ rows: updatedRows });
+          setOpenContactModal(null);
+        }}
+        onCancel={() => setOpenContactModal(null)}
+      />
     );
   }
 
@@ -2740,340 +2183,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   function getRowsWithSubRows() {
     const rows = getSortedRows();
     return [...rows, { isAddRow: true, id: 'add-row' }];
-  }
-
-  // Subgrid renderer: shows Add Column, Add Row, and allows delete
-  function SubGridRenderer({ parentId }: { parentId: string | number | undefined }) {
-    if (parentId === undefined) return null;
-    const grid = subGrids[parentId];
-    if (!grid || expandedRowId !== parentId) return null;
-
-    // Subgrid sorting state
-    const [subgridSortColumns, setSubgridSortColumns] = React.useState<SortColumn[]>([]);
-
-    // Sort subgrid rows
-    const sortedSubgridRows = React.useMemo(() => {
-      if (subgridSortColumns.length === 0) return grid.rows;
-
-      return [...grid.rows].sort((a, b) => {
-        for (const { columnKey, direction } of subgridSortColumns) {
-          const aValue = a[columnKey];
-          const bValue = b[columnKey];
-
-          if (aValue === bValue) continue;
-
-          const result = aValue < bValue ? -1 : 1;
-          return direction === 'ASC' ? result : -result;
-        }
-        return 0;
-      });
-    }, [grid.rows, subgridSortColumns]);
-
-    // Only render real rows and the add-row
-    let subgridRows = [
-      ...sortedSubgridRows,
-      { isAddRow: true, id: 'add-row' }
-    ];
-
-    // Calculate column widths based on content with dynamic algorithm
-    const calculateColumnWidth = (col: MyColumn) => {
-      const colNameLength = typeof col.name === 'string' ? col.name.length : 0;
-      const contentLengths = grid.rows.map(row => String(row[col.key] || '').length);
-      const maxContentLength = Math.max(colNameLength, ...contentLengths);
-
-      // Dynamic width calculation based on content
-      const charWidth = 10; // Reduced from 14px to 10px per character
-      const padding = 20; // Reduced padding
-      const iconSpace = 60; // Space for icons (edit, delete, sort)
-
-      const calculatedWidth = Math.max(maxContentLength * charWidth + padding + iconSpace, 100);
-      return Math.min(calculatedWidth, 300); // Reduced max width for better distribution
-    };
-
-    const subEditableColumns = grid.columns.map((col: MyColumn, idx: number) => ({
-      ...col,
-      width: calculateColumnWidth(col),
-      renderHeaderCell: () => {
-        const [isEditing, setIsEditing] = React.useState(false);
-        const [inputValue, setInputValue] = React.useState(col.name as string);
-        const inputRef = React.useRef<HTMLInputElement>(null);
-
-        // Update local state on prop change
-        React.useEffect(() => {
-          setInputValue(typeof col.name === 'string' ? col.name : '');
-        }, [col.name]);
-
-        const startEditing = () => {
-          setIsEditing(true);
-          setTimeout(() => inputRef.current?.focus(), 0);
-        };
-
-        const commitChange = () => {
-          setIsEditing(false);
-          if (inputValue !== col.name && inputValue.trim()) {
-            handleSubGridColumnNameChange(parentId, idx, inputValue.trim());
-          } else {
-            setInputValue(typeof col.name === 'string' ? col.name : '');
-          }
-        };
-
-        const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-          if (e.key === 'Enter') {
-            commitChange();
-          } else if (e.key === 'Escape') {
-            setIsEditing(false);
-            setInputValue(typeof col.name === 'string' ? col.name : '');
-          }
-        };
-
-        // Get sort icon for this column
-        const sortColumn = subgridSortColumns.find(sc => sc.columnKey === col.key);
-        const sortIcon = sortColumn ? (sortColumn.direction === 'ASC' ? '↑' : '↓') : null;
-
-        return (
-          <div className="flex items-center justify-between w-full">
-            {isEditing ? (
-              <input
-                ref={inputRef}
-                value={inputValue}
-                onChange={e => setInputValue(e.target.value)}
-                onBlur={commitChange}
-                onKeyDown={handleKeyDown}
-                className="border border-blue-300 px-2 py-1 rounded text-xs bg-white"
-                style={{
-                  fontSize: '12px',
-                  height: 24,
-                  width: '100%',
-                  minWidth: '80px'
-                }}
-                maxLength={20}
-              />
-            ) : (
-              <>
-                <div className="flex items-center gap-1 flex-1">
-                  <span className="text-[11px] font-medium text-slate-600 truncate">
-                    {typeof col.name === 'string' ? col.name : ''}
-                  </span>
-                  <button
-                    onClick={startEditing}
-                    className="text-slate-300 hover:text-blue-500 transition-colors p-0.5"
-                    title="Edit Column Name"
-                    style={{ fontSize: 10 }}
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z" /></svg>
-                  </button>
-                </div>
-                <div className="flex items-center gap-1 ml-2">
-                  {!col.isDefault &&
-                    col.key !== 'name' &&
-                    col.key !== 'priority' &&
-                    col.key !== 'retailPrice' &&
-                    col.key !== 'categoryReviewDate' &&
-                    col.key !== 'buyer' &&
-                    col.key !== 'storeContact' &&
-                    col.key !== 'delete' &&
-                    col.key !== 'retailerName' &&
-                    typeof col.name === 'string' &&
-                    !col.name.toLowerCase().includes('retailer') &&
-                    !col.name.toLowerCase().includes('priority') &&
-                    !col.name.toLowerCase().includes('price') &&
-                    !col.name.toLowerCase().includes('category') &&
-                    !col.name.toLowerCase().includes('buyer') &&
-                    !col.name.toLowerCase().includes('contact') && (
-                      <button
-                        onClick={e => {
-                          e.stopPropagation();
-                          handleSubGridDeleteColumn(parentId, col.key);
-                        }}
-                        className="text-slate-300 hover:text-red-500 transition-colors p-0.5"
-                        title="Delete Column"
-                        style={{ fontSize: 10 }}
-                      >
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
-                      </button>
-                    )}
-                  <button
-                    onClick={e => {
-                      e.stopPropagation();
-                      const currentSort = subgridSortColumns.find(sc => sc.columnKey === col.key);
-                      const newDirection = currentSort?.direction === 'ASC' ? 'DESC' : 'ASC';
-                      setSubgridSortColumns(prev => {
-                        const filtered = prev.filter(sc => sc.columnKey !== col.key);
-                        return [...filtered, { columnKey: col.key, direction: newDirection }];
-                      });
-                    }}
-                    className="text-slate-300 hover:text-blue-500 transition-colors p-0.5"
-                    title="Sort Column"
-                    style={{ fontSize: 10 }}
-                  >
-                    {sortIcon || <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5 7.5 3m0 0L12 7.5M7.5 3v13.5m13.5-3L16.5 18m0 0L12 13.5m4.5 4.5V4.5" /></svg>}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        );
-      },
-      renderCell: (props: { row: Row }) => {
-        if (props.row.isDummy) {
-          return null;
-        }
-        if (props.row.isAddRow) {
-          if (idx === 0) {
-            return (
-              <button
-                onClick={() => handleSubGridAddRow(parentId)}
-                className="w-full h-full flex items-center justify-start text-slate-400 hover:text-blue-600 transition-colors font-medium pl-2"
-                style={{ minHeight: 24, fontSize: '13px', padding: 0 }}
-              >
-                + Add Row
-              </button>
-            );
-          } else {
-            return null;
-          }
-        }
-
-        const cellValue = props.row[col.key];
-        const displayValue = cellValue ? String(cellValue).substring(0, 20) : '';
-        const isTruncated = cellValue && String(cellValue).length > 20;
-
-        return (
-          <div
-            className="flex items-center px-2 py-1"
-            style={{
-              fontSize: '13px',
-              minHeight: '24px',
-              backgroundColor: 'transparent'
-            }}
-            title={isTruncated ? String(cellValue) : undefined}
-          >
-            <span className="text-slate-800">{displayValue}</span>
-            {isTruncated && <span className="text-slate-400 ml-1">...</span>}
-          </div>
-        );
-      },
-      renderEditCell: ({ row, column, onRowChange }: RenderEditCellProps<Row>) => (
-        <input
-          defaultValue={row[column.key] !== undefined ? String(row[column.key]) : ''}
-          onChange={e => {
-            const value = e.target.value;
-            // Limit to 20 characters
-            if (value.length <= 20) {
-              onRowChange({ ...row, [column.key]: value });
-            }
-          }}
-          className="w-full h-full px-2 py-1 border border-blue-300 rounded bg-white"
-          autoFocus
-          style={{
-            fontSize: '13px',
-            height: '24px',
-            minHeight: '24px'
-          }}
-          maxLength={20}
-        />
-      )
-    }));
-
-    // Add delete column button
-    subEditableColumns.push({
-      key: 'delete',
-      name: '',
-      width: 36,
-      frozen: false,
-      renderHeaderCell: () => <></>,
-      renderCell: ({ row }: { row: Row }) => {
-        // Don't show delete button for add-row
-        if (row.isAddRow) {
-          return null;
-        }
-        return (
-          <button
-            onClick={() => handleSubGridDeleteRow(parentId, row.id)}
-            className="text-slate-300 hover:text-red-500 transition-colors text-base"
-            style={{ fontSize: 14, padding: 0 }}
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
-          </button>
-        );
-      },
-      renderEditCell: () => <></>,
-    });
-
-    const parentRow = getCurrentData()?.rows.find(r => r.id === parentId);
-    const parentName = parentRow?.name || 'Item';
-
-    return (
-      <div className="flex flex-col h-full">
-        {/* Drawer header */}
-        <div className="flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200 shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-1 h-5 bg-blue-500 rounded-full shrink-0" />
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-slate-800 truncate">{parentName}</h3>
-              <p className="text-[11px] text-slate-400">{grid.rows.length} row{grid.rows.length !== 1 ? 's' : ''} · {grid.columns.length} column{grid.columns.length !== 1 ? 's' : ''}</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setExpandedRowId(null)}
-            className="text-slate-400 hover:text-slate-600 text-xl font-bold shrink-0 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors"
-            aria-label="Close"
-          >
-            &times;
-          </button>
-        </div>
-
-        {/* Toolbar */}
-        <div className="flex items-center gap-1 px-4 py-2 border-b border-slate-100 shrink-0 flex-wrap">
-          <button onClick={() => handleSubGridAddColumn(parentId)} className="grid-toolbar-btn sm primary">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-            Column
-          </button>
-          <button onClick={() => handleSubGridAddRow(parentId)} className="grid-toolbar-btn sm">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-            Row
-          </button>
-          <div className="toolbar-separator" />
-          <label className="grid-toolbar-btn sm cursor-pointer" title="Import">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
-            <input type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleImportSubgridExcel(e, parentId)} />
-          </label>
-          <button onClick={() => handleExportSubgridExcel(parentId)} className="grid-toolbar-btn sm" title="Export">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12M12 16.5V3" /></svg>
-          </button>
-          <div className="toolbar-separator" />
-          <button onClick={() => setSubgridTemplateModal({ parentId, mode: 'save' })} className="grid-toolbar-btn sm" title="Save template">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
-          </button>
-          <button onClick={() => setSubgridTemplateModal({ parentId, mode: 'import' })} className="grid-toolbar-btn sm" disabled={subgridTemplates.length === 0} title="Load template">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m6.75 12-3-3m0 0-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-          </button>
-          <div className="flex-1" />
-          <button onClick={() => handleDeleteSubGrid(parentId)} className="grid-toolbar-btn sm danger" title="Delete subgrid">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
-          </button>
-        </div>
-
-        {/* Grid content */}
-        <div className="flex-1 overflow-auto p-4">
-          <DataGrid
-            key={parentId + '-' + grid.rows.length + '-' + grid.columns.length}
-            columns={subEditableColumns}
-            rows={subgridRows}
-            onRowsChange={newRows => handleSubGridRowsChange(parentId, newRows)}
-            sortColumns={subgridSortColumns}
-            onSortColumnsChange={setSubgridSortColumns}
-            className="fill-grid subgrid-with-separators"
-            enableVirtualization={false}
-            style={{
-              fontSize: '12px',
-              height: '100%',
-              width: '100%',
-            }}
-          />
-        </div>
-      </div>
-    );
   }
 
   // Add handleDeleteColumn for main grid
@@ -3146,9 +2255,11 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
           <EditableColumnHeader
             col={col}
             idx={idx}
+            isUserAdded={true}
             onNameChange={newName => handleColumnNameChange(idx, newName)}
             sortIcon={getSortIcon ? getSortIcon(col.key) : null}
             onSort={() => handleSortClick(col.key)}
+            onDeleteColumn={(key) => setConfirmDelete({ type: 'column', id: key })}
           />
         )
       };
@@ -3156,20 +2267,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     return col;
   });
 
-  // 1. Add priorityOptions
-  const priorityOptions = [
-    { value: 'High', label: 'High', bg: '#fee2e2', color: '#b91c1c' },
-    { value: 'Medium', label: 'Medium', bg: '#fef9c3', color: '#b45309' },
-    { value: 'Low', label: 'Low', bg: '#e0f2fe', color: '#0369a1' },
-  ];
-
-  // 2. Add contactOptions for 3B Contact dropdown
-  const contactOptions = [
-    { value: 'Volkan', label: 'Volkan', bg: '#e0f2fe', color: '#0369a1' },
-    { value: 'Troy', label: 'Troy', bg: '#fef9c3', color: '#b45309' },
-  ];
-
-  // 2. Add PriorityLabel and PriorityDropdownEditCell
+  // PriorityLabel and PriorityDropdownEditCell
   function PriorityLabel({ value }: { value: string }) {
     const selected = priorityOptions.find(opt => opt.value === value);
     if (!selected) return <span className="text-slate-300 text-xs">—</span>;
@@ -3268,204 +2366,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     );
   };
 
-  // PriorityPickerCard is now in PriorityPickerCard.tsx — stub removed
-  function _PriorityPickerCard_REMOVED({ rowIdx, colIdx, value, onSelect, onClose, columnKey }: { rowIdx: number; colIdx: number; value: string; onSelect: (v: string) => void; onClose: () => void; columnKey: string }) {
-    const [focusedIdx, setFocusedIdx] = React.useState(() => priorityOptions.findIndex(opt => opt.value === value));
-    const cardRef = React.useRef<HTMLDivElement>(null);
-    const pos = getCellPosition(rowIdx, colIdx);
 
-    // console.log('🎯 DEBUG: PriorityPickerCard opened');
-
-    React.useEffect(() => {
-      function handleKeyDown(e: KeyboardEvent) {
-        if (!cardRef.current) return;
-        if (e.key === 'ArrowDown') {
-          setFocusedIdx(idx => (idx + 1) % priorityOptions.length);
-          e.preventDefault();
-        } else if (e.key === 'ArrowUp') {
-          setFocusedIdx(idx => (idx - 1 + priorityOptions.length) % priorityOptions.length);
-          e.preventDefault();
-        } else if (e.key === 'Enter') {
-          onSelect(priorityOptions[focusedIdx].value);
-        } else if (e.key === 'Escape') {
-          onClose();
-        }
-      }
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [focusedIdx, onSelect, onClose]);
-
-    React.useEffect(() => {
-      function handleClickOutside(e: MouseEvent) {
-        if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
-          onClose();
-        }
-      }
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [onClose]);
-
-    return ReactDOM.createPortal(
-      <div
-        ref={cardRef}
-        style={{
-          position: 'fixed',
-          top: pos.top,
-          left: pos.left,
-          minWidth: pos.width,
-          background: '#fff',
-          zIndex: 99999,
-          boxShadow: pos.openUpward ? '0 -4px 24px #0002' : '0 4px 24px #0002',
-          border: '1px solid #e5e7eb',
-          borderRadius: 10,
-          padding: 4,
-          marginTop: 2,
-          maxHeight: pos.maxHeight,
-          overflowY: 'auto',
-        }}
-        tabIndex={-1}
-      >
-        {priorityOptions.map((opt, idx) => {
-          const isSelected = value === opt.value;
-          const isFocused = idx === focusedIdx;
-          return (
-            <div
-              key={opt.value}
-              onClick={() => onSelect(opt.value)}
-              onMouseEnter={() => setFocusedIdx(idx)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '10px 16px',
-                borderRadius: 8,
-                cursor: 'pointer',
-                background: isSelected ? (opt.bg || '#f3f4f6') : isFocused ? '#f3f4f6' : 'transparent',
-                fontWeight: isSelected ? 700 : 400,
-                color: opt.color,
-                boxShadow: isSelected ? '0 2px 8px #0001' : undefined,
-                marginBottom: 2,
-                transition: 'background 0.15s',
-              }}
-            >
-              <span style={{ color: opt.color, fontWeight: isSelected ? 700 : 500 }}>{opt.label}</span>
-              {isSelected && <span style={{ marginLeft: 'auto', color: opt.color, fontSize: 20 }}>&#10003;</span>}
-            </div>
-          );
-        })}
-      </div>,
-      document.body
-    );
-  }
-
-  // ContactPickerCard is now in ContactPickerCard.tsx — stub removed
-  function _ContactPickerCard_REMOVED({ rowIdx, colIdx, value, onSelect, onClose, columnKey }: { rowIdx: number; colIdx: number; value: string; onSelect: (v: string) => void; onClose: () => void; columnKey: string }) {
-    const [focusedIdx, setFocusedIdx] = React.useState(() => contactOptions.findIndex(opt => opt.value === value));
-    const cardRef = React.useRef<HTMLDivElement>(null);
-    const pos = getCellPosition(rowIdx, colIdx);
-
-    // Debug: Log dropdown opening
-    // console.log('🎯 DEBUG: ContactPickerCard opened');
-
-    React.useEffect(() => {
-      function handleKeyDown(e: KeyboardEvent) {
-        if (!cardRef.current) return;
-        if (e.key === 'ArrowDown') {
-          setFocusedIdx(idx => (idx + 1) % contactOptions.length);
-          e.preventDefault();
-        } else if (e.key === 'ArrowUp') {
-          setFocusedIdx(idx => (idx - 1 + contactOptions.length) % contactOptions.length);
-          e.preventDefault();
-        } else if (e.key === 'Enter') {
-          onSelect(contactOptions[focusedIdx].value);
-        } else if (e.key === 'Escape') {
-          onClose();
-        }
-      }
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [focusedIdx, onSelect, onClose]);
-
-    React.useEffect(() => {
-      function handleClickOutside(e: MouseEvent) {
-        if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
-          onClose();
-        }
-      }
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [onClose]);
-
-    return ReactDOM.createPortal(
-      <div
-        ref={cardRef}
-        style={{
-          position: 'fixed',
-          top: pos.top,
-          left: pos.left,
-          minWidth: pos.width,
-          background: '#fff',
-          zIndex: 99999,
-          boxShadow: pos.openUpward ? '0 -4px 24px #0002' : '0 4px 24px #0002',
-          border: '1px solid #e5e7eb',
-          borderRadius: 10,
-          padding: 4,
-          marginTop: 2,
-          maxHeight: pos.maxHeight,
-          overflowY: 'auto',
-        }}
-        tabIndex={-1}
-      >
-        {contactOptions.map((opt, idx) => {
-          const isSelected = value === opt.value;
-          const isFocused = idx === focusedIdx;
-          return (
-            <div
-              key={opt.value}
-              onClick={() => {
-                // Prevent focus from returning to the grid cell after selection
-                setTimeout(() => {
-                  const activeElement = document.activeElement as HTMLElement;
-                  if (activeElement && activeElement.blur) {
-                    activeElement.blur();
-                  }
-                }, 0);
-
-                // Store current scroll position before selection
-                const gridElement = gridContainerRef.current;
-                if (gridElement) {
-                  scrollPositionRef.current = {
-                    left: gridElement.scrollLeft,
-                    top: gridElement.scrollTop
-                  };
-                }
-
-                // Prevent any scroll during selection
-                preventScrollRef.current = true;
-
-                onSelect(opt.value);
-              }}
-              onMouseEnter={() => setFocusedIdx(idx)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '10px 16px',
-                borderRadius: 8,
-                cursor: 'pointer',
-                background: isSelected ? (opt.bg || '#f3f4f6') : isFocused ? '#f3f4f6' : 'transparent',
-                fontWeight: isSelected ? 700 : 400,
-                color: opt.color,
-                boxShadow: isSelected ? '0 2px 8px #0001' : undefined,
-                marginBottom: 2,
-                transition: 'background 0.15s',
-              }}
-            >
-              <span style={{ color: opt.color, fontWeight: isSelected ? 700 : 500 }}>{opt.label}</span>
-              {isSelected && <span style={{ marginLeft: 'auto', color: opt.color, fontSize: 20 }}>&#10003;</span>}
-            </div>
-          );
-        })}
-      </div>,
-      document.body
-    );
-  }
 
   function CategoryReviewDateEditCell({ row, column, onRowChange }: RenderEditCellProps<Row>) {
     const [open, setOpen] = React.useState(true);
@@ -3506,62 +2407,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     return isNaN(d.getTime()) ? null : d;
   }
 
-  // CategoryReviewDatePickerCard is now in CategoryReviewDatePickerCard.tsx — stub removed
-  function _CategoryReviewDatePickerCard_REMOVED({ rowIdx, colIdx, value, onSelect, onClose, columnKey }: { rowIdx: number; colIdx: number; value: string; onSelect: (v: string) => void; onClose: () => void; columnKey: string }) {
-    const cardRef = React.useRef<HTMLDivElement>(null);
-    // Parse value as MM/dd/yyyy
-    const [selectedDate, setSelectedDate] = React.useState(value ? parseDate(value) : null);
-    const pos = getCellPosition(rowIdx, colIdx);
-
-    // console.log('🎯 DEBUG: CategoryReviewDatePickerCard opened');
-
-    React.useEffect(() => {
-      function handleClickOutside(e: MouseEvent) {
-        if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
-          onClose();
-        }
-      }
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [onClose]);
-
-    return ReactDOM.createPortal(
-      <div
-        ref={cardRef}
-        style={{
-          position: 'fixed',
-          top: pos.top,
-          left: pos.left,
-          minWidth: pos.width,
-          background: '#fff',
-          zIndex: 99999,
-          boxShadow: pos.openUpward ? '0 -4px 24px #0002' : '0 4px 24px #0002',
-          border: '1px solid #e5e7eb',
-          borderRadius: 10,
-          padding: 8,
-          marginTop: 2,
-          maxHeight: pos.maxHeight,
-          overflowY: 'auto',
-        }}
-        tabIndex={-1}
-      >
-        <DatePicker
-          selected={selectedDate}
-          onChange={(date: Date | null) => {
-            setSelectedDate(date);
-            if (date) {
-              onSelect(format(date, 'MM/dd/yyyy'));
-            }
-          }}
-          dateFormat="MM/dd/yyyy"
-          inline
-          todayButton="Today"
-          dayClassName={(date: Date) => isToday(date) ? 'react-datepicker__day--today' : ''}
-        />
-      </div>,
-      document.body
-    );
-  }
 
   // Normalize function
   function normalizeColName(name: string) {
@@ -3650,139 +2495,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   // Add state for comment delete confirmation
   const [confirmDeleteComment, setConfirmDeleteComment] = useState<{ rowId: number, commentIdx: number } | null>(null);
 
-  // Modern editable column header for user-added columns
-  function EditableColumnHeader({ col, idx, onNameChange, sortIcon, onSort }: { col: MyColumn, idx: number, onNameChange: (newName: string) => void, sortIcon?: React.ReactNode, onSort?: () => void }) {
-    const [editing, setEditing] = React.useState(false);
-    const [inputValue, setInputValue] = React.useState(col.name as string);
-    const inputRef = React.useRef<HTMLInputElement>(null);
-    const containerRef = React.useRef<HTMLDivElement>(null);
-
-    React.useEffect(() => {
-      setInputValue(col.name as string);
-    }, [col.name]);
-
-    React.useEffect(() => {
-      if (editing && inputRef.current) {
-        inputRef.current.focus();
-        inputRef.current.select();
-      }
-    }, [editing]);
-
-    // Click outside to exit edit mode
-    React.useEffect(() => {
-      if (!editing) return;
-      function handleClickOutside(e: MouseEvent) {
-        if (
-          containerRef.current &&
-          !containerRef.current.contains(e.target as Node)
-        ) {
-          setEditing(false);
-          setInputValue(col.name as string);
-          if (inputRef.current) inputRef.current.blur();
-          // Remove focus from grid header cell
-          if (document.activeElement && (document.activeElement as HTMLElement).classList.contains('rdg-header-cell')) {
-            (document.activeElement as HTMLElement).blur();
-          }
-        }
-      }
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [editing, col.name]);
-
-    const commitChange = (fromBlur = false, event?: React.SyntheticEvent) => {
-      if (event) event.stopPropagation();
-      if (inputValue.trim() && inputValue !== col.name) {
-        onNameChange(inputValue.trim());
-        setEditing(false);
-        if (inputRef.current) inputRef.current.blur();
-        if (document.activeElement && (document.activeElement as HTMLElement).classList.contains('rdg-header-cell')) {
-          (document.activeElement as HTMLElement).blur();
-        }
-      } else if (fromBlur) {
-        setEditing(false);
-        setInputValue(col.name as string);
-        if (inputRef.current) inputRef.current.blur();
-        if (document.activeElement && (document.activeElement as HTMLElement).classList.contains('rdg-header-cell')) {
-          (document.activeElement as HTMLElement).blur();
-        }
-      }
-    };
-
-    // Determine if this is a user-added column (not default/system, not special columns)
-    const isUserAdded = col.isDefault !== true && col.key !== 'priority' && col.key !== '_delete_row' && col.key !== 'comments' && col.key !== 'name';
-
-    return (
-      <div
-        ref={containerRef}
-        className={`flex items-center gap-1 group relative px-1 py-0.5 rounded transition-all ${editing ? 'custom-col-editing' : ''}`}
-        style={{ minWidth: 80, maxWidth: 180 }}
-      >
-        {editing ? (
-          <>
-            <input
-              ref={inputRef}
-              value={inputValue}
-              onChange={e => setInputValue(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') commitChange(false, e);
-                if (e.key === 'Escape') { setEditing(false); setInputValue(col.name as string); if (inputRef.current) inputRef.current.blur(); if (document.activeElement && (document.activeElement as HTMLElement).classList.contains('rdg-header-cell')) { (document.activeElement as HTMLElement).blur(); } }
-              }}
-              className="rounded-lg border border-slate-300 px-2 py-1 text-sm transition-all outline-none focus:outline-none"
-              style={{ width: Math.max(80, inputValue.length * 10) }}
-              onBlur={() => commitChange(true)}
-              maxLength={32}
-              tabIndex={0}
-              autoFocus
-            />
-            <button
-              onClick={e => commitChange(false, e)}
-              className="ml-1 text-green-600 hover:text-green-800"
-              title="Save"
-              tabIndex={-1}
-              style={{ fontSize: 18 }}
-            >✓</button>
-            <button
-              onClick={() => { setEditing(false); setInputValue(col.name as string); if (inputRef.current) inputRef.current.blur(); if (document.activeElement && (document.activeElement as HTMLElement).classList.contains('rdg-header-cell')) { (document.activeElement as HTMLElement).blur(); } }}
-              className="ml-1 text-slate-400 hover:text-red-600"
-              title="Cancel"
-              tabIndex={-1}
-              style={{ fontSize: 18 }}
-            >×</button>
-          </>
-        ) : (
-          <>
-            <span className="truncate text-sm font-medium" style={{ maxWidth: 100 }}>{col.name}</span>
-            <button
-              className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity text-blue-400 hover:text-blue-600"
-              style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer' }}
-              title="Edit column name"
-              tabIndex={-1}
-              onClick={e => { e.stopPropagation(); setEditing(true); }}
-            ><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z" /></svg></button>
-            {isUserAdded && (
-              <button
-                className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-600"
-                style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer' }}
-                title="Delete column"
-                tabIndex={-1}
-                onClick={e => { e.stopPropagation(); setConfirmDelete({ type: 'column', id: col.key }); }}
-              ><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg></button>
-            )}
-            {sortIcon && (
-              <span
-                className="ml-1 cursor-pointer"
-                onClick={e => { e.stopPropagation(); onSort && onSort(); }}
-                title="Sort column"
-                style={{ display: 'flex', alignItems: 'center' }}
-              >
-                {sortIcon}
-              </span>
-            )}
-          </>
-        )}
-      </div>
-    );
-  }
 
   useEffect(() => {
     const loadData = async () => {
@@ -4070,8 +2782,34 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   // Add state for exclude subgrid data in export modal
   const [excludeSubgridExport, setExcludeSubgridExport] = useState(false);
 
+  // ─── Context value for extracted child components ─────────────────────────
+  const gridContextValue: AdminGridContextValue = {
+    selectedCategory, userRole, user, editingScoreCard, scorecards,
+    comments, commentInput, editCommentIdx, editCommentText,
+    openCommentRowId, openRetailerDrawer,
+    setCommentInput, setEditCommentIdx, setEditCommentText,
+    setOpenCommentRowId, setOpenRetailerDrawer, setComments,
+    setConfirmDeleteComment, handleAddComment, handleCloseCommentModal,
+    updateComment, deleteComment,
+    setScorecards, setEditingScoreCard, setSelectedCategory,
+    getCurrentData, updateCurrentData, isScorecard,
+    subGrids, expandedRowId, setExpandedRowId,
+    subgridTemplates, setSubgridTemplates,
+    subgridTemplateName, setSubgridTemplateName,
+    subgridIncludeRows, setSubgridIncludeRows,
+    subgridTemplateError, setSubgridTemplateError,
+    subgridSelectedTemplate, setSubgridSelectedTemplate,
+    subgridImportWithRows, setSubgridImportWithRows,
+    setSubgridTemplateModal, setConfirmDelete, saveSubgridTemplates,
+    handleSubGridAddColumn, handleSubGridAddRow, handleSubGridRowsChange,
+    handleSubGridColumnNameChange, handleSubGridDeleteRow,
+    handleSubGridDeleteColumn, handleDeleteSubGrid,
+    handleImportSubgridExcel, handleExportSubgridExcel,
+    handleSaveSubgridTemplate, handleImportSubgridTemplate,
+  };
+
   return (
-    <>
+    <AdminGridProvider value={gridContextValue}>
       <Toaster position="top-right" richColors />
       <style jsx global>{`
         .rdg-cell:focus, .rdg-cell.rdg-cell-selected {
@@ -4100,155 +2838,25 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
         /* .custom-col-editing { background: #fff; box-shadow: 0 0 0 2px #2563eb; border-radius: 6px; } */
       `}</style>
       <div className="flex h-screen w-full">
-        {/* Sidebar */}
-        <aside
-          className="h-full bg-white border-r border-slate-200 shadow-sm flex flex-col shrink-0 transition-all duration-200 ease-in-out overflow-hidden"
-          style={{ width: sidebarCollapsed ? 0 : 240, opacity: sidebarCollapsed ? 0 : 1 }}
-        >
-          <div className="px-4 pt-5 pb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Workspaces</h3>
-            <button
-              onClick={() => setSidebarCollapsed(true)}
-              className="p-1 text-slate-300 hover:text-slate-500 hover:bg-slate-100 rounded transition-colors"
-              title="Collapse sidebar"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5" /></svg>
-            </button>
-          </div>
-
-          <div className="px-3 mb-2">
-            <button
-              onClick={() => handleCategoryChange('master-scorecard')}
-              className={`w-full text-left px-3 py-2 rounded-lg font-medium transition-all flex items-center gap-2 text-sm ${selectedCategory === 'master-scorecard' ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-50 text-slate-600'}`}
-              style={{ borderLeft: selectedCategory === 'master-scorecard' ? '3px solid #3b82f6' : '3px solid transparent' }}
-            >
-              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
-              <span>Master Scorecard</span>
-              <span className="ml-auto text-[10px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded-full font-semibold">
-                Dashboard
-              </span>
-            </button>
-          </div>
-
-          <div className="px-3">
-            {dataCategories.map(cat => (
-              <button
-                key={cat}
-                onClick={() => handleCategoryChange(cat)}
-                className={`w-full text-left px-3 py-2 rounded-lg font-medium transition-all text-sm ${selectedCategory === cat ? 'bg-slate-100 text-slate-900' : 'hover:bg-slate-50 text-slate-600'}`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          <div className="mx-4 my-3 border-t border-slate-100"></div>
-
-          <div className="px-4 mb-2">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">ScoreCards</h4>
-              {userRole === 'ADMIN' && (
-                <button
-                  onClick={() => setShowCreateScoreCardModal(true)}
-                  className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                  title="Create New ScoreCard"
-                >
-                  <FaPlus size={12} />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {scorecards.length > 3 && (
-            <div className="px-3 mb-2">
-              <div className="relative">
-                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                <input
-                  type="text"
-                  value={sidebarSearch}
-                  onChange={e => setSidebarSearch(e.target.value)}
-                  placeholder="Filter scorecards..."
-                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 transition-colors"
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="flex-1 overflow-y-auto px-3 pb-4" style={{ scrollbarWidth: 'thin', scrollbarColor: '#cbd5e1 transparent' }}>
-            {scorecards
-              .filter(sc => !sidebarSearch || sc.name.toLowerCase().includes(sidebarSearch.toLowerCase()))
-              .map(scorecard => (
-              <div key={scorecard.id} className="mb-0.5">
-                <div className="flex items-center justify-between group">
-                  <button
-                    onClick={() => handleCategoryChange(scorecard.id)}
-                    className={`flex-1 text-left px-3 py-2 rounded-lg font-medium transition-all text-sm truncate ${selectedCategory === scorecard.id ? 'bg-slate-100 text-slate-900' : 'hover:bg-slate-50 text-slate-600'}`}
-                    style={{ borderLeft: selectedCategory === scorecard.id ? '3px solid #3b82f6' : '3px solid transparent' }}
-                    title={scorecard.name}
-                  >
-                    <div className="flex items-center">
-                      <span className="truncate">{scorecard.name}</span>
-                      {selectedCategory === scorecard.id && editingScoreCard?.id === scorecard.id && (
-                        <SaveStatusCompact
-                          status={saveStatus}
-                          lastSaved={lastSaved}
-                          error={saveError}
-                          hasUnsavedChanges={hasUnsavedChanges}
-                          isOnline={isOnline}
-                          className="ml-2"
-                        />
-                      )}
-                    </div>
-                  </button>
-                  {userRole === 'ADMIN' && (
-                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity shrink-0">
-                      <button
-                        onClick={() => {
-                          setEditingScoreCard(scorecard);
-                          setShowEditScoreCardModal(true);
-                        }}
-                        className="p-1 text-slate-400 hover:text-blue-600 rounded transition-colors"
-                        title="Edit ScoreCard"
-                      >
-                        <FaEdit size={11} />
-                      </button>
-                      <button
-                        onClick={() => setConfirmDelete({ type: 'scorecard', id: scorecard.id })}
-                        className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
-                        title="Delete ScoreCard"
-                      >
-                        <FaTrash size={11} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-
-            {scorecards.length === 0 && (
-              <p className="text-xs text-slate-400 italic px-3 py-3">
-                No scorecards yet.{userRole === 'ADMIN' && ' Click + to create one.'}
-              </p>
-            )}
-
-            {sidebarSearch && scorecards.filter(sc => sc.name.toLowerCase().includes(sidebarSearch.toLowerCase())).length === 0 && scorecards.length > 0 && (
-              <p className="text-xs text-slate-400 italic px-3 py-3">
-                No match for &ldquo;{sidebarSearch}&rdquo;
-              </p>
-            )}
-          </div>
-        </aside>
-
-        {/* Sidebar expand button (shown when collapsed) */}
-        {sidebarCollapsed && (
-          <button
-            onClick={() => setSidebarCollapsed(false)}
-            className="h-full w-10 shrink-0 bg-white border-r border-slate-200 flex flex-col items-center pt-4 hover:bg-slate-50 transition-colors group"
-            title="Expand sidebar"
-          >
-            <svg className="w-4 h-4 text-slate-400 group-hover:text-slate-600 transition-colors" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 4.5l7.5 7.5-7.5 7.5m-6-15l7.5 7.5-7.5 7.5" /></svg>
-          </button>
-        )}
+        <ScorecardSidebar
+          scorecards={scorecards}
+          selectedCategory={selectedCategory}
+          sidebarCollapsed={sidebarCollapsed}
+          userRole={userRole}
+          saveStatus={saveStatus}
+          lastSaved={lastSaved}
+          saveError={saveError}
+          hasUnsavedChanges={hasUnsavedChanges}
+          isOnline={isOnline}
+          editingScoreCardId={editingScoreCard?.id || null}
+          dataCategories={dataCategories}
+          onCategoryChange={handleCategoryChange}
+          onCreateScoreCard={() => setShowCreateScoreCardModal(true)}
+          onEditScoreCard={(sc) => { setEditingScoreCard(sc); setShowEditScoreCardModal(true); }}
+          onDeleteScoreCard={(id) => setConfirmDelete({ type: 'scorecard', id })}
+          onCollapse={() => setSidebarCollapsed(true)}
+          onExpand={() => setSidebarCollapsed(false)}
+        />
 
         {/* Main Content */}
         <main className="flex-1 h-full flex flex-col p-6 overflow-auto bg-slate-50">
@@ -4277,64 +2885,25 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
             />
           )}
 
-          {/* Row Edit Toggle Button and Import */}
+          {/* Toolbar */}
           {selectedCategory && isScorecard(selectedCategory) && (
-            <div className="flex items-center justify-between gap-2 pb-3 flex-wrap sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10 -mx-6 px-6 pt-2 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <button onClick={openAddColModal} className="grid-toolbar-btn primary" disabled={userRole !== 'ADMIN'}>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                  Add Column
-                </button>
-                <span className="relative flex items-center group">
-                  <FaInfoCircle className="text-slate-400 group-hover:text-blue-500 cursor-pointer" size={14} />
-                  <div className="absolute left-1/2 top-full mt-2 ml-2 w-64 bg-slate-800 text-white text-xs rounded-lg p-2.5 shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none z-50 transition-opacity duration-150" style={{ whiteSpace: 'normal' }}>
-                    To import data, columns and data types must match exactly.
-                  </div>
-                </span>
-                <label htmlFor="main-import-excel" className="grid-toolbar-btn cursor-pointer" onClick={() => toast.warning('Importing an Excel file will overwrite all existing data in this scorecard.')}>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
-                  Import
-                </label>
-                <input id="main-import-excel" type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleImportExcel} />
-                <button onClick={() => setShowExportModal(true)} className="grid-toolbar-btn">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12M12 16.5V3" /></svg>
-                  Export
-                </button>
-              </div>
-              <div className="flex items-center gap-3">
-                {/* Inline save status indicator — like Google Docs "All changes saved" */}
-                {editingScoreCard && (
-                  <SaveStatus
-                    status={saveStatus}
-                    lastSaved={lastSaved}
-                    error={saveError}
-                    hasUnsavedChanges={hasUnsavedChanges}
-                    isOnline={isOnline}
-                    onRetry={forceSave}
-                  />
-                )}
-                <div className="w-px h-5 bg-slate-200" />
-                <button onClick={() => setShowSaveTemplateModal(true)} className="grid-toolbar-btn" disabled={userRole !== 'ADMIN'}>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
-                  Save Template
-                </button>
-                <button
-                  onClick={async () => {
-                    await fetchTemplates();
-                    if (templates.length === 0) {
-                      toast.error('No templates available. Please save a template first.');
-                      return;
-                    }
-                    setShowImportTemplateModal(true);
-                  }}
-                  className="grid-toolbar-btn"
-                  disabled={userRole !== 'ADMIN'}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m6.75 12-3-3m0 0-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-                  Load Template
-                </button>
-              </div>
-            </div>
+            <GridToolbar
+              userRole={userRole}
+              editingScoreCard={editingScoreCard}
+              saveStatus={saveStatus}
+              lastSaved={lastSaved}
+              saveError={saveError}
+              hasUnsavedChanges={hasUnsavedChanges}
+              isOnline={isOnline}
+              templates={templates}
+              onAddColumn={openAddColModal}
+              onImportExcel={handleImportExcel}
+              onExportClick={() => setShowExportModal(true)}
+              onSaveTemplate={() => setShowSaveTemplateModal(true)}
+              onImportTemplateClick={() => setShowImportTemplateModal(true)}
+              onForceSave={forceSave}
+              onFetchTemplates={fetchTemplates}
+            />
           )}
 
           {/* Master Scorecard */}
@@ -4440,7 +3009,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
                 className="fill-grid main-grid-with-separators"
                 onCellClick={(args) => {
                   const { rowIdx, column, row } = args;
-                  // console.log('🎯 DEBUG: Cell clicked:', { column: column.key, rowIdx, isAddRow: row.isAddRow });
                   // Only for user-added product status columns, not Priority or Add Row
                   const isProductColumn = (() => {
                     const retailerNameIdx = columnsWithDelete.findIndex(col => col.key === 'name');
@@ -4456,7 +3024,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
                   })();
                   if (row.isAddRow) return;
                   if (isProductColumn) {
-                    // console.log('🎯 DEBUG: Opening StatusPicker for product column:', column.key);
                     const colIdx = columnsWithDelete.findIndex(c => c.key === column.key);
                     setStatusPicker({
                       rowIdx,
@@ -4469,7 +3036,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
                   }
                   // For Priority column, open PriorityPickerCard on single click
                   if (column.key === 'priority') {
-                    // console.log('🎯 DEBUG: Opening PriorityPicker for priority column');
                     const colIdx = columnsWithDelete.findIndex(c => c.key === 'priority');
                     setPriorityPicker({
                       rowIdx,
@@ -4482,7 +3048,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
                   }
                   // For Contact column, open ContactPickerCard on single click
                   if (column.key === 'cmg') {
-                    // console.log('🎯 DEBUG: Opening ContactPicker for contact column');
 
                     const colIdx = columnsWithDelete.findIndex(c => c.key === 'cmg');
                     const contactPickerData = {
@@ -4542,7 +3107,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
                   }
                   // For CategoryReviewDate column, enter edit mode on single click
                   if (column.key === 'category_review_date') {
-                    // console.log('🎯 DEBUG: Opening CategoryReviewDatePicker for date column');
                     const colIdx = columnsWithDelete.findIndex(c => c.key === 'category_review_date');
                     setCategoryReviewDatePicker({
                       rowIdx,
@@ -4843,125 +3407,43 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
 
           {/* Add Column Modal */}
           {showAddColModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-              <div className="bg-white p-6 rounded-lg shadow-xl w-96">
-                <h3 className="text-lg font-bold mb-4">Add New Column</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700">Column Name</label>
-                    {/* Hidden password field to prevent browser autofill */}
-                    <input type="password" style={{ display: 'none' }} autoComplete="new-password" />
-                    <input
-                      type="text"
-                      value={newColName}
-                      onChange={e => setNewColName(e.target.value)}
-                      className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 pr-8"
-                      placeholder="e.g., Phone Number"
-                      autoComplete="new-password"
-                    />
-                  </div>
-                  {colError && (
-                    <p className="text-red-500 text-sm">{colError}</p>
-                  )}
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={() => { setShowAddColModal(false); setColError(''); setNewColName(''); }}
-                      className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleAddColumnConfirm}
-                      className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-                    >
-                      Add Column
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <AddColumnModal
+              newColName={newColName}
+              colError={colError}
+              onNameChange={setNewColName}
+              onConfirm={handleAddColumnConfirm}
+              onCancel={() => { setShowAddColModal(false); setColError(''); setNewColName(''); }}
+            />
           )}
 
           {/* Create ScoreCard Modal */}
           {showCreateScoreCardModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-              <div className="bg-white p-6 rounded-lg shadow-xl w-96">
-                <h3 className="text-lg font-bold mb-4">Create New ScoreCard</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700">ScoreCard Name</label>
-                    <input
-                      type="text"
-                      value={newScoreCardName}
-                      onChange={e => setNewScoreCardName(e.target.value)}
-                      className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      placeholder="e.g., Sales Performance"
-                      onKeyPress={e => e.key === 'Enter' && createScoreCard()}
-                    />
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={() => setShowCreateScoreCardModal(false)}
-                      className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={createScoreCard}
-                      className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-                    >
-                      Create ScoreCard
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <CreateScoreCardModal
+              name={newScoreCardName}
+              onNameChange={setNewScoreCardName}
+              onCreate={createScoreCard}
+              onCancel={() => setShowCreateScoreCardModal(false)}
+            />
           )}
 
           {/* Edit ScoreCard Modal */}
           {showEditScoreCardModal && editingScoreCard && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-              <div className="bg-white p-6 rounded-lg shadow-xl w-96">
-                <h3 className="text-lg font-bold mb-4">Edit ScoreCard</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700">ScoreCard Name</label>
-                    <input
-                      type="text"
-                      value={editingScoreCard.name}
-                      onChange={e => setEditingScoreCard(prev => prev ? { ...prev, name: e.target.value } : null)}
-                      className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      placeholder="e.g., Sales Performance"
-                    />
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={() => setShowEditScoreCardModal(false)}
-                      className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (editingScoreCard) {
-                          const normalizedEditName = editingScoreCard.name.trim().toLowerCase();
-                          // Prevent duplicate name except for the current scorecard
-                          if (scorecards.some(sc => sc.id !== editingScoreCard.id && sc.name.trim().toLowerCase() === normalizedEditName)) {
-                            toast.error('A ScoreCard with this name already exists. Please choose a different name.');
-                            return;
-                          }
-                          updateScoreCard(editingScoreCard.id, { name: editingScoreCard.name });
-                          setShowEditScoreCardModal(false);
-                        }
-                      }}
-                      className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-                    >
-                      Save Changes
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <EditScoreCardModal
+              scorecard={editingScoreCard}
+              onNameChange={(v) => setEditingScoreCard(prev => prev ? { ...prev, name: v } : null)}
+              onSave={() => {
+                if (editingScoreCard) {
+                  const normalizedEditName = editingScoreCard.name.trim().toLowerCase();
+                  if (scorecards.some(sc => sc.id !== editingScoreCard.id && sc.name.trim().toLowerCase() === normalizedEditName)) {
+                    toast.error('A ScoreCard with this name already exists. Please choose a different name.');
+                    return;
+                  }
+                  updateScoreCard(editingScoreCard.id, { name: editingScoreCard.name });
+                  setShowEditScoreCardModal(false);
+                }
+              }}
+              onCancel={() => setShowEditScoreCardModal(false)}
+            />
           )}
 
           {/* Subgrid Drawer */}
@@ -4977,867 +3459,166 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
             </div>
           )}
 
-          {/* Comment Modal */}
-          {openCommentRowId !== null && isScorecard(selectedCategory) && (() => {
-            const row: Partial<Row> = getCurrentData()?.rows.find(r => r.id === openCommentRowId) || {};
-            return (
-              <div className="fixed inset-0 z-50 flex">
-                <div className="fixed inset-0 bg-black bg-opacity-40 transition-opacity" onClick={handleCloseCommentModal}></div>
-                <div className="relative ml-auto w-full max-w-md h-full bg-white shadow-2xl flex flex-col animate-slideInRight rounded-l-2xl border-l border-slate-200">
-                  <div className="flex items-center justify-between border-b px-8 py-6 bg-slate-50 rounded-t-2xl">
-                    <div>
-                      <h2 className="text-2xl font-bold text-slate-900">{row.name || 'Row'}</h2>
-                    </div>
-                    <button onClick={handleCloseCommentModal} className="text-slate-400 hover:text-slate-700 text-3xl font-bold">×</button>
-                  </div>
-                  <div className="flex-1 flex flex-col px-8 py-6 overflow-y-auto bg-slate-50">
-                    <h3 className="text-base font-semibold text-slate-700 mb-4">Comments</h3>
-                    <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-1" style={{ maxHeight: '40vh' }}>
-                      {typeof row.id === 'number' && comments[selectedCategory]?.[row.id] && comments[selectedCategory][row.id].length > 0 ? (
-                        comments[selectedCategory][row.id].map((c, i) => {
-                          const isAuthor = user?.id === c.user_id;
-                          const displayName = user?.name || user?.email || 'Anonymous';
-                          const createdAt = new Date(c.created_at).toLocaleString();
-                          return (
-                            <li key={c.id || i} className="flex items-start gap-4 bg-white rounded-2xl shadow border border-slate-200 p-4">
-                              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">
-                                {displayName[0]?.toUpperCase() || 'A'}
-                              </div>
-                              <div className="flex-1">
-                                <div className="flex justify-between items-center mb-1">
-                                  <span className="font-semibold text-slate-800">{displayName}</span>
-                                  <span className="text-xs text-slate-400 ml-2 whitespace-nowrap">{createdAt}</span>
-                                </div>
-                                {editCommentIdx === i ? (
-                                  <div className="flex flex-col gap-2 mt-1">
-                                    <textarea
-                                      value={editCommentText}
-                                      onChange={e => setEditCommentText(e.target.value)}
-                                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-base"
-                                      rows={2}
-                                      autoFocus
-                                    />
-                                    <div className="flex gap-2 mt-1">
-                                      <button
-                                        onClick={async () => {
-                                          // Save edited comment
-                                          if (typeof row.id === 'number') {
-                                            try {
-                                              const comment = comments[selectedCategory][row.id][i];
-                                              await updateComment(comment.id, editCommentText);
-                                              setEditCommentIdx(null);
-                                              setEditCommentText('');
-                                              toast.success('Comment updated!');
-                                            } catch (error) {
-                                              toast.error('Failed to update comment');
-                                            }
-                                          }
-                                        }}
-                                        className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-semibold"
-                                      >Save</button>
-                                      <button
-                                        onClick={() => { setEditCommentIdx(null); setEditCommentText(''); }}
-                                        className="px-3 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-semibold"
-                                      >Cancel</button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="text-slate-700 text-base whitespace-pre-line mt-1">{c.text}</div>
-                                )}
-                                {/* Show Edit/Delete if author */}
-                                {isAuthor && editCommentIdx !== i && (
-                                  <div className="flex gap-2 mt-2">
-                                    <button
-                                      onClick={() => { setEditCommentIdx(i); setEditCommentText(c.text); }}
-                                      className="text-xs text-blue-600 hover:underline px-2 py-1 rounded"
-                                    >Edit</button>
-                                    <button
-                                      onClick={() => setConfirmDeleteComment({ rowId: row.id as number, commentIdx: i })}
-                                      className="text-xs text-red-500 hover:underline px-2 py-1 rounded"
-                                    >Delete</button>
-                                  </div>
-                                )}
-                              </div>
-                            </li>
-                          );
-                        })
-                      ) : (
-                        <div className="text-slate-400 text-center py-8">No comments yet. Be the first to comment!</div>
-                      )}
-                    </div>
-                    <form
-                      onSubmit={e => {
-                        e.preventDefault();
-                        handleAddComment();
-                      }}
-                      className="pt-4 border-t bg-white rounded-b-2xl flex gap-3 items-start mt-2"
-                      style={{ borderTop: '1px solid #e5e7eb' }}
-                    >
-                      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg mt-1">
-                        {(user?.name || user?.username || 'A')[0].toUpperCase()}
-                      </div>
-                      <div className="flex-1">
-                        <textarea
-                          value={commentInput}
-                          onChange={e => setCommentInput(e.target.value)}
-                          className="w-full rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-blue-500 px-4 py-3 text-base bg-white shadow-sm resize-none min-h-[44px] transition-all"
-                          placeholder="Add a comment..."
-                          rows={commentInput.length > 60 ? 4 : 2}
-                          style={{ minHeight: 44, maxHeight: 120, marginBottom: 8 }}
-                          onFocus={e => e.currentTarget.rows = 4}
-                          // Removed onBlur to prevent focus loss/resizing issues
-                          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddComment(); } }}
-                        />
-                        <button
-                          id="add-comment-btn"
-                          type="submit"
-                          className="mt-2 px-6 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-base font-semibold shadow transition-all float-right"
-                          style={{ minWidth: 120 }}
-                        >
-                          Add
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
+          {/* Comment & Retailer Drawers — extracted to CommentDrawer.tsx */}
+          {openCommentRowId !== null && isScorecard(selectedCategory) && <SimpleCommentDrawer />}
+          {openRetailerDrawer !== null && selectedCategory && isScorecard(selectedCategory) && <RetailerDrawer />}
 
-          {/* Render the advanced drawer for ScoreCard rows */}
-          {openRetailerDrawer !== null && selectedCategory && isScorecard(selectedCategory) && (() => {
-            const currentData = getCurrentData();
-            const row: Partial<Row> = currentData?.rows.find(r => r.id === openRetailerDrawer) || {};
-            return (
-              <div className="fixed inset-0 z-50 flex">
-                <div className="fixed inset-0 bg-black bg-opacity-40 transition-opacity" onClick={() => setOpenRetailerDrawer(null)}></div>
-                <div className="relative ml-auto w-full max-w-md h-full bg-white shadow-2xl flex flex-col animate-slideInRight rounded-l-2xl border-l border-slate-200">
-                  <div className="flex items-center justify-between border-b px-6 py-4 bg-slate-50 rounded-t-2xl">
-                    <div>
-                      <h2 className="text-xl font-bold text-slate-900">{row.name || 'Row'}</h2>
-                    </div>
-                    <button onClick={() => setOpenRetailerDrawer(null)} className="text-slate-400 hover:text-slate-700 text-2xl font-bold">×</button>
-                  </div>
-                  <div className="flex-1 flex flex-col px-6 py-4 overflow-y-auto">
-                    {/* Address editing */}
-                    <div className="mb-4">
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Address</label>
-                      <input
-                        type="text"
-                        value={row.address || ''}
-                        onChange={e => {
-                          if (!currentData || row.id === undefined) return;
-                          // Update the address for this row in the scorecard
-                          const updatedRows = currentData.rows.map(r => r.id === row.id ? { ...r, address: e.target.value } : r);
-                          updateCurrentData({ rows: updatedRows });
-                        }}
-                        className="w-full border rounded px-3 py-2 text-sm"
-                        placeholder="Enter address..."
-                      />
-                    </div>
-                    <h3 className="text-sm font-semibold text-slate-700 mb-2">Comments</h3>
-                    <div className="flex-1 overflow-y-auto mb-2 space-y-4 pr-1" style={{ maxHeight: '40vh' }}>
-                      {typeof row.id === 'number' && comments[selectedCategory]?.[row.id]
-                        ? comments[selectedCategory][row.id].map((c, i) => {
-                          const isAuthor = user?.id === c.user_id;
-                          const displayName = user?.name || user?.email || 'Anonymous';
-                          const createdAt = new Date(c.created_at).toLocaleString();
-                          return (
-                            <li key={c.id || i} className="flex items-start gap-3 bg-white rounded-xl shadow border border-slate-200 p-4">
-                              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">
-                                {displayName[0]?.toUpperCase() || 'A'}
-                              </div>
-                              <div className="flex-1">
-                                <div className="flex justify-between items-center mb-1">
-                                  <span className="font-semibold text-slate-800">{displayName}</span>
-                                  <span className="text-xs text-slate-400 ml-2 whitespace-nowrap">{createdAt}</span>
-                                </div>
-                                {/* Edit mode for comment */}
-                                {editCommentIdx === i ? (
-                                  <div className="flex gap-2 items-center mt-1">
-                                    <textarea
-                                      value={editCommentText}
-                                      onChange={e => setEditCommentText(e.target.value)}
-                                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
-                                      rows={2}
-                                      autoFocus
-                                    />
-                                    <button
-                                      onClick={async () => {
-                                        // Save edited comment
-                                        if (typeof row.id === 'number') {
-                                          try {
-                                            const comment = comments[selectedCategory][row.id][i];
-                                            await updateComment(comment.id, editCommentText);
-                                            setEditCommentIdx(null);
-                                            setEditCommentText('');
-                                            toast.success('Comment updated!');
-                                          } catch (error) {
-                                            toast.error('Failed to update comment');
-                                          }
-                                        }
-                                      }}
-                                      className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-semibold"
-                                    >Save</button>
-                                    <button
-                                      onClick={() => { setEditCommentIdx(null); setEditCommentText(''); }}
-                                      className="px-2 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-semibold"
-                                    >Cancel</button>
-                                  </div>
-                                ) : (
-                                  <div className="text-slate-700 text-sm whitespace-pre-line mt-1">{c.text}</div>
-                                )}
-                                {/* Show Edit/Delete if author */}
-                                {isAuthor && editCommentIdx !== i && (
-                                  <div className="flex gap-2 mt-2">
-                                    <button
-                                      onClick={() => { setEditCommentIdx(i); setEditCommentText(c.text); }}
-                                      className="text-xs text-blue-600 hover:underline px-1 py-0.5 rounded"
-                                    >Edit</button>
-                                    <button
-                                      onClick={async () => {
-                                        // Delete comment
-                                        if (typeof row.id === 'number') {
-                                          try {
-                                            const comment = comments[selectedCategory][row.id][i];
-                                            await deleteComment(comment.id, row.id);
-                                            setEditCommentIdx(null);
-                                            setEditCommentText('');
-                                          } catch (error) {
-                                            // Error already handled in deleteComment function
-                                          }
-                                        }
-                                      }}
-                                      className="text-xs text-red-500 hover:underline px-1 py-0.5 rounded"
-                                    >Delete</button>
-                                  </div>
-                                )}
-                              </div>
-                            </li>
-                          );
-                        })
-                        : null}
-                    </div>
-                    {/* Modern comment input */}
-                    <div className="pt-4 border-t bg-slate-50 rounded-b-2xl flex gap-3 items-start mt-2" style={{ borderTop: '1px solid #e5e7eb' }}>
-                      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg mt-1">
-                        {(user?.name || user?.username || 'A')[0].toUpperCase()}
-                      </div>
-                      <div className="flex-1">
-                        <textarea
-                          value={commentInput}
-                          onChange={e => setCommentInput(e.target.value)}
-                          className="w-full rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-blue-500 px-4 py-2 text-sm bg-white shadow-sm resize-none min-h-[44px] transition-all"
-                          placeholder="Add a comment..."
-                          rows={commentInput.length > 60 ? 4 : 2}
-                          style={{ minHeight: 44, maxHeight: 120, marginBottom: 8 }}
-                          onFocus={e => e.currentTarget.rows = 4}
-                          onBlur={e => e.currentTarget.rows = commentInput.length > 60 ? 4 : 2}
-                          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); /* Only add if not shift+enter */ document.getElementById('add-comment-btn')?.click(); } }}
-                        />
-                        <button
-                          id="add-comment-btn"
-                          onClick={async () => {
-                            if (!commentInput.trim() || openRetailerDrawer == null || !selectedCategory || !user) return;
-
-                            try {
-                              console.log('💬 Adding comment to scorecard from drawer:', selectedCategory);
-
-                              // Get current scorecard data for potential migration
-                              const currentScorecard = editingScoreCard;
-                              const requestBody = {
-                                scorecard_id: selectedCategory,
-                                user_id: openRetailerDrawer, // This is actually the row_id (API will rename it)
-                                text: commentInput.trim(),
-                                // Include scorecard data for auto-migration if it's a local scorecard
-                                scorecard_data: selectedCategory.startsWith('scorecard_') ? {
-                                  name: currentScorecard?.name || 'Untitled Scorecard',
-                                  columns: currentScorecard?.columns || [],
-                                  rows: currentScorecard?.rows || []
-                                } : undefined
-                              };
-
-                              const response = await fetch('/api/comments', {
-                                method: 'POST',
-                                headers: {
-                                  'Content-Type': 'application/json',
-                                },
-                                credentials: 'include',
-                                body: JSON.stringify(requestBody),
-                              });
-
-                              if (!response.ok) {
-                                const errorData = await response.json().catch(() => ({}));
-                                console.error('❌ Comment creation failed:', errorData);
-                                throw new Error(errorData.error || 'Failed to add comment');
-                              }
-
-                              const newComment = await response.json();
-                              console.log('✅ Comment created successfully:', newComment);
-
-                              // Handle scorecard migration if it occurred
-                              if (newComment.migrated_scorecard) {
-                                console.log('🔄 Scorecard was migrated:', newComment.migrated_scorecard);
-
-                                const { old_id, new_id, title } = newComment.migrated_scorecard;
-
-                                // Update the scorecard in our state
-                                const migratedScorecard: ScoreCard = {
-                                  ...currentScorecard!,
-                                  id: new_id,
-                                  name: title,
-                                  columns: currentScorecard?.columns || [],
-                                  rows: currentScorecard?.rows || [],
-                                  createdAt: currentScorecard?.createdAt || new Date(),
-                                  lastModified: new Date()
-                                };
-
-                                // Update scorecards list
-                                setScorecards(prev => prev.map(sc =>
-                                  sc.id === old_id ? migratedScorecard : sc
-                                ));
-
-                                // Update current editing scorecard
-                                setEditingScoreCard(migratedScorecard);
-
-                                // Update selected category
-                                setSelectedCategory(new_id);
-
-                                // Update localStorage
-                                const allScorecards = JSON.parse(localStorage.getItem('scorecards') || '[]');
-                                const updatedLocalScorecards = allScorecards.map((sc: any) =>
-                                  sc.id === old_id ? migratedScorecard : sc
-                                );
-                                localStorage.setItem('scorecards', JSON.stringify(updatedLocalScorecards));
-
-                                // Close the drawer since the row ID might have changed
-                                setOpenRetailerDrawer(null);
-
-                                toast.success('Scorecard migrated to database and comment added!');
-
-                                // Use the new scorecard ID for comment grouping
-                                const actualScorecardId = new_id;
-
-                                // Update local comment state
-                                setComments(prev => {
-                                  const updated = {
-                                    ...prev,
-                                    [actualScorecardId]: {
-                                      ...(prev[actualScorecardId] || {}),
-                                      [openRetailerDrawer]: [...((prev[actualScorecardId] || {})[openRetailerDrawer] || []), newComment],
-                                    }
-                                  };
-                                  return updated;
-                                });
-                              } else {
-                                // Normal comment addition (no migration)
-                                setComments(prev => {
-                                  const updated = {
-                                    ...prev,
-                                    [selectedCategory]: {
-                                      ...(prev[selectedCategory] || {}),
-                                      [openRetailerDrawer]: [...((prev[selectedCategory] || {})[openRetailerDrawer] || []), newComment],
-                                    }
-                                  };
-                                  return updated;
-                                });
-
-                                toast.success('Comment added successfully!');
-                              }
-
-                              setCommentInput('');
-                            } catch (error) {
-                              console.error('❌ Error adding comment:', error);
-                              toast.error(error instanceof Error ? error.message : 'Failed to add comment');
-                            }
-                          }}
-                          className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow transition-all float-right"
-                          style={{ minWidth: 120 }}
-                        >
-                          Add Comment
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
 
           {/* Contact Card Modal */}
           {contactCardModal}
 
           {/* Delete Confirmation Modal */}
-          {confirmDelete && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xs flex flex-col items-center">
-                <h2 className="text-lg font-bold mb-2">Confirm Deletion</h2>
-                <p className="mb-4 text-center text-slate-700">
-                  Are you sure you want to delete this {confirmDelete.type === 'row' ? 'row' : confirmDelete.type === 'column' ? 'column' : 'scorecard'}?
-                </p>
-                <div className="flex gap-4 w-full justify-center">
-                  <button
-                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
-                    onClick={() => setConfirmDelete(null)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
-                    onClick={() => {
-                      if (confirmDelete.type === 'row') {
-                        handleDeleteRow(confirmDelete.id as number);
-                      } else if (confirmDelete.type === 'column') {
-                        handleDeleteColumn(confirmDelete.id as string);
-                      } else if (confirmDelete.type === 'scorecard') {
-                        deleteScoreCard(confirmDelete.id as string);
-                      }
-                      setConfirmDelete(null);
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </div>
+          {confirmDelete && confirmDelete.type !== 'template' && confirmDelete.type !== 'subgrid-template' && (
+            <DeleteConfirmModal
+              type={confirmDelete.type}
+              name={confirmDelete.name}
+              onConfirm={() => {
+                if (confirmDelete.type === 'row') handleDeleteRow(confirmDelete.id as number);
+                else if (confirmDelete.type === 'column') handleDeleteColumn(confirmDelete.id as string);
+                else if (confirmDelete.type === 'scorecard') deleteScoreCard(confirmDelete.id as string);
+                setConfirmDelete(null);
+              }}
+              onCancel={() => setConfirmDelete(null)}
+            />
           )}
 
           {/* Save Template Modal */}
           {showSaveTemplateModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white p-6 rounded-lg shadow-xl w-96">
-                <h3 className="text-lg font-bold mb-4">Save ScoreCard as Template</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700">Template Name</label>
-                    <input
-                      type="text"
-                      value={templateName}
-                      onChange={e => setTemplateName(e.target.value)}
-                      className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                      placeholder="e.g., Product Columns"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={includeRowsInTemplate}
-                      onChange={e => setIncludeRowsInTemplate(e.target.checked)}
-                      id="includeRowsInTemplate"
-                    />
-                    <label htmlFor="includeRowsInTemplate" className="text-sm">Include row data</label>
-                  </div>
-                  {templateError && <p className="text-red-500 text-sm">{templateError}</p>}
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={() => { setShowSaveTemplateModal(false); setTemplateError(''); setTemplateName(''); setIncludeRowsInTemplate(true); }}
-                      className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleSaveTemplate}
-                      className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-                    >
-                      Save Template
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <SaveTemplateModal
+              templateName={templateName}
+              includeRows={includeRowsInTemplate}
+              templateError={templateError}
+              onNameChange={setTemplateName}
+              onIncludeRowsChange={setIncludeRowsInTemplate}
+              onSave={handleSaveTemplate}
+              onCancel={() => { setShowSaveTemplateModal(false); setTemplateError(''); setTemplateName(''); setIncludeRowsInTemplate(true); }}
+            />
           )}
 
           {/* Import Template Modal */}
           {showImportTemplateModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white p-6 rounded-lg shadow-xl w-96">
-                <h3 className="text-lg font-bold mb-4">Import Template</h3>
-                <div className="space-y-4">
-                  {templates.length === 0 ? (
-                    <div className="text-center text-slate-500 text-sm mb-4">
-                      No templates available. Please save a template first.
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700">Select Template</label>
-                        <div className="flex gap-2 items-center">
-                          <select
-                            value={selectedTemplateName}
-                            onChange={e => {
-                              setSelectedTemplateName(e.target.value);
-                              const t = templates.find(t => t.name === e.target.value);
-                              setImportWithRows(!!(t && t.rows));
-                            }}
-                            className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          >
-                            <option value="">-- Select --</option>
-                            {templates.map(t => (
-                              <option key={t.id || t.name} value={t.name}>{t.name}</option>
-                            ))}
-                          </select>
-                          {/* Delete button for selected template */}
-                          {selectedTemplateName && (
-                            <button
-                              type="button"
-                              className="ml-2 px-2 py-1 bg-red-500 text-white rounded hover:bg-red-700 text-xs"
-                              onClick={() => {
-                                const template = templates.find(t => t.name === selectedTemplateName);
-                                if (!template) return;
-                                setConfirmDelete({ type: 'template', id: template.id, name: template.name });
-                              }}
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      {selectedTemplateName && templates.find(t => t.name === selectedTemplateName)?.rows && (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={importWithRows}
-                            onChange={e => setImportWithRows(e.target.checked)}
-                            id="importWithRows"
-                          />
-                          <label htmlFor="importWithRows" className="text-sm">Import with row data</label>
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {templateError && <p className="text-red-500 text-sm">{templateError}</p>}
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={() => { setShowImportTemplateModal(false); setTemplateError(''); setSelectedTemplateName(''); setImportWithRows(true); }}
-                      className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (templates.length === 0) {
-                          toast.info('No templates available. Please save a template first.');
-                          return;
-                        }
-                        handleImportTemplate();
-                      }}
-                      className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-md hover:bg-cyan-700"
-                      disabled={!selectedTemplateName || templates.length === 0}
-                    >
-                      Import Template
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-          {subgridTemplateModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white p-6 rounded-lg shadow-xl w-96">
-                {subgridTemplateModal.mode === 'save' ? (
-                  <>
-                    <h3 className="text-lg font-bold mb-4">Save Subgrid as Template</h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700">Template Name</label>
-                        <input
-                          type="text"
-                          value={subgridTemplateName}
-                          onChange={e => setSubgridTemplateName(e.target.value)}
-                          className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          placeholder="e.g., Subgrid Columns"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={subgridIncludeRows}
-                          onChange={e => setSubgridIncludeRows(e.target.checked)}
-                          id="subgridIncludeRows"
-                        />
-                        <label htmlFor="subgridIncludeRows" className="text-sm">Include row data</label>
-                      </div>
-                      {subgridTemplateError && <p className="text-red-500 text-sm">{subgridTemplateError}</p>}
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => { setSubgridTemplateModal(null); setSubgridTemplateError(''); setSubgridTemplateName(''); setSubgridIncludeRows(true); }}
-                          className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={() => handleSaveSubgridTemplate(subgridTemplateModal.parentId)}
-                          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-                        >
-                          Save Template
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <h3 className="text-lg font-bold mb-4">Import Subgrid Template</h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700">Select Template</label>
-                        <div className="flex gap-2 items-center">
-                          <select
-                            value={subgridSelectedTemplate}
-                            onChange={e => {
-                              setSubgridSelectedTemplate(e.target.value);
-                              const t = subgridTemplates.find(t => t.name === e.target.value);
-                              setSubgridImportWithRows(!!(t && t.rows));
-                            }}
-                            className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                          >
-                            <option value="">-- Select --</option>
-                            {subgridTemplates.map(t => (
-                              <option key={t.name} value={t.name}>{t.name}</option>
-                            ))}
-                          </select>
-                          {/* Delete button for selected template */}
-                          {subgridSelectedTemplate && (
-                            <button
-                              type="button"
-                              className="ml-2 px-2 py-1 bg-red-500 text-white rounded hover:bg-red-700 text-xs"
-                              onClick={() => {
-                                const t = subgridTemplates.find(t => t.name === subgridSelectedTemplate);
-                                if (!t) return;
-                                if (window.confirm(`Delete template '${t.name}'? This cannot be undone.`)) {
-                                  const newTemplates = subgridTemplates.filter(st => st.name !== t.name);
-                                  setSubgridTemplates(newTemplates);
-                                  saveSubgridTemplates(newTemplates);
-                                  setSubgridSelectedTemplate('');
-                                  setSubgridImportWithRows(true);
-                                }
-                              }}
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      {subgridSelectedTemplate && subgridTemplates.find(t => t.name === subgridSelectedTemplate)?.rows && (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={subgridImportWithRows}
-                            onChange={e => setSubgridImportWithRows(e.target.checked)}
-                            id="subgridImportWithRows"
-                          />
-                          <label htmlFor="subgridImportWithRows" className="text-sm">Import with row data</label>
-                        </div>
-                      )}
-                      {subgridTemplateError && <p className="text-red-500 text-sm">{subgridTemplateError}</p>}
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => { setSubgridTemplateModal(null); setSubgridTemplateError(''); setSubgridSelectedTemplate(''); setSubgridImportWithRows(true); }}
-                          className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={() => handleImportSubgridTemplate(subgridTemplateModal.parentId)}
-                          className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-md hover:bg-cyan-700"
-                          disabled={!subgridSelectedTemplate}
-                        >
-                          Import Template
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
+            <ImportTemplateModal
+              templates={templates}
+              selectedTemplateName={selectedTemplateName}
+              importWithRows={importWithRows}
+              templateError={templateError}
+              onTemplateChange={(name) => {
+                setSelectedTemplateName(name);
+                const t = templates.find(t => t.name === name);
+                setImportWithRows(!!(t && t.rows));
+              }}
+              onImportWithRowsChange={setImportWithRows}
+              onImport={() => {
+                if (templates.length === 0) { toast.info('No templates available. Please save a template first.'); return; }
+                handleImportTemplate();
+              }}
+              onCancel={() => { setShowImportTemplateModal(false); setTemplateError(''); setSelectedTemplateName(''); setImportWithRows(true); }}
+              onDeleteTemplate={(name) => {
+                const template = templates.find(t => t.name === name);
+                if (template) setConfirmDelete({ type: 'template', id: template.id, name: template.name });
+              }}
+            />
           )}
 
-          {/* Comment Delete Confirmation Dialog */}
-          {confirmDeleteComment && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xs flex flex-col items-center">
-                <h2 className="text-lg font-bold mb-2">Delete Comment</h2>
-                <p className="mb-4 text-center text-slate-700">Are you sure you want to delete this comment?</p>
-                <div className="flex gap-4 w-full justify-center">
-                  <button
-                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
-                    onClick={() => setConfirmDeleteComment(null)}
-                  >Cancel</button>
-                  <button
-                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
-                    onClick={async () => {
-                      if (confirmDeleteComment) {
-                        const { rowId, commentIdx } = confirmDeleteComment;
-                        try {
-                          const comment = comments[selectedCategory][rowId][commentIdx];
-                          await deleteComment(comment.id, rowId);
-                          setConfirmDeleteComment(null);
-                        } catch (error) {
-                          // Error already handled in deleteComment function
-                        }
-                      }
-                    }}
-                  >Delete</button>
-                </div>
-              </div>
-            </div>
+          {/* Subgrid Template Modal */}
+          {subgridTemplateModal && (
+            <SubgridTemplateModal
+              mode={subgridTemplateModal.mode}
+              templateName={subgridTemplateName}
+              includeRows={subgridIncludeRows}
+              templateError={subgridTemplateError}
+              templates={subgridTemplates}
+              selectedTemplate={subgridSelectedTemplate}
+              importWithRows={subgridImportWithRows}
+              onNameChange={setSubgridTemplateName}
+              onIncludeRowsChange={setSubgridIncludeRows}
+              onSave={() => handleSaveSubgridTemplate(subgridTemplateModal.parentId)}
+              onTemplateChange={(v) => {
+                setSubgridSelectedTemplate(v);
+                const t = subgridTemplates.find(t => t.name === v);
+                setSubgridImportWithRows(!!(t && t.rows));
+              }}
+              onImportWithRowsChange={setSubgridImportWithRows}
+              onImport={() => handleImportSubgridTemplate(subgridTemplateModal.parentId)}
+              onDeleteTemplate={(name) => {
+                const t = subgridTemplates.find(t => t.name === name);
+                if (!t) return;
+                if (window.confirm(`Delete template '${t.name}'? This cannot be undone.`)) {
+                  const newTemplates = subgridTemplates.filter(st => st.name !== t.name);
+                  setSubgridTemplates(newTemplates);
+                  saveSubgridTemplates(newTemplates);
+                  setSubgridSelectedTemplate('');
+                  setSubgridImportWithRows(true);
+                }
+              }}
+              onCancel={() => { setSubgridTemplateModal(null); setSubgridTemplateError(''); setSubgridTemplateName(''); setSubgridIncludeRows(true); }}
+            />
           )}
+
+          {/* Comment Delete Confirmation */}
+          {confirmDeleteComment && (
+            <DeleteCommentModal
+              onConfirm={async () => {
+                if (confirmDeleteComment) {
+                  const { rowId, commentIdx } = confirmDeleteComment;
+                  try {
+                    const comment = comments[selectedCategory][rowId][commentIdx];
+                    await deleteComment(comment.id, rowId);
+                    setConfirmDeleteComment(null);
+                  } catch (error) { /* handled in deleteComment */ }
+                }
+              }}
+              onCancel={() => setConfirmDeleteComment(null)}
+            />
+          )}
+
+          {/* Template Delete Confirmation */}
           {confirmDelete && confirmDelete.type === 'template' && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xs flex flex-col items-center">
-                <h2 className="text-lg font-bold mb-2">Confirm Deletion</h2>
-                <p className="mb-4 text-center text-slate-700">
-                  Are you sure you want to delete the template '{confirmDelete.name}'?
-                </p>
-                <div className="flex gap-4 w-full justify-center">
-                  <button
-                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
-                    onClick={() => setConfirmDelete(null)}
-                  >Cancel</button>
-                  <button
-                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
-                    onClick={() => {
-                      handleDeleteTemplate(confirmDelete.id as string);
-                      // Do not update UI here; let handleDeleteTemplate do it on success
-                    }}
-                  >Delete</button>
-                </div>
-              </div>
-            </div>
+            <DeleteConfirmModal
+              type="template"
+              name={confirmDelete.name}
+              onConfirm={() => handleDeleteTemplate(confirmDelete.id as string)}
+              onCancel={() => setConfirmDelete(null)}
+            />
           )}
 
           {/* Export Modal */}
           {showExportModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white p-6 rounded-lg shadow-xl w-96">
-                <h3 className="text-lg font-bold mb-4">Export to Excel</h3>
-                <div className="space-y-4">
-                  <div className="bg-blue-50 p-3 rounded text-sm text-blue-700">
-                    <strong>Modern Hierarchical Export</strong><br />
-                    This export will include all main grid data and any subgrid data that exists, with clear parent-child relationships using visual indicators.
-                  </div>
-
-                  <div className="bg-slate-50 p-3 rounded text-xs text-slate-600">
-                    <strong>Features:</strong>
-                    <ul className="mt-1 list-disc list-inside space-y-1">
-                      <li>🔵 PARENT - Rows with children</li>
-                      <li>🟣 PARENT (No Children) - Standalone parent rows</li>
-                      <li>├─ CHILD / └─ CHILD - Child rows with tree connectors</li>
-                      <li>Child counts and parent references</li>
-                    </ul>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="excludeSubgridExport"
-                      checked={excludeSubgridExport}
-                      onChange={e => setExcludeSubgridExport(e.target.checked)}
-                    />
-                    <label htmlFor="excludeSubgridExport" className="text-sm">Exclude subgrid data (export only main grid)</label>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={() => setShowExportModal(false)}
-                      className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => {
-                        handleExportExcel(excludeSubgridExport);
-                        setShowExportModal(false);
-                      }}
-                      className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700"
-                    >
-                      Export
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <ExportExcelModal
+              excludeSubgrid={excludeSubgridExport}
+              onExcludeSubgridChange={setExcludeSubgridExport}
+              onExport={() => { handleExportExcel(excludeSubgridExport); setShowExportModal(false); }}
+              onCancel={() => setShowExportModal(false)}
+            />
           )}
+
+          {/* Import Preview */}
           {importPreview && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
-                <h3 className="text-lg font-bold text-slate-900 mb-1">Review Import</h3>
-                <p className="text-sm text-slate-500 mb-5 truncate">{importPreview.filename}</p>
-
-                <div className="space-y-3 mb-6">
-                  {importPreview.toUpdate > 0 && (
-                    <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-                      <span className="text-blue-600 font-bold text-lg">{importPreview.toUpdate}</span>
-                      <div>
-                        <p className="text-sm font-semibold text-blue-800">rows will be updated</p>
-                        <p className="text-xs text-blue-600">Existing retailers matched by name</p>
-                      </div>
-                    </div>
-                  )}
-                  {importPreview.toAdd > 0 && (
-                    <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
-                      <span className="text-green-600 font-bold text-lg">{importPreview.toAdd}</span>
-                      <div>
-                        <p className="text-sm font-semibold text-green-800">new rows will be added</p>
-                        <p className="text-xs text-green-600">Not found in current scorecard</p>
-                      </div>
-                    </div>
-                  )}
-                  {importPreview.toSkip > 0 && (
-                    <div className="flex items-center gap-3 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3">
-                      <span className="text-yellow-600 font-bold text-lg">{importPreview.toSkip}</span>
-                      <div>
-                        <p className="text-sm font-semibold text-yellow-800">rows not in file — kept as-is</p>
-                        <p className="text-xs text-yellow-600">Existing data not overwritten</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex justify-end gap-3">
-                  <button
-                    onClick={() => setImportPreview(null)}
-                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={applyImport}
-                    className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700"
-                  >
-                    Apply Import
-                  </button>
-                </div>
-              </div>
-            </div>
+            <ImportPreviewModal
+              importPreview={importPreview}
+              onCancel={() => setImportPreview(null)}
+              onApply={applyImport}
+            />
           )}
+
+          {/* Subgrid Template Delete */}
           {confirmDelete && confirmDelete.type === 'subgrid-template' && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xs flex flex-col items-center">
-                <h2 className="text-lg font-bold mb-2">Confirm Deletion</h2>
-                <p className="mb-4 text-center text-slate-700">
-                  Are you sure you want to delete the subgrid template '{confirmDelete.name}'?
-                </p>
-                <div className="flex gap-4 w-full justify-center">
-                  <button
-                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
-                    onClick={() => setConfirmDelete(null)}
-                  >Cancel</button>
-                  <button
-                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
-                    onClick={() => {
-                      const newTemplates = subgridTemplates.filter(st => st.name !== confirmDelete.id);
-                      setSubgridTemplates(newTemplates);
-                      saveSubgridTemplates(newTemplates);
-                      setSubgridSelectedTemplate('');
-                      setSubgridImportWithRows(true);
-                      setConfirmDelete(null);
-                    }}
-                  >Delete</button>
-                </div>
-              </div>
-            </div>
+            <DeleteConfirmModal
+              type="subgrid-template"
+              name={confirmDelete.name}
+              onConfirm={() => {
+                const newTemplates = subgridTemplates.filter(st => st.name !== confirmDelete.id);
+                setSubgridTemplates(newTemplates);
+                saveSubgridTemplates(newTemplates);
+                setSubgridSelectedTemplate('');
+                setSubgridImportWithRows(true);
+                setConfirmDelete(null);
+              }}
+              onCancel={() => setConfirmDelete(null)}
+            />
           )}
         </main>
       </div>
-    </>
+    </AdminGridProvider>
   );
 }
