@@ -30,6 +30,26 @@
   animation-play-state: paused;
 }
 
+/* ── Retailer marquee (two-row, opposite directions) ───────── */
+@keyframes marqueeReverse {
+  0%   { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
+}
+.retailer-marquee {
+  animation: marquee 40s linear infinite;
+}
+.retailer-marquee-reverse {
+  animation: marqueeReverse 40s linear infinite;
+}
+.retailer-marquee:hover,
+.retailer-marquee-reverse:hover {
+  animation-play-state: paused;
+}
+.retailer-marquee-track {
+  mask-image: linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%);
+}
+
 body {
   color: rgb(var(--foreground-rgb));
   background: rgb(var(--background-rgb));

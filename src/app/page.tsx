@@ -78,6 +78,49 @@ const brandLinks: Record<string, string> = {
   'Calvin and Cleo': '',
 };
 
+const retailers: { name: string; url?: string }[] = [
+  { name: 'Cub Foods', url: 'https://www.cub.com/' },
+  { name: 'UNFI', url: 'https://www.unfi.com/' },
+  { name: 'Festival Supermarket', url: 'https://www.festfoods.com/' },
+  { name: 'Coborn\'s', url: 'https://coborns.com/' },
+  { name: 'Lunds & Byerlys', url: 'https://www.lundsandbyerlys.com/' },
+  { name: 'Lucky Seven', url: 'https://luckysevengeneralstores.com/' },
+  { name: 'Von Hanson\'s', url: 'https://vonhansons.com/' },
+  { name: 'Lipari', url: 'https://liparifoods.com/' },
+  { name: 'SpartanNash', url: 'https://www.spartannash.com/' },
+  { name: 'Fortune Fish', url: 'https://www.fortunefishco.net/' },
+  { name: 'US Foods', url: 'https://www.usfoods.com/' },
+  { name: 'Royal' },
+  { name: 'Ronmar', url: 'https://www.ronmarfoods.com/' },
+  { name: 'Bill\'s Superette', url: 'https://www.billssuperette.com/' },
+  { name: 'Cash Wise', url: 'https://cashwise.com/' },
+  { name: 'Fresh Thyme', url: 'https://ww2.freshthyme.com/' },
+  { name: 'CPW', url: 'https://www.cpw.coop/' },
+  { name: 'Brown\'s', url: 'https://brownsicecream.com/' },
+  { name: 'Do It Best Corp', url: 'https://www.doitbest.com/' },
+  { name: 'Hugo\'s', url: 'https://www.gohugos.com/' },
+  { name: 'Piggly Wiggly', url: 'https://www.shopthepig.com/' },
+  { name: 'Woodman\'s', url: 'https://www.woodmans-food.com/' },
+  { name: 'Kowalski\'s', url: 'https://www.kowalskis.com/' },
+  { name: 'Knowlan\'s', url: 'https://www.knowlansfreshfoods.com/' },
+  { name: 'Leevers Foods', url: 'https://www.leeversfoods.com/' },
+  { name: 'Hornbacher\'s', url: 'https://hornbachers.com/' },
+  { name: 'Jerry\'s', url: 'https://www.jerrysfoods.com/' },
+  { name: 'Nilssen\'s', url: 'https://www.nilssensfoods.com/' },
+  { name: 'Dick\'s Fresh Market', url: 'https://www.dicksfreshmarket.com/' },
+  { name: 'Lueken\'s', url: 'https://www.luekens.com/' },
+  { name: 'Lakewinds', url: 'https://www.lakewinds.coop/' },
+  { name: 'Mackenthun\'s', url: 'https://mackenthuns.com/' },
+  { name: 'Hy-Vee', url: 'https://www.hy-vee.com/' },
+  { name: 'Seward Co-op', url: 'https://seward.coop/' },
+  { name: 'Wedge', url: 'https://wedge.coop/' },
+];
+
+function retailerFavicon(url?: string) {
+  if (!url) return null;
+  try { return new URL(url).hostname; } catch { return null; }
+}
+
 function getBrandUrl(label: string): string {
   return brandLinks[label] || brandLinks[label.trim()] || '';
 }
@@ -221,6 +264,68 @@ export default function LandingPage() {
       <section className="relative bg-slate-50 border-b border-slate-200/60">
         <div className="max-w-6xl mx-auto px-5 py-12">
           <TerritoryMap />
+        </div>
+      </section>
+
+      {/* ── Retailers ─────────────────────────────────────────────────────── */}
+      <section className="bg-slate-50 py-20 px-5 border-b border-slate-200/60">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl md:text-4xl text-slate-900" style={{ fontFamily: 'var(--font-display)' }}>
+              Our Brands Are Sold by These Retailers
+            </h2>
+            <p className="text-slate-500 mt-3 max-w-xl mx-auto text-base">
+              From regional grocers to national distributors, our brands are on shelves where it matters.
+            </p>
+          </div>
+          {/* Row 1 — scrolls left */}
+          <div className="overflow-hidden retailer-marquee-track mb-3">
+            <div className="flex items-center gap-3 retailer-marquee" style={{ width: 'max-content' }}>
+              {[...retailers.slice(0, 18), ...retailers.slice(0, 18)].map((r, idx) => {
+                const Wrapper = r.url ? 'a' : 'span';
+                const linkProps = r.url ? { href: r.url, target: '_blank' as const, rel: 'noopener noreferrer' } : {};
+                const domain = retailerFavicon(r.url);
+                return (
+                  <Wrapper
+                    key={`r1-${idx}`}
+                    {...linkProps}
+                    className={`flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-700 whitespace-nowrap transition-colors duration-200 ${r.url ? 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 cursor-pointer' : ''}`}
+                  >
+                    {domain ? (
+                      <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`} alt="" className="w-4 h-4 rounded-sm flex-shrink-0" />
+                    ) : (
+                      <span className="w-4 h-4 rounded-sm bg-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-500 flex-shrink-0">{r.name[0]}</span>
+                    )}
+                    {r.name}
+                  </Wrapper>
+                );
+              })}
+            </div>
+          </div>
+          {/* Row 2 — scrolls right (reverse) */}
+          <div className="overflow-hidden retailer-marquee-track">
+            <div className="flex items-center gap-3 retailer-marquee-reverse" style={{ width: 'max-content' }}>
+              {[...retailers.slice(18), ...retailers.slice(18)].map((r, idx) => {
+                const Wrapper = r.url ? 'a' : 'span';
+                const linkProps = r.url ? { href: r.url, target: '_blank' as const, rel: 'noopener noreferrer' } : {};
+                const domain = retailerFavicon(r.url);
+                return (
+                  <Wrapper
+                    key={`r2-${idx}`}
+                    {...linkProps}
+                    className={`flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-700 whitespace-nowrap transition-colors duration-200 ${r.url ? 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 cursor-pointer' : ''}`}
+                  >
+                    {domain ? (
+                      <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`} alt="" className="w-4 h-4 rounded-sm flex-shrink-0" />
+                    ) : (
+                      <span className="w-4 h-4 rounded-sm bg-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-500 flex-shrink-0">{r.name[0]}</span>
+                    )}
+                    {r.name}
+                  </Wrapper>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </section>
 
