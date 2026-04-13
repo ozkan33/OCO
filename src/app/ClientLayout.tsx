@@ -2,10 +2,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Header } from '@/components/layout/Header';
-import { Inter } from 'next/font/google';
+import { Inter, DM_Serif_Display } from 'next/font/google';
 import { getMobileBrowserInfo } from '@/utils/mobileDetection';
 
 const inter = Inter({ subsets: ['latin'] });
+const dmSerif = DM_Serif_Display({ weight: '400', subsets: ['latin'], variable: '--font-display' });
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
@@ -109,7 +110,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const isDashboard = pathname.startsWith('/admin') || pathname.startsWith('/vendor') || pathname.startsWith('/portal');
 
   return (
-    <div className={inter.className}>
+    <div className={`${inter.className} ${dmSerif.variable}`}>
       {!isDashboard && <Header user={user} loading={loading} onAccountClick={handleAccountClick} onLogout={handleLogout} />}
       <main className="min-h-screen">
         {children}

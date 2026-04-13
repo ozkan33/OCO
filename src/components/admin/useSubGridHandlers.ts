@@ -70,14 +70,32 @@ export function useSubGridHandlers({
 
   function handleDeleteSubGrid(parentId: string | number | undefined) {
     if (parentId === undefined) return;
+    // Remove subgrid from parent row so auto-save persists the deletion
+    if (selectedCategory && isScorecard(selectedCategory)) {
+      const currentData = getCurrentData();
+      if (currentData) {
+        const updatedRows = currentData.rows.map((row: any) => {
+          if (row.id === parentId) {
+            const { subgrid, ...rest } = row;
+            return rest;
+          }
+          return row;
+        });
+        updateCurrentData({ rows: updatedRows });
+      }
+    }
     setSubGrids((prev: any) => { const n = { ...prev }; delete n[parentId]; return n; });
   }
 
   function handleAddSubGrid(parentId: string | number) {
-    setSubGrids((prev: any) => ({
-      ...prev,
-      [parentId]: { columns: [{ key: 'note', name: 'Note', editable: true, sortable: true }], rows: [] }
-    }));
+    setSubGrids((prev: any) => {
+      const updated = {
+        ...prev,
+        [parentId]: { columns: [{ key: 'note', name: 'Note', editable: true, sortable: true }], rows: [] }
+      };
+      updateParentRowSubgrid(parentId, updated[parentId]);
+      return updated;
+    });
     setExpandedRowId(parentId);
   }
 
@@ -108,7 +126,9 @@ export function useSubGridHandlers({
       const newId = grid.rows.length > 0 ? Math.max(...grid.rows.map((r: any) => typeof r.id === 'number' ? r.id : 0)) + 1 : 1;
       const newRow: any = { id: newId };
       grid.columns.forEach((col: any) => { newRow[col.key] = ''; });
-      return { ...prev, [parentId]: { ...grid, rows: [...grid.rows, newRow] } };
+      const updated = { ...prev, [parentId]: { ...grid, rows: [...grid.rows, newRow] } };
+      updateParentRowSubgrid(parentId, updated[parentId]);
+      return updated;
     });
   }
 
@@ -180,10 +200,14 @@ export function useSubGridHandlers({
   function handleImportSubgridTemplate(parentId: string | number) {
     const template = subgridTemplates.find(t => t.name === subgridSelectedTemplate);
     if (!template) { setSubgridTemplateError('Please select a template.'); return; }
-    setSubGrids((prev: any) => ({
-      ...prev,
-      [parentId]: { columns: template.columns, rows: subgridImportWithRows && template.rows ? template.rows : prev[parentId]?.rows || [] }
-    }));
+    setSubGrids((prev: any) => {
+      const updated = {
+        ...prev,
+        [parentId]: { columns: template.columns, rows: subgridImportWithRows && template.rows ? template.rows : prev[parentId]?.rows || [] }
+      };
+      updateParentRowSubgrid(parentId, updated[parentId]);
+      return updated;
+    });
     setSubgridTemplateModal(null); setSubgridSelectedTemplate(''); setSubgridImportWithRows(true); setSubgridTemplateError('');
     toast.success('Subgrid template imported!');
   }
