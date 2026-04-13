@@ -570,6 +570,7 @@ export function useColumnDefinitions({
     name: '',
     width: 48,
     frozen: false,
+    isDefault: true,
     renderHeaderCell: () => null,
     renderCell: ({ row }) => {
       if (row.isAddRow) return null;
