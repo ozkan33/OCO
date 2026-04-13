@@ -17,6 +17,14 @@
 .hero-ken-burns {
   animation: kenBurns 25s ease-in-out infinite;
 }
+@media (prefers-reduced-motion: reduce) {
+  .hero-ken-burns,
+  .logo-marquee,
+  .retailer-marquee,
+  .retailer-marquee-reverse {
+    animation: none !important;
+  }
+}
 
 /* ── Client logo marquee ────────────────────────────────────── */
 @keyframes marquee {
