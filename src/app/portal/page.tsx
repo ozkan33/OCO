@@ -4,6 +4,7 @@ import { useEffect, useState, Fragment } from 'react';
 import PortalNotificationBell from '@/components/portal/PortalNotificationBell';
 import { LogoMark } from '@/components/layout/Logo';
 import PhotoLightbox from '@/components/admin/PhotoLightbox';
+import MasterScorecard from '@/components/admin/MasterScorecard';
 
 interface Product { name: string; status: string; }
 interface RetailerInfo { priority: string; buyer: string; storeCount: number; hqLocation: string; contact: string; }
@@ -42,7 +43,7 @@ export default function PortalDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [visits, setVisits] = useState<MarketVisit[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'visits'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'scorecard' | 'visits'>('overview');
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [addingNoteFor, setAddingNoteFor] = useState<{ scorecardId: string; rowId: string } | null>(null);
   const [noteText, setNoteText] = useState('');
@@ -218,6 +219,7 @@ export default function PortalDashboard() {
         {/* Tab Nav */}
         <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
           <button onClick={() => setActiveTab('overview')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'overview' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Product Status</button>
+          <button onClick={() => setActiveTab('scorecard')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'scorecard' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Master Scorecard</button>
           <button onClick={() => setActiveTab('visits')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'visits' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
             Market Visits{visits.length > 0 && <span className="ml-1.5 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{visits.length}</span>}
           </button>
@@ -398,6 +400,11 @@ export default function PortalDashboard() {
               </div>
             ))}
           </div>
+        )}
+
+        {/* Master Scorecard Tab */}
+        {activeTab === 'scorecard' && (
+          <MasterScorecard apiUrl="/api/portal/master-scorecard" />
         )}
 
         {/* Market Visits Tab */}

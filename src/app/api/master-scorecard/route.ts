@@ -3,49 +3,45 @@ import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
 import { logger } from '../../../../lib/logger';
 
-// Helper function to detect retailer columns from scorecard data
-function detectRetailerColumns(columns: any[]): string[] {
-  // Default retailer columns based on the current schema
-  const defaultRetailerColumns = [
-    'name', 'priority', 'retail_price', 'category_review_date', 
-    'buyer', 'store_count', 'route_to_market', 'hq_location', 
-    'cmg', 'brand_lead'
-  ];
-  
-  // Find columns that are NOT default columns (these are likely product/retailer status columns)
-  const retailerColumns = columns
-    .filter(col => !defaultRetailerColumns.includes(col.key) && col.key !== 'comments' && col.key !== '_delete_row')
-    .map(col => col.key);
-  
-  return retailerColumns;
+// Default system columns that are NOT product columns
+const SYSTEM_COLUMNS = new Set([
+  'name', 'priority', 'retail_price', 'category_review_date',
+  'buyer', 'store_count', 'route_to_market', 'hq_location',
+  'cmg', 'brand_lead', 'comments', '_delete_row',
+]);
+
+interface ProductDetail {
+  name: string;
+  status: string;
 }
 
-// Helper function to calculate penetration percentage
-function calculatePenetration(rows: any[], retailerColumn: string): number {
-  if (!rows || rows.length === 0) return 0;
-  
-  const authorizedCount = rows.filter(row => row[retailerColumn] === 'Authorized').length;
-  return Math.round((authorizedCount / rows.length) * 100);
+interface BrandCell {
+  authorized: number;
+  total: number;
+  percentage: number;
+  products: ProductDetail[];
 }
 
-// GET /api/master-scorecard - Get aggregated retailer penetration data
+interface PivotRow {
+  retailer: string;
+  brands: Record<string, BrandCell>;
+}
+
+// GET /api/master-scorecard - Pivot view: brands as columns, retailers as rows
 export async function GET(request: Request) {
   logger.debug('📊 GET /api/master-scorecard called');
   try {
     const user = await getUserFromToken(request);
-    logger.debug('✅ User authenticated for master scorecard:', user.id);
 
-    // Get the selected scorecard ID from query parameters
     const { searchParams } = new URL(request.url);
     const selectedScorecardId = searchParams.get('scorecardId');
-    logger.debug('🎯 Selected scorecard ID:', selectedScorecardId);
 
     // Fetch all scorecards for the user
     const { data: scorecards, error } = await supabaseAdmin
       .from('user_scorecards')
       .select('*')
       .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+      .order('title', { ascending: true });
 
     if (error) {
       logger.error('❌ Error fetching scorecards:', error);
@@ -54,125 +50,176 @@ export async function GET(request: Request) {
 
     if (!scorecards || scorecards.length === 0) {
       return NextResponse.json({
-        selectedScorecard: null,
-        retailers: [],
-        retailerSummary: [],
+        brands: [],
+        pivotRows: [],
         lastUpdated: new Date().toISOString(),
       });
     }
 
-    // Find the selected scorecard
-    const selectedScorecard = selectedScorecardId 
-      ? scorecards.find(sc => sc.id === selectedScorecardId) 
-      : scorecards[0]; // Default to first scorecard if none selected
-
-    if (!selectedScorecard) {
-      return NextResponse.json({
-        selectedScorecard: null,
-        retailers: [],
-        retailerSummary: [],
-        lastUpdated: new Date().toISOString(),
-      });
+    // ── Legacy single-scorecard view (when scorecardId is provided) ──
+    if (selectedScorecardId) {
+      return handleLegacyView(scorecards, selectedScorecardId);
     }
 
-    logger.debug('📊 Processing scorecard:', selectedScorecard.title);
+    // ── Pivot view: all brands × all retailers ──
+    const brandNames: string[] = [];
+    // retailer -> { brand -> { authorized, total, products } }
+    const pivotMap = new Map<string, Record<string, { authorized: number; total: number; products: ProductDetail[] }>>();
 
-    // Process the selected scorecard data
-    const columns = selectedScorecard.data?.columns || [];
-    const rows = selectedScorecard.data?.rows || [];
+    for (const sc of scorecards) {
+      const columns = sc.data?.columns || [];
+      const rows = sc.data?.rows || [];
+      const brandName = sc.title || 'Untitled';
 
-    // Find the retailer name column
-    const retailerCol = columns.find((col: { name?: string; key: string }) => col.name === 'Retailer Name' || col.key === 'name');
-    if (!retailerCol) {
-      return NextResponse.json({
-        selectedScorecard: { id: selectedScorecard.id, title: selectedScorecard.title },
-        retailers: [],
-        retailerSummary: [],
-        lastUpdated: new Date().toISOString(),
-      });
-    }
+      // Find product columns (non-system, non-default)
+      const productCols = columns.filter(
+        (col: any) => !SYSTEM_COLUMNS.has(col.key) && !col.isDefault
+      );
 
-    // Find product columns (user-added columns that are not default)
-    const productCols = columns.filter((col: { key: string; isDefault?: boolean; name?: string }) => 
-      col.key !== retailerCol.key && 
-      !col.isDefault && 
-      col.key !== 'comments' && 
-      col.key !== '_delete_row'
-    );
+      if (productCols.length === 0) continue;
+      brandNames.push(brandName);
 
-    logger.debug('📦 Found product columns:', productCols.map((col: { name?: string }) => col.name));
+      // Find the retailer name column
+      const retailerCol = columns.find(
+        (col: any) => col.name === 'Retailer Name' || col.key === 'name'
+      );
+      if (!retailerCol) continue;
 
-    // If no product columns found, return early with helpful message
-    if (productCols.length === 0) {
-      return NextResponse.json({
-        selectedScorecard: { 
-          id: selectedScorecard.id,
-          title: selectedScorecard.title
-        },
-        retailers: [],
-        retailerSummary: [],
-        lastUpdated: new Date().toISOString(),
-        hasProducts: false,
-        message: `No product columns found in "${selectedScorecard.title}". Add product columns to see retailer authorization data.`
-      });
-    }
+      for (const row of rows) {
+        const retailer = String(row[retailerCol.key] || '').trim();
+        if (!retailer) continue;
 
-    // Calculate retailer authorization percentages
-    const retailerSummary: Array<{
-      retailer: string;
-      authorized: number;
-      total: number;
-      percentage: number;
-      products: Array<{ name: string; status: string }>;
-    }> = [];
-
-    for (const row of rows) {
-      const retailer = String(row[retailerCol.key]);
-      if (!retailer || retailer.trim() === '') continue;
-
-      let authorizedCount = 0;
-      let totalCount = 0;
-      const products: Array<{ name: string; status: string }> = [];
-
-      for (const productCol of productCols) {
-        const status = row[productCol.key];
-        if (status !== undefined && status !== null && status !== '') {
-          totalCount++;
-          products.push({ name: productCol.name, status: String(status) });
-          
-          if (typeof status === 'string' && status.toLowerCase() === 'authorized') {
-            authorizedCount++;
+        let authorized = 0;
+        let total = 0;
+        const products: ProductDetail[] = [];
+        for (const pc of productCols) {
+          const status = row[pc.key];
+          if (status !== undefined && status !== null && status !== '') {
+            total++;
+            products.push({ name: pc.name, status: String(status) });
+            if (typeof status === 'string' && status.toLowerCase() === 'authorized') {
+              authorized++;
+            }
           }
         }
-      }
 
-      if (totalCount > 0) {
-        retailerSummary.push({
-          retailer,
-          authorized: authorizedCount,
-          total: totalCount,
-          percentage: Math.round((authorizedCount / totalCount) * 100),
-          products
-        });
+        if (total === 0) continue;
+
+        if (!pivotMap.has(retailer)) {
+          pivotMap.set(retailer, {});
+        }
+        pivotMap.get(retailer)![brandName] = { authorized, total, products };
       }
     }
 
-    // Sort retailers by percentage (highest first)
-    retailerSummary.sort((a, b) => b.percentage - a.percentage);
+    // Build pivot rows sorted by retailer name
+    const pivotRows: PivotRow[] = [];
+    for (const [retailer, brands] of pivotMap) {
+      const brandCells: Record<string, BrandCell> = {};
+      for (const [brand, { authorized, total, products }] of Object.entries(brands)) {
+        brandCells[brand] = {
+          authorized,
+          total,
+          percentage: Math.round((authorized / total) * 100),
+          products,
+        };
+      }
+      pivotRows.push({ retailer, brands: brandCells });
+    }
 
-    const result = {
-      selectedScorecard: {
-        id: selectedScorecard.id,
-        title: selectedScorecard.title
-      },
-      retailers: retailerSummary.map(r => r.retailer),
-      retailerSummary,
+    // Default sort: by retailer name
+    pivotRows.sort((a, b) => a.retailer.localeCompare(b.retailer));
+
+    return NextResponse.json({
+      brands: brandNames,
+      pivotRows,
       lastUpdated: new Date().toISOString(),
-    };
-
-    return NextResponse.json(result);
+    });
   } catch (error) {
     logger.error('❌ Error in GET /api/master-scorecard:', error);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-} 
+}
+
+// Legacy single-scorecard view for backward compatibility
+function handleLegacyView(scorecards: any[], scorecardId: string) {
+  const sc = scorecards.find(s => s.id === scorecardId) || scorecards[0];
+  if (!sc) {
+    return NextResponse.json({
+      selectedScorecard: null,
+      retailers: [],
+      retailerSummary: [],
+      lastUpdated: new Date().toISOString(),
+    });
+  }
+
+  const columns = sc.data?.columns || [];
+  const rows = sc.data?.rows || [];
+
+  const retailerCol = columns.find(
+    (col: any) => col.name === 'Retailer Name' || col.key === 'name'
+  );
+  if (!retailerCol) {
+    return NextResponse.json({
+      selectedScorecard: { id: sc.id, title: sc.title },
+      retailers: [],
+      retailerSummary: [],
+      lastUpdated: new Date().toISOString(),
+    });
+  }
+
+  const productCols = columns.filter(
+    (col: any) => !SYSTEM_COLUMNS.has(col.key) && !col.isDefault
+  );
+
+  if (productCols.length === 0) {
+    return NextResponse.json({
+      selectedScorecard: { id: sc.id, title: sc.title },
+      retailers: [],
+      retailerSummary: [],
+      lastUpdated: new Date().toISOString(),
+      hasProducts: false,
+      message: `No product columns found in "${sc.title}".`,
+    });
+  }
+
+  const retailerSummary: any[] = [];
+  for (const row of rows) {
+    const retailer = String(row[retailerCol.key] || '').trim();
+    if (!retailer) continue;
+
+    let authorizedCount = 0;
+    let totalCount = 0;
+    const products: any[] = [];
+
+    for (const pc of productCols) {
+      const status = row[pc.key];
+      if (status !== undefined && status !== null && status !== '') {
+        totalCount++;
+        products.push({ name: pc.name, status: String(status) });
+        if (typeof status === 'string' && status.toLowerCase() === 'authorized') {
+          authorizedCount++;
+        }
+      }
+    }
+
+    if (totalCount > 0) {
+      retailerSummary.push({
+        retailer,
+        authorized: authorizedCount,
+        total: totalCount,
+        percentage: Math.round((authorizedCount / totalCount) * 100),
+        products,
+      });
+    }
+  }
+
+  retailerSummary.sort((a, b) => b.percentage - a.percentage);
+
+  return NextResponse.json({
+    selectedScorecard: { id: sc.id, title: sc.title },
+    retailers: retailerSummary.map((r: any) => r.retailer),
+    retailerSummary,
+    lastUpdated: new Date().toISOString(),
+  });
+}
