@@ -113,3 +113,92 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 }
+
+// PUT /api/portal/comments - Brand user edits their own comment
+export async function PUT(request: Request) {
+  try {
+    const user = await getUserFromToken(request);
+    if (user.user_metadata?.role !== 'BRAND') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const { id, text } = await request.json();
+    if (!id || !text?.trim()) {
+      return NextResponse.json({ error: 'Missing id or text' }, { status: 400 });
+    }
+
+    // Verify comment belongs to this user
+    const { data: existing, error: fetchErr } = await supabaseAdmin
+      .from('comments')
+      .select('id, user_id')
+      .eq('id', id)
+      .single();
+
+    if (fetchErr || !existing) {
+      return NextResponse.json({ error: 'Comment not found' }, { status: 404 });
+    }
+    if (existing.user_id !== user.id) {
+      return NextResponse.json({ error: 'You can only edit your own comments' }, { status: 403 });
+    }
+
+    const { data: updated, error: updateErr } = await supabaseAdmin
+      .from('comments')
+      .update({ text: text.trim(), updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateErr) {
+      logger.error('Failed to update portal comment:', updateErr);
+      return NextResponse.json({ error: 'Failed to update comment' }, { status: 500 });
+    }
+
+    return NextResponse.json(updated);
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+}
+
+// DELETE /api/portal/comments - Brand user deletes their own comment
+export async function DELETE(request: Request) {
+  try {
+    const user = await getUserFromToken(request);
+    if (user.user_metadata?.role !== 'BRAND') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    if (!id) {
+      return NextResponse.json({ error: 'Missing comment id' }, { status: 400 });
+    }
+
+    // Verify comment belongs to this user
+    const { data: existing, error: fetchErr } = await supabaseAdmin
+      .from('comments')
+      .select('id, user_id')
+      .eq('id', id)
+      .single();
+
+    if (fetchErr || !existing) {
+      return NextResponse.json({ error: 'Comment not found' }, { status: 404 });
+    }
+    if (existing.user_id !== user.id) {
+      return NextResponse.json({ error: 'You can only delete your own comments' }, { status: 403 });
+    }
+
+    const { error: deleteErr } = await supabaseAdmin
+      .from('comments')
+      .delete()
+      .eq('id', id);
+
+    if (deleteErr) {
+      logger.error('Failed to delete portal comment:', deleteErr);
+      return NextResponse.json({ error: 'Failed to delete comment' }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+}

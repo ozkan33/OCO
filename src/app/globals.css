@@ -5,6 +5,29 @@
 :root {
   --foreground-rgb: 15, 23, 42;
   --background-rgb: 248, 250, 252;
+  --font-display: 'DM Serif Display', Georgia, serif;
+}
+
+/* ── Ken Burns hero background animation ────────────────────── */
+@keyframes kenBurns {
+  0%   { transform: scale(1)   translate(0, 0); }
+  50%  { transform: scale(1.08) translate(-1%, -0.5%); }
+  100% { transform: scale(1)   translate(0, 0); }
+}
+.hero-ken-burns {
+  animation: kenBurns 25s ease-in-out infinite;
+}
+
+/* ── Client logo marquee ────────────────────────────────────── */
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.logo-marquee {
+  animation: marquee 30s linear infinite;
+}
+.logo-marquee:hover {
+  animation-play-state: paused;
 }
 
 body {

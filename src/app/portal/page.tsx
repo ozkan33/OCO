@@ -3,14 +3,15 @@
 import { useEffect, useState, Fragment } from 'react';
 import PortalNotificationBell from '@/components/portal/PortalNotificationBell';
 import { LogoMark } from '@/components/layout/Logo';
+import PhotoLightbox from '@/components/admin/PhotoLightbox';
 
 interface Product { name: string; status: string; }
 interface RetailerInfo { priority: string; buyer: string; storeCount: number; hqLocation: string; contact: string; }
-interface Comment { text: string; author: string; date: string; }
+interface Comment { id?: string; text: string; author: string; date: string; isOwn?: boolean; }
 interface Retailer { rowId: string; retailerName: string; products: Product[]; retailerInfo: RetailerInfo; comments?: Comment[]; notes?: string; }
 interface Scorecard { id: string; scorecardName: string; retailers: Retailer[]; }
 interface Summary { totalRetailers: number; authorized: number; inProcess: number; buyerPassed: number; presented: number; other: number; }
-interface MarketVisit { id: string; photo_url: string; visit_date: string; store_name: string; address: string; note: string; }
+interface MarketVisit { id: string; photo_url: string; visit_date: string; store_name: string; address: string; note: string; brands?: string[]; }
 interface DashboardData { brand: string; contactName: string; scorecards: Scorecard[]; summary: Summary; }
 
 const statusStyles: Record<string, { bg: string; color: string; dot: string }> = {
@@ -42,9 +43,12 @@ export default function PortalDashboard() {
   const [visits, setVisits] = useState<MarketVisit[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'visits'>('overview');
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [addingNoteFor, setAddingNoteFor] = useState<{ scorecardId: string; rowId: string } | null>(null);
   const [noteText, setNoteText] = useState('');
   const [submittingNote, setSubmittingNote] = useState(false);
+  const [editingComment, setEditingComment] = useState<{ id: string; scorecardId: string; rowId: string } | null>(null);
+  const [editText, setEditText] = useState('');
 
   useEffect(() => {
     Promise.all([
@@ -82,7 +86,7 @@ export default function PortalDashboard() {
                 if (r.rowId !== rowId) return r;
                 return {
                   ...r,
-                  comments: [...(r.comments || []), { text: newComment.text || noteText.trim(), author: newComment.author || 'You', date: newComment.created_at || new Date().toISOString() }],
+                  comments: [...(r.comments || []), { id: newComment.id, text: newComment.text || noteText.trim(), author: newComment.author || 'You', date: newComment.created_at || new Date().toISOString(), isOwn: true }],
                 };
               }),
             };
@@ -95,6 +99,58 @@ export default function PortalDashboard() {
       // Could add error toast here
     }
     setSubmittingNote(false);
+  };
+
+  const handleEditComment = async (commentId: string, scorecardId: string, rowId: string) => {
+    if (!editText.trim()) return;
+    try {
+      const res = await fetch('/api/portal/comments', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id: commentId, text: editText.trim() }),
+      });
+      if (!res.ok) throw new Error();
+      setData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          scorecards: prev.scorecards.map(sc => {
+            if (sc.id !== scorecardId) return sc;
+            return { ...sc, retailers: sc.retailers.map(r => {
+              if (r.rowId !== rowId) return r;
+              return { ...r, comments: r.comments?.map(c => c.id === commentId ? { ...c, text: editText.trim() } : c) };
+            })};
+          }),
+        };
+      });
+      setEditingComment(null);
+      setEditText('');
+    } catch { /* silent */ }
+  };
+
+  const handleDeleteComment = async (commentId: string, scorecardId: string, rowId: string) => {
+    if (!confirm('Delete this note?')) return;
+    try {
+      const res = await fetch(`/api/portal/comments?id=${commentId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error();
+      setData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          scorecards: prev.scorecards.map(sc => {
+            if (sc.id !== scorecardId) return sc;
+            return { ...sc, retailers: sc.retailers.map(r => {
+              if (r.rowId !== rowId) return r;
+              return { ...r, comments: r.comments?.filter(c => c.id !== commentId) };
+            })};
+          }),
+        };
+      });
+    } catch { /* silent */ }
   };
 
   const handleLogout = async () => {
@@ -120,6 +176,14 @@ export default function PortalDashboard() {
   }
 
   const { brand, contactName, scorecards, summary } = data;
+
+  // Sort market visits by first brand tag A-Z, then by visit date descending
+  const sortedVisits = [...visits].sort((a, b) => {
+    const brandA = (a.brands?.[0] || '').toLowerCase();
+    const brandB = (b.brands?.[0] || '').toLowerCase();
+    if (brandA !== brandB) return brandA.localeCompare(brandB);
+    return new Date(b.visit_date).getTime() - new Date(a.visit_date).getTime();
+  });
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -269,15 +333,58 @@ export default function PortalDashboard() {
                               <td colSpan={r.products.length + 3} className="px-4 py-2">
                                 <div className="flex flex-col gap-1.5 pl-2 border-l-2 border-blue-200">
                                   {r.notes && <p className="text-xs text-slate-600"><span className="font-semibold text-slate-500">Note:</span> {r.notes}</p>}
-                                  {r.comments?.map((c, ci) => (
-                                    <div key={ci} className="text-xs text-slate-500">
-                                      <span className="font-medium text-slate-700">{c.author}</span>
-                                      <span className="mx-1 text-slate-300">&middot;</span>
-                                      <span className="text-slate-400">{new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                                      <span className="mx-1 text-slate-300">&middot;</span>
-                                      <span>{c.text}</span>
+                                  {r.comments?.map((c, ci) => {
+                                    const isEditing = editingComment?.id === c.id;
+                                    return (
+                                    <div key={c.id || ci} className="text-xs text-slate-500 group/comment">
+                                      <div className="flex items-start gap-1">
+                                        <div className="flex-1">
+                                          <span className="font-medium text-slate-700">{c.author}</span>
+                                          <span className="mx-1 text-slate-300">&middot;</span>
+                                          <span className="text-slate-400">{new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                                          <span className="mx-1 text-slate-300">&middot;</span>
+                                          {isEditing ? (
+                                            <span className="inline-flex items-center gap-1 mt-1">
+                                              <input
+                                                type="text"
+                                                value={editText}
+                                                onChange={e => setEditText(e.target.value)}
+                                                className="text-xs border border-slate-200 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 w-64"
+                                                autoFocus
+                                                onKeyDown={e => {
+                                                  if (e.key === 'Enter') handleEditComment(c.id!, sc.id, r.rowId);
+                                                  if (e.key === 'Escape') { setEditingComment(null); setEditText(''); }
+                                                }}
+                                              />
+                                              <button onClick={() => handleEditComment(c.id!, sc.id, r.rowId)} className="text-blue-600 hover:text-blue-800 font-medium">Save</button>
+                                              <button onClick={() => { setEditingComment(null); setEditText(''); }} className="text-slate-400 hover:text-slate-600">Cancel</button>
+                                            </span>
+                                          ) : (
+                                            <span>{c.text}</span>
+                                          )}
+                                        </div>
+                                        {c.isOwn && c.id && !isEditing && (
+                                          <span className="flex gap-1 opacity-0 group-hover/comment:opacity-100 transition-opacity shrink-0">
+                                            <button
+                                              onClick={() => { setEditingComment({ id: c.id!, scorecardId: sc.id, rowId: r.rowId }); setEditText(c.text); }}
+                                              className="text-slate-400 hover:text-blue-600 transition-colors"
+                                              title="Edit note"
+                                            >
+                                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
+                                            </button>
+                                            <button
+                                              onClick={() => handleDeleteComment(c.id!, sc.id, r.rowId)}
+                                              className="text-slate-400 hover:text-red-600 transition-colors"
+                                              title="Delete note"
+                                            >
+                                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+                                            </button>
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                               </td>
                             </tr>
@@ -302,12 +409,22 @@ export default function PortalDashboard() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {visits.map(v => (
+                {sortedVisits.map(v => (
                   <div key={v.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden group">
                     {v.photo_url && (
                       <div className="relative">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={v.photo_url} alt={v.store_name || 'Market visit'} className="w-full h-48 object-cover" />
+                        <img
+                          src={v.photo_url}
+                          alt={v.store_name || 'Market visit'}
+                          className="w-full h-48 object-cover cursor-pointer transition-transform duration-200 group-hover:scale-[1.02]"
+                          onClick={() => setLightbox({ src: v.photo_url, alt: v.store_name || 'Market visit' })}
+                        />
+                        <div
+                          className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors pointer-events-none flex items-center justify-center"
+                        >
+                          <span className="text-white text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 px-3 py-1 rounded-full">Click to enlarge</span>
+                        </div>
                         <a
                           href={v.photo_url}
                           download={`${(v.store_name || 'visit').replace(/[^a-zA-Z0-9_-]/g, '_')}_${v.visit_date}.jpg`}
@@ -323,6 +440,13 @@ export default function PortalDashboard() {
                     <div className="p-4">
                       <h4 className="font-semibold text-slate-900 text-sm">{v.store_name || 'Store Visit'}</h4>
                       <p className="text-xs text-slate-400 mt-1">{new Date(v.visit_date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                      {v.brands && v.brands.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {v.brands.map(b => (
+                            <span key={b} className="text-[10px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{b}</span>
+                          ))}
+                        </div>
+                      )}
                       {v.address && <p className="text-xs text-slate-500 mt-1">{v.address}</p>}
                       {v.note && <p className="text-sm text-slate-600 mt-2">{v.note}</p>}
                     </div>
@@ -333,6 +457,7 @@ export default function PortalDashboard() {
           </div>
         )}
       </main>
+      {lightbox && <PhotoLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
     </div>
   );
 }
