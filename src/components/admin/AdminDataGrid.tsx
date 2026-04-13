@@ -1275,58 +1275,177 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   }
 
   // Export Excel function with modern hierarchical table design
-  async function handleExportExcel(excludeSubgrid = false) {
-    const XLSX = await import('xlsx');
+  async function handleExportExcel(excludeSubgrid = false, includeNotes = false) {
+    const ExcelJS = await import('exceljs');
     const currentData = getCurrentData();
     if (!currentData) {
       toast.error('No data to export');
       return;
     }
-    const workbook = XLSX.utils.book_new();
-    const modernRows: any[] = [];
-    currentData.rows.forEach(parentRow => {
-      const subgrid = subGrids[parentRow.id];
-      const hasChildren = subgrid && subgrid.rows.length > 0;
-      // Add parent row
-      const parentRowData: any = {
-        'Parent Indicator': hasChildren ? '🔵 PARENT' : '🟣 PARENT (No Children)',
-        'Type': 'Parent',
-        'Has Children': hasChildren ? 'Yes' : 'No',
-        'Children Count': hasChildren ? subgrid.rows.length : 0
-      };
-      currentData.columns.forEach(col => {
+
+    const scorecardComments = includeNotes && selectedCategory
+      ? (comments[selectedCategory] || {})
+      : {};
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = '3Brothers Marketing';
+    workbook.created = new Date();
+
+    const headerFill: any = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A5F' } };
+    const headerFont: any = { bold: true, color: { argb: 'FFFFFF' }, size: 11 };
+    const headerBorder: any = {
+      bottom: { style: 'thin', color: { argb: 'CCCCCC' } },
+    };
+
+    function styleHeaderRow(sheet: any) {
+      const row = sheet.getRow(1);
+      row.eachCell((cell: any) => {
+        cell.fill = headerFill;
+        cell.font = headerFont;
+        cell.border = headerBorder;
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+      });
+      row.height = 28;
+      sheet.views = [{ state: 'frozen', ySplit: 1 }];
+    }
+
+    function autoWidth(sheet: any) {
+      sheet.columns.forEach((col: any) => {
+        let max = (col.header || '').length;
+        col.eachCell?.({ includeEmpty: false }, (cell: any) => {
+          const len = cell.value ? String(cell.value).length : 0;
+          if (len > max) max = len;
+        });
+        col.width = Math.min(Math.max(max + 3, 10), 50);
+      });
+    }
+
+    // Priority fill colors
+    const priorityFills: Record<string, any> = {
+      High: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } },
+      Medium: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF3C7' } },
+      Low: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DCFCE7' } },
+    };
+
+    // ── Sheet 1: Retailers ──────────────────────────────────────────────────
+    const scorecardName = editingScoreCard?.name || 'Scorecard';
+    const mainSheet = workbook.addWorksheet('Retailers');
+    const mainCols = currentData.columns
+      .filter((c: any) => c.key !== 'comments' && c.key !== '_delete_row')
+      .map((c: any) => String(c.name || c.key));
+    mainSheet.columns = mainCols.map(name => ({ header: name, key: name }));
+
+    currentData.rows.forEach((row: any) => {
+      const rowData: Record<string, any> = {};
+      currentData.columns.forEach((col: any) => {
         if (col.key !== 'comments' && col.key !== '_delete_row') {
-          const colName = String(col.name || col.key);
-          parentRowData[colName] = parentRow[col.key] || '';
+          rowData[String(col.name || col.key)] = row[col.key] ?? '';
         }
       });
-      modernRows.push(parentRowData);
-      if (!excludeSubgrid && hasChildren) {
-        subgrid.rows.forEach((subRow, index) => {
-          const isLastChild = index === subgrid.rows.length - 1;
-          const childRowData: any = {
-            'Parent Indicator': isLastChild ? '└─ CHILD' : '├─ CHILD',
-            'Type': 'Child',
-            'Child Number': index + 1,
-            'Parent Name': parentRow.name || ''
-          };
-          subgrid.columns.forEach(col => {
-            if (col.key !== 'delete') {
-              const colName = String(col.name || col.key);
-              childRowData[colName] = subRow[col.key] || '';
-            }
-          });
-          modernRows.push(childRowData);
-        });
+      const excelRow = mainSheet.addRow(rowData);
+
+      // Color-code priority
+      const priorityColIdx = mainCols.indexOf('Priority');
+      if (priorityColIdx >= 0) {
+        const cell = excelRow.getCell(priorityColIdx + 1);
+        const fill = priorityFills[String(cell.value)];
+        if (fill) cell.fill = fill;
       }
     });
-    const worksheet = XLSX.utils.json_to_sheet(modernRows);
-    const scorecardName = (editingScoreCard?.name || 'scorecard').replace(/[^a-zA-Z0-9_-]/g, '_');
-    XLSX.utils.book_append_sheet(workbook, worksheet, scorecardName.slice(0, 31));
+
+    styleHeaderRow(mainSheet);
+    mainSheet.autoFilter = { from: 'A1', to: `${String.fromCharCode(64 + mainCols.length)}1` };
+    autoWidth(mainSheet);
+
+    // ── Sheet 2: Details (subgrids) ────────────────────────────────────────
+    if (!excludeSubgrid) {
+      let hasAnySubgrid = false;
+      const detailSheet = workbook.addWorksheet('Details');
+      let detailHeaderSet = false;
+
+      currentData.rows.forEach((parentRow: any) => {
+        const subgrid = subGrids[parentRow.id];
+        if (!subgrid || subgrid.rows.length === 0) return;
+        hasAnySubgrid = true;
+
+        const subColNames = subgrid.columns
+          .filter((c: any) => c.key !== 'delete')
+          .map((c: any) => String(c.name || c.key));
+
+        if (!detailHeaderSet) {
+          detailSheet.columns = [
+            { header: 'Retailer', key: 'Retailer' },
+            ...subColNames.map((name: string) => ({ header: name, key: name })),
+          ];
+          styleHeaderRow(detailSheet);
+          detailHeaderSet = true;
+        }
+
+        subgrid.rows.forEach((subRow: any) => {
+          const rowData: Record<string, any> = { Retailer: parentRow.name || '' };
+          subgrid.columns.forEach((col: any) => {
+            if (col.key !== 'delete') {
+              rowData[String(col.name || col.key)] = subRow[col.key] ?? '';
+            }
+          });
+          detailSheet.addRow(rowData);
+        });
+      });
+
+      if (hasAnySubgrid) {
+        autoWidth(detailSheet);
+      } else {
+        workbook.removeWorksheet(detailSheet.id);
+      }
+    }
+
+    // ── Sheet 3: Notes ──────────────────────────────────────────────────────
+    if (includeNotes) {
+      const notesSheet = workbook.addWorksheet('Notes');
+      notesSheet.columns = [
+        { header: 'Retailer', key: 'Retailer' },
+        { header: 'Date', key: 'Date' },
+        { header: 'Author', key: 'Author' },
+        { header: 'Note', key: 'Note' },
+      ];
+
+      let hasAnyNotes = false;
+      currentData.rows.forEach((row: any) => {
+        const rowComments = scorecardComments[row.id as number] || [];
+        rowComments.forEach((c: any) => {
+          hasAnyNotes = true;
+          notesSheet.addRow({
+            Retailer: row.name || '',
+            Date: c.created_at ? new Date(c.created_at).toLocaleDateString() : '',
+            Author: c.user_email || 'Unknown',
+            Note: c.text || '',
+          });
+        });
+      });
+
+      if (hasAnyNotes) {
+        styleHeaderRow(notesSheet);
+        autoWidth(notesSheet);
+        // Make the Note column wider
+        const noteCol = notesSheet.getColumn('Note');
+        if (noteCol) noteCol.width = 60;
+      } else {
+        workbook.removeWorksheet(notesSheet.id);
+      }
+    }
+
+    // ── Write file ──────────────────────────────────────────────────────────
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = scorecardName.replace(/[^a-zA-Z0-9_-]/g, '_');
     const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-    const filename = `${scorecardName}_${timestamp}.xlsx`;
-    XLSX.writeFile(workbook, filename);
-    toast.success(`Exported as ${filename}`);
+    a.href = url;
+    a.download = `${safeName}_${timestamp}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${safeName}`);
   }
 
   // Export modal state
@@ -1343,6 +1462,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
 
   // Add state for exclude subgrid data in export modal
   const [excludeSubgridExport, setExcludeSubgridExport] = useState(false);
+  const [includeNotesExport, setIncludeNotesExport] = useState(false);
 
   // ─── Context value for extracted child components ─────────────────────────
   const gridContextValue: AdminGridContextValue = React.useMemo(() => ({
@@ -2132,7 +2252,9 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
             <ExportExcelModal
               excludeSubgrid={excludeSubgridExport}
               onExcludeSubgridChange={setExcludeSubgridExport}
-              onExport={() => { handleExportExcel(excludeSubgridExport); setShowExportModal(false); }}
+              includeNotes={includeNotesExport}
+              onIncludeNotesChange={setIncludeNotesExport}
+              onExport={() => { handleExportExcel(excludeSubgridExport, includeNotesExport); setShowExportModal(false); }}
               onCancel={() => setShowExportModal(false)}
             />
           )}

@@ -1,319 +1,326 @@
-import React, { useState, useEffect } from 'react';
-import { FaSync, FaInfoCircle, FaExternalLinkAlt, FaCheckCircle, FaTimesCircle, FaChevronDown } from 'react-icons/fa';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { FaSync, FaInfoCircle, FaSortUp, FaSortDown, FaSort, FaChevronDown, FaChevronRight } from 'react-icons/fa';
 import { toast } from 'sonner';
 
-interface RetailerSummary {
-  retailer: string;
+interface ProductDetail {
+  name: string;
+  status: string;
+}
+
+interface BrandCell {
   authorized: number;
   total: number;
   percentage: number;
-  products: Array<{ name: string; status: string }>;
+  products: ProductDetail[];
 }
 
-interface MasterScorecardData {
-  selectedScorecard: {
-    id: string;
-    title: string;
-  } | null;
-  retailers: string[];
-  retailerSummary: RetailerSummary[];
+interface PivotRow {
+  retailer: string;
+  brands: Record<string, BrandCell>;
+}
+
+interface PivotData {
+  brands: string[];
+  pivotRows: PivotRow[];
   lastUpdated: string;
-  hasProducts?: boolean;
-  message?: string;
-}
-
-interface ScorecardOption {
-  id: string;
-  title: string;
 }
 
 interface MasterScorecardProps {
+  /** Override the API endpoint (e.g. "/api/portal/master-scorecard" for brand users) */
+  apiUrl?: string;
   onCustomerClick?: (customerId: string) => void;
   selectedScorecardId?: string;
-  availableScorecards?: ScorecardOption[];
+  availableScorecards?: { id: string; title: string }[];
 }
 
-export default function MasterScorecard({ onCustomerClick, selectedScorecardId, availableScorecards = [] }: MasterScorecardProps) {
-  const [data, setData] = useState<MasterScorecardData | null>(null);
+type SortDir = 'asc' | 'desc' | null;
+
+const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
+  'Authorized':       { bg: '#e6f4ea', text: '#14532d', dot: '#16a34a' },
+  'In Process':       { bg: '#e0e7ff', text: '#1e3a8a', dot: '#3b82f6' },
+  'Buyer Passed':     { bg: '#fee2e2', text: '#991b1b', dot: '#ef4444' },
+  'Presented':        { bg: '#ede9fe', text: '#6d28d9', dot: '#8b5cf6' },
+  'Discontinued':     { bg: '#f3f4f6', text: '#374151', dot: '#6b7280' },
+  'Meeting Secured':  { bg: '#fff7ed', text: '#b45309', dot: '#f59e0b' },
+  'On Hold':          { bg: '#fdf2f8', text: '#be185d', dot: '#ec4899' },
+  'Category Review':  { bg: '#f0fdfa', text: '#0f766e', dot: '#14b8a6' },
+  'Open Review':      { bg: '#e0f2fe', text: '#0369a1', dot: '#0ea5e9' },
+  'In/Out':           { bg: '#fef9c3', text: '#92400e', dot: '#eab308' },
+};
+
+function getCellColor(pct: number): string {
+  if (pct >= 80) return 'bg-green-100 text-green-800';
+  if (pct >= 50) return 'bg-yellow-100 text-yellow-800';
+  if (pct >= 25) return 'bg-orange-100 text-orange-800';
+  return 'bg-red-100 text-red-800';
+}
+
+function getBarColor(pct: number): string {
+  if (pct >= 80) return 'bg-green-500';
+  if (pct >= 50) return 'bg-yellow-500';
+  if (pct >= 25) return 'bg-orange-500';
+  return 'bg-red-500';
+}
+
+export default function MasterScorecard({ apiUrl = '/api/master-scorecard', onCustomerClick }: MasterScorecardProps) {
+  const [data, setData] = useState<PivotData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
-  const [currentScorecardId, setCurrentScorecardId] = useState<string | undefined>(selectedScorecardId);
-  const [showScorecardDropdown, setShowScorecardDropdown] = useState(false);
 
-  // Color coding function based on penetration percentage
-  const getColorClass = (percentage: number): string => {
-    if (percentage >= 80) return 'bg-green-100 text-green-800 border-green-300';
-    if (percentage >= 50) return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-    if (percentage >= 25) return 'bg-orange-100 text-orange-800 border-orange-300';
-    return 'bg-red-100 text-red-800 border-red-300';
-  };
+  // Sorting
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>(null);
 
-  // Get color intensity based on percentage
-  const getColorIntensity = (percentage: number): string => {
-    if (percentage >= 80) return 'font-bold';
-    if (percentage >= 50) return 'font-semibold';
-    return 'font-medium';
-  };
+  // Expanded rows — track which retailer rows are expanded
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
-  // Fetch master scorecard data
-  const fetchData = async (scorecardId?: string) => {
+  // Column resize
+  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+  const resizing = useRef<{ col: string; startX: number; startW: number } | null>(null);
+
+  const DEFAULT_COL_W = 160;
+  const RETAILER_COL_W = 200;
+
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      const url = scorecardId 
-        ? `/api/master-scorecard?scorecardId=${scorecardId}`
-        : '/api/master-scorecard';
-      
-      const response = await fetch(url, {
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch master scorecard data');
-      }
-
-      const result = await response.json();
-      setData(result);
-      setLastRefresh(new Date());
+      const res = await fetch(apiUrl, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch master scorecard data');
+      setData(await res.json());
     } catch (err) {
-      console.error('Error fetching master scorecard:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
       toast.error('Failed to load master scorecard data');
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiUrl]);
 
-  // Load data on mount and when selectedScorecardId changes
-  useEffect(() => {
-    const scorecardId = currentScorecardId || selectedScorecardId;
-    fetchData(scorecardId);
-  }, [currentScorecardId, selectedScorecardId]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Handle manual refresh
-  const handleRefresh = () => {
-    const scorecardId = currentScorecardId || selectedScorecardId;
-    fetchData(scorecardId);
-    toast.success('Master scorecard refreshed');
-  };
+  const handleRefresh = () => { fetchData(); toast.success('Master scorecard refreshed'); };
 
-  // Handle customer click for drill-down
-  const handleCustomerClick = (customerId: string) => {
-    if (onCustomerClick) {
-      onCustomerClick(customerId);
+  // ── Sorting ──
+  const handleSort = (col: string) => {
+    if (sortCol === col) {
+      if (sortDir === 'asc') setSortDir('desc');
+      else { setSortCol(null); setSortDir(null); }
+    } else {
+      setSortCol(col);
+      setSortDir('asc');
     }
   };
 
-  // Handle scorecard selection
-  const handleScorecardChange = (scorecardId: string) => {
-    setCurrentScorecardId(scorecardId);
-    setShowScorecardDropdown(false);
+  const getSortedRows = (rows: PivotRow[]): PivotRow[] => {
+    if (!sortCol || !sortDir) return rows;
+    return [...rows].sort((a, b) => {
+      let aVal: number | string, bVal: number | string;
+      if (sortCol === '__retailer') {
+        aVal = a.retailer.toLowerCase();
+        bVal = b.retailer.toLowerCase();
+      } else {
+        aVal = a.brands[sortCol]?.percentage ?? -1;
+        bVal = b.brands[sortCol]?.percentage ?? -1;
+      }
+      if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
   };
 
-  // Get current scorecard title
-  const getCurrentScorecardTitle = () => {
-    if (data?.selectedScorecard?.title) {
-      return data.selectedScorecard.title;
-    }
-    const selectedScorecard = availableScorecards.find(sc => sc.id === currentScorecardId);
-    return selectedScorecard?.title || 'Select Scorecard';
+  const SortIcon = ({ col }: { col: string }) => {
+    if (sortCol !== col) return <FaSort className="w-3 h-3 text-slate-300" />;
+    if (sortDir === 'asc') return <FaSortUp className="w-3 h-3 text-blue-600" />;
+    return <FaSortDown className="w-3 h-3 text-blue-600" />;
   };
 
+  // ── Row expand ──
+  const toggleRow = (retailer: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(retailer)) next.delete(retailer); else next.add(retailer);
+      return next;
+    });
+  };
+
+  // ── Column resize ──
+  const onResizeStart = (col: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    const startW = colWidths[col] || DEFAULT_COL_W;
+    resizing.current = { col, startX: e.clientX, startW };
+    const onMove = (ev: MouseEvent) => {
+      if (!resizing.current) return;
+      setColWidths(prev => ({ ...prev, [resizing.current!.col]: Math.max(80, resizing.current!.startW + ev.clientX - resizing.current!.startX) }));
+    };
+    const onUp = () => { resizing.current = null; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
+  // ── States ──
   if (loading) {
     return (
       <div className="p-6 bg-white rounded-lg shadow-lg">
-        <div className="flex items-center justify-center h-32">
-          <div className="flex items-center gap-2 text-slate-500">
-            <FaSync className="animate-spin" />
-            <span>Loading Master Scorecard...</span>
-          </div>
+        <div className="flex items-center justify-center h-32 gap-2 text-slate-500">
+          <FaSync className="animate-spin" /><span>Loading Master Scorecard...</span>
         </div>
       </div>
     );
   }
-
   if (error) {
     return (
       <div className="p-6 bg-white rounded-lg shadow-lg">
-        <div className="flex items-center justify-center h-32">
-          <div className="text-center">
-            <div className="text-red-500 mb-2">Error loading Master Scorecard</div>
-            <div className="text-sm text-slate-500 mb-4">{error}</div>
-            <button
-              onClick={handleRefresh}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Try Again
-            </button>
+        <div className="flex flex-col items-center justify-center h-32 gap-3">
+          <div className="text-red-500">Error loading Master Scorecard</div>
+          <div className="text-sm text-slate-500">{error}</div>
+          <button onClick={handleRefresh} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Try Again</button>
+        </div>
+      </div>
+    );
+  }
+  if (!data || data.brands.length === 0 || data.pivotRows.length === 0) {
+    return (
+      <div className="p-6 bg-white rounded-lg shadow-lg">
+        <div className="flex items-center justify-center h-32 text-center text-slate-500">
+          <div>
+            <div className="mb-2">No data available</div>
+            <div className="text-sm">Add product columns to your scorecards and assign retailer statuses to see the pivot view.</div>
           </div>
         </div>
       </div>
     );
   }
 
-  if (!data || !data.selectedScorecard || data.retailerSummary.length === 0) {
-    return (
-      <div className="p-6 bg-white rounded-lg shadow-lg">
-        <div className="flex items-center justify-center h-32">
-          <div className="text-center text-slate-500">
-            <div className="mb-2">No data available</div>
-            <div className="text-sm">
-              {data?.selectedScorecard ? (
-                <div>
-                  {data.hasProducts === false ? (
-                    <>
-                      <p className="mb-2">{data.message || `The selected scorecard "${data.selectedScorecard.title}" has no product columns.`}</p>
-                      <p className="text-xs text-slate-400 mb-3">To see master scorecard data, you need to add product columns to this scorecard.</p>
-                      <button
-                        onClick={() => onCustomerClick?.(data.selectedScorecard!.id)}
-                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
-                      >
-                        Open Scorecard to Add Products
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <p className="mb-2">The selected scorecard &ldquo;{data.selectedScorecard.title}&rdquo; has no retailer data.</p>
-                      <p className="text-xs text-slate-400">Add retailers to see authorization data.</p>
-                    </>
-                  )}
-                </div>
-              ) : (
-                "Create some scorecards to see the master dashboard"
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const sortedRows = getSortedRows(data.pivotRows);
+  const { brands } = data;
 
   return (
     <div className="p-6 bg-white rounded-lg shadow-lg">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">
-            Master Scorecard - Retailer Authorization Summary
-          </h2>
+          <h2 className="text-2xl font-bold text-slate-900">Master Scorecard</h2>
           <p className="text-sm text-slate-600">
-            Product authorization status for each retailer
+            {brands.length} brand{brands.length !== 1 ? 's' : ''}, {data.pivotRows.length} retailer{data.pivotRows.length !== 1 ? 's' : ''} &mdash; click a row to expand product details
           </p>
         </div>
         <div className="flex items-center gap-4">
-          {/* Scorecard Selector */}
-          <div className="relative">
-            <button
-              onClick={() => setShowScorecardDropdown(!showScorecardDropdown)}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 text-sm font-medium"
-            >
-              <span>{getCurrentScorecardTitle()}</span>
-              <FaChevronDown className="w-3 h-3" />
-            </button>
-            
-            {showScorecardDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-slate-300 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
-                {availableScorecards.length > 0 ? (
-                  availableScorecards.map((scorecard) => (
-                    <button
-                      key={scorecard.id}
-                      onClick={() => handleScorecardChange(scorecard.id)}
-                      className={`w-full text-left px-4 py-2 hover:bg-slate-100 text-sm ${
-                        scorecard.id === currentScorecardId ? 'bg-blue-50 text-blue-700' : 'text-slate-700'
-                      }`}
-                    >
-                      {scorecard.title}
-                    </button>
-                  ))
-                ) : (
-                  <div className="px-4 py-3 text-sm text-slate-500">
-                    <p className="mb-2">No scorecards with products found.</p>
-                    <p className="text-xs text-slate-400">Add product columns to your scorecards to see them here.</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="text-sm text-slate-500">
-            Last updated: {data ? new Date(data.lastUpdated).toLocaleString() : ''}
-          </div>
-          <button
-            onClick={handleRefresh}
-            className="flex items-center gap-2 px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
-          >
-            <FaSync className="w-3 h-3" />
-            Refresh
+          <span className="text-sm text-slate-500">Updated: {new Date(data.lastUpdated).toLocaleString()}</span>
+          <button onClick={handleRefresh} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">
+            <FaSync className="w-3 h-3" /> Refresh
           </button>
         </div>
       </div>
 
-      {/* Retailer Summary Table */}
+      {/* Pivot Table */}
       <div className="overflow-x-auto rounded-lg border border-slate-200">
-        <table className="w-full border-collapse">
+        <table className="border-collapse" style={{ minWidth: '100%' }}>
           <thead>
             <tr className="bg-slate-50">
-              <th className="border-b border-slate-200 px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-slate-500">
-                Retailer
+              {/* Expand + Retailer */}
+              <th
+                className="border-b border-r border-slate-200 px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors sticky left-0 bg-slate-50 z-10"
+                style={{ width: RETAILER_COL_W, minWidth: RETAILER_COL_W }}
+                onClick={() => handleSort('__retailer')}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="w-4" /> {/* spacer for expand icon */}
+                  Retailer
+                  <SortIcon col="__retailer" />
+                </div>
               </th>
-              <th className="border-b border-slate-200 px-4 py-3 text-center text-xs uppercase tracking-wider font-medium text-slate-500">
-                Authorization Summary
-              </th>
-              <th className="border-b border-slate-200 px-4 py-3 text-center text-xs uppercase tracking-wider font-medium text-slate-500">
-                Percentage
-              </th>
-              <th className="border-b border-slate-200 px-4 py-3 text-center text-xs uppercase tracking-wider font-medium text-slate-500">
-                Products
-              </th>
+              {brands.map(brand => (
+                <th
+                  key={brand}
+                  className="border-b border-r border-slate-200 px-3 py-3 text-center text-xs uppercase tracking-wider font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors relative group"
+                  style={{ width: colWidths[brand] || DEFAULT_COL_W, minWidth: 80 }}
+                  onClick={() => handleSort(brand)}
+                >
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span className="truncate">{brand}</span>
+                    <SortIcon col={brand} />
+                  </div>
+                  <div
+                    className="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onMouseDown={(e) => { e.stopPropagation(); onResizeStart(brand, e); }}
+                  />
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {data.retailerSummary.map((retailer, index) => (
-              <tr key={retailer.retailer} className="hover:bg-slate-50 transition-colors duration-150">
-                <td className="px-4 py-3 font-medium text-slate-900">
-                  {retailer.retailer}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <span className={`px-3 py-1 rounded-full text-sm border ${getColorClass(retailer.percentage)} ${getColorIntensity(retailer.percentage)}`}>
-                    {retailer.authorized}/{retailer.total} ({retailer.percentage}%)
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <div className="w-full bg-slate-200 rounded-full h-2">
-                    <div
-                      className={`h-2 rounded-full ${retailer.percentage >= 80 ? 'bg-green-500' : retailer.percentage >= 50 ? 'bg-yellow-500' : retailer.percentage >= 25 ? 'bg-orange-500' : 'bg-red-500'}`}
-                      style={{ width: `${retailer.percentage}%` }}
-                    ></div>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1">
-                    {retailer.products.map((product, productIndex) => (
-                      <span
-                        key={productIndex}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs ${
-                          product.status.toLowerCase() === 'authorized'
-                            ? 'bg-green-100 text-green-800'
-                            : product.status.toLowerCase() === 'buyer passed'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-slate-100 text-slate-800'
-                        }`}
-                        title={`${product.name}: ${product.status}`}
-                      >
-                        {product.status.toLowerCase() === 'authorized' ? (
-                          <FaCheckCircle className="w-3 h-3" />
-                        ) : product.status.toLowerCase() === 'buyer passed' ? (
-                          <FaTimesCircle className="w-3 h-3" />
-                        ) : null}
-                        {product.name}
-                      </span>
-                    ))}
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {sortedRows.map(row => {
+              const isExpanded = expandedRows.has(row.retailer);
+              return (
+                <React.Fragment key={row.retailer}>
+                  {/* Summary row */}
+                  <tr
+                    className="hover:bg-slate-50/60 transition-colors cursor-pointer"
+                    onClick={() => toggleRow(row.retailer)}
+                  >
+                    <td className="border-r border-slate-200 px-4 py-2.5 font-medium text-slate-900 text-sm sticky left-0 bg-white z-10">
+                      <div className="flex items-center gap-1.5">
+                        {isExpanded
+                          ? <FaChevronDown className="w-3 h-3 text-slate-400" />
+                          : <FaChevronRight className="w-3 h-3 text-slate-400" />
+                        }
+                        {row.retailer}
+                      </div>
+                    </td>
+                    {brands.map(brand => {
+                      const cell = row.brands[brand];
+                      if (!cell) {
+                        return <td key={brand} className="border-r border-slate-100 px-3 py-2.5 text-center"><span className="text-slate-300 text-xs">&mdash;</span></td>;
+                      }
+                      return (
+                        <td key={brand} className="border-r border-slate-100 px-3 py-2.5 text-center">
+                          <div className="flex flex-col items-center gap-1">
+                            <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${getCellColor(cell.percentage)}`}>
+                              {cell.percentage}%
+                              <span className="ml-1 font-normal opacity-75">({cell.authorized}/{cell.total})</span>
+                            </span>
+                            <div className="w-full max-w-[80px] bg-slate-200 rounded-full h-1">
+                              <div className={`h-1 rounded-full ${getBarColor(cell.percentage)}`} style={{ width: `${cell.percentage}%` }} />
+                            </div>
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* Expanded detail row — product-level breakdown */}
+                  {isExpanded && (
+                    <tr className="bg-slate-50/70">
+                      <td className="border-r border-slate-200 px-4 py-2 sticky left-0 bg-slate-50/70 z-10" />
+                      {brands.map(brand => {
+                        const cell = row.brands[brand];
+                        if (!cell || !cell.products || cell.products.length === 0) {
+                          return <td key={brand} className="border-r border-slate-100 px-3 py-2" />;
+                        }
+                        return (
+                          <td key={brand} className="border-r border-slate-100 px-3 py-2 align-top">
+                            <div className="flex flex-col gap-1">
+                              {cell.products.map((p, i) => {
+                                const sc = STATUS_COLORS[p.status] || { bg: '#f3f4f6', text: '#374151', dot: '#6b7280' };
+                                return (
+                                  <div key={i} className="flex items-center gap-1.5 text-xs">
+                                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: sc.dot }} />
+                                    <span className="font-medium text-slate-700 truncate">{p.name}</span>
+                                    <span className="ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap" style={{ background: sc.bg, color: sc.text }}>
+                                      {p.status}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -322,33 +329,32 @@ export default function MasterScorecard({ onCustomerClick, selectedScorecardId, 
       <div className="mt-6 p-4 bg-slate-50 rounded-lg">
         <div className="text-sm font-medium text-slate-700 mb-2">Color Legend:</div>
         <div className="flex items-center gap-4 flex-wrap">
+          {[
+            { color: 'bg-green-100 border-green-300', label: '80-100%' },
+            { color: 'bg-yellow-100 border-yellow-300', label: '50-79%' },
+            { color: 'bg-orange-100 border-orange-300', label: '25-49%' },
+            { color: 'bg-red-100 border-red-300', label: '0-24%' },
+          ].map(l => (
+            <div key={l.label} className="flex items-center gap-2">
+              <div className={`w-4 h-4 rounded border ${l.color}`} />
+              <span className="text-sm text-slate-600">{l.label}</span>
+            </div>
+          ))}
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-green-100 border border-green-300"></div>
-            <span className="text-sm text-slate-600">80-100% (Excellent)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-yellow-100 border border-yellow-300"></div>
-            <span className="text-sm text-slate-600">50-79% (Good)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-orange-100 border border-orange-300"></div>
-            <span className="text-sm text-slate-600">25-49% (Moderate)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-red-100 border border-red-300"></div>
-            <span className="text-sm text-slate-600">0-24% (Poor)</span>
+            <span className="text-slate-300 text-sm">&mdash;</span>
+            <span className="text-sm text-slate-600">Not carried</span>
           </div>
         </div>
       </div>
 
-      {/* Info Note */}
+      {/* Info */}
       <div className="mt-4 flex items-start gap-2 p-3 bg-blue-50 rounded-lg">
         <FaInfoCircle className="text-blue-500 mt-0.5 flex-shrink-0" />
         <div className="text-sm text-blue-700">
-          <strong>How to read:</strong> Each row shows a retailer and their product authorization status. 
-          The percentage indicates how many products are authorized for that retailer.
+          <strong>How to read:</strong> Columns = brands. Rows = retailers. Cells show authorization % (authorized/total).
+          Click any row to expand and see individual product statuses. Click headers to sort. Drag column edges to resize.
         </div>
       </div>
     </div>
   );
-} 
+}
