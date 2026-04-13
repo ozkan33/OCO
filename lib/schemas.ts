@@ -73,3 +73,15 @@ export const markNotificationsReadSchema = z.object({
   (data) => data.ids?.length || data.markAllRead,
   { message: 'Provide either ids or markAllRead' },
 );
+
+// Contact form submission (public landing page)
+export const contactSubmissionSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(255),
+  email: z.string().email('Valid email required'),
+  product: z.string().min(1, 'Product / Brand is required').max(255),
+  category: z.string().min(1, 'Category is required').max(255),
+  distribution: z.string().max(255).optional().default(''),
+  challenge: z.string().max(255).optional().default(''),
+  heardAbout: z.string().max(255).optional().default(''),
+  message: z.string().max(5000).optional().default(''),
+});

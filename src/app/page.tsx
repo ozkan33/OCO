@@ -81,7 +81,7 @@ const brandLinks: Record<string, string> = {
 const retailers: { name: string; url?: string }[] = [
   { name: 'Cub Foods', url: 'https://www.cub.com/' },
   { name: 'UNFI', url: 'https://www.unfi.com/' },
-  { name: 'Festival Supermarket', url: 'https://www.festfoods.com/' },
+  { name: 'Festival Foods', url: 'https://www.festfoods.com/' },
   { name: 'Coborn\'s', url: 'https://coborns.com/' },
   { name: 'Lunds & Byerlys', url: 'https://www.lundsandbyerlys.com/' },
   { name: 'Lucky Seven', url: 'https://luckysevengeneralstores.com/' },
@@ -97,7 +97,7 @@ const retailers: { name: string; url?: string }[] = [
   { name: 'Fresh Thyme', url: 'https://ww2.freshthyme.com/' },
   { name: 'CPW', url: 'https://www.cpw.coop/' },
   { name: 'Brown\'s', url: 'https://brownsicecream.com/' },
-  { name: 'Do It Best Corp', url: 'https://www.doitbest.com/' },
+  { name: 'Do It Best', url: 'https://www.doitbest.com/' },
   { name: 'Hugo\'s', url: 'https://www.gohugos.com/' },
   { name: 'Piggly Wiggly', url: 'https://www.shopthepig.com/' },
   { name: 'Woodman\'s', url: 'https://www.woodmans-food.com/' },
@@ -127,7 +127,7 @@ function getBrandUrl(label: string): string {
 
 export default function LandingPage() {
   const router = useRouter();
-  const [form, setForm] = useState({ name: '', email: '', product: '', category: '', distribution: '', challenge: '', message: '' });
+  const [form, setForm] = useState({ name: '', email: '', product: '', category: '', distribution: '', challenge: '', heardAbout: '', message: '' });
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [clientLogos, setClientLogos] = useState<{ src: string; alt: string }[]>([]);
@@ -145,27 +145,28 @@ export default function LandingPage() {
     setForm(f => ({ ...f, [e.target.name]: e.target.value }));
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name || !form.email || !form.product || !form.category) return;
     setSending(true);
-    const subject = encodeURIComponent(`New Inquiry from ${form.name} — ${form.product}`);
-    const lines = [
-      `Name: ${form.name}`,
-      `Email: ${form.email}`,
-      `Product / Brand: ${form.product}`,
-      `Category: ${form.category}`,
-      form.distribution ? `Current Distribution: ${form.distribution}` : '',
-      form.challenge ? `Biggest Challenge: ${form.challenge}` : '',
-      form.message ? `\nAdditional Notes:\n${form.message}` : '',
-    ].filter(Boolean).join('\n');
-    const body = encodeURIComponent(lines);
-    window.location.href = `mailto:volkan@3brothersmarketing.com?subject=${subject}&body=${body}`;
-    setTimeout(() => {
-      setSending(false);
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Something went wrong. Please try again.');
+        return;
+      }
       setSent(true);
-      setForm({ name: '', email: '', product: '', category: '', distribution: '', challenge: '', message: '' });
-    }, 800);
+      setForm({ name: '', email: '', product: '', category: '', distribution: '', challenge: '', heardAbout: '', message: '' });
+    } catch {
+      alert('Network error. Please check your connection and try again.');
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -181,7 +182,7 @@ export default function LandingPage() {
         <div
           aria-hidden
           className="absolute inset-0 bg-cover bg-center hero-ken-burns"
-          style={{ backgroundImage: "url('/hero.png')" }}
+          style={{ backgroundImage: "url('/hero.jpg')" }}
         />
 
         {/* Dark overlay */}
@@ -218,18 +219,18 @@ export default function LandingPage() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 mt-3 w-full max-w-sm sm:max-w-none sm:justify-center">
-            <button
-              onClick={() => router.push('/auth/login')}
-              className="px-8 py-3.5 bg-blue-500 text-white font-bold rounded-lg hover:bg-blue-600 active:scale-95 transition-all text-base shadow-lg shadow-blue-500/30"
-            >
-              Partner Portal
-            </button>
             <a
               href="#contact"
-              className="px-8 py-3.5 bg-white/10 text-white font-semibold rounded-lg hover:bg-white/20 active:scale-95 transition-all text-base border border-white/25 backdrop-blur-sm"
+              className="px-8 py-3.5 bg-blue-500 text-white font-bold rounded-lg hover:bg-blue-600 active:scale-95 transition-all text-base shadow-lg shadow-blue-500/30"
             >
               Get in Touch
             </a>
+            <button
+              onClick={() => router.push('/auth/login')}
+              className="px-8 py-3.5 bg-white/10 text-white font-semibold rounded-lg hover:bg-white/20 active:scale-95 transition-all text-base border border-white/25 backdrop-blur-sm"
+            >
+              Partner Portal
+            </button>
           </div>
         </div>
 
@@ -240,7 +241,7 @@ export default function LandingPage() {
       {/* ── Client Logos Marquee (immediately after hero) ─────────────────── */}
       {clientLogos.length > 0 && (
         <section className="bg-slate-50 py-6 border-b border-slate-200/60 overflow-hidden">
-          <p className="text-center text-[10px] font-medium text-slate-400 uppercase tracking-widest mb-4">Trusted by brands across the Upper Midwest</p>
+          <p className="text-center text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Our Brand Partners</p>
           <div className="relative">
             <div className="flex items-center gap-8 logo-marquee" style={{ width: 'max-content' }}>
               {/* Double the logos for seamless loop */}
@@ -249,9 +250,10 @@ export default function LandingPage() {
                 const Wrapper = url ? 'a' : 'div';
                 const linkProps = url ? { href: url, target: '_blank', rel: 'noopener noreferrer' } : {};
                 return (
-                  <Wrapper key={idx} {...linkProps} className={`flex-shrink-0 flex items-center justify-center h-12 px-4 opacity-60 hover:opacity-100 transition-opacity grayscale hover:grayscale-0 ${url ? 'cursor-pointer' : ''}`} title={url ? `Visit ${logo.alt}` : logo.alt}>
+                  <Wrapper key={idx} {...linkProps} className={`flex-shrink-0 flex flex-col items-center justify-center gap-2 px-5 py-2 opacity-70 hover:opacity-100 transition-opacity ${url ? 'cursor-pointer' : ''}`} title={url ? `Visit ${logo.alt}` : logo.alt}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={logo.src} alt={logo.alt} className="max-h-10 max-w-[100px] object-contain" />
+                    <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider leading-none text-center whitespace-nowrap">{logo.alt}</span>
                   </Wrapper>
                 );
               })}
@@ -263,12 +265,18 @@ export default function LandingPage() {
       {/* ── Territory Map ────────────────────────────────────────────────── */}
       <section className="relative bg-slate-50 border-b border-slate-200/60">
         <div className="max-w-6xl mx-auto px-5 py-12">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl md:text-4xl text-slate-900" style={{ fontFamily: 'var(--font-display)' }}>Our Coverage</h2>
+            <p className="text-slate-500 mt-3 max-w-xl mx-auto text-base">
+              Active across 5,438 retail doors in five Upper Midwest states.
+            </p>
+          </div>
           <TerritoryMap />
         </div>
       </section>
 
       {/* ── Retailers ─────────────────────────────────────────────────────── */}
-      <section className="bg-slate-50 py-20 px-5 border-b border-slate-200/60">
+      <section id="clients" className="bg-slate-50 py-20 px-5 border-b border-slate-200/60">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10">
             <h2 className="text-3xl md:text-4xl text-slate-900" style={{ fontFamily: 'var(--font-display)' }}>
@@ -330,7 +338,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Services ──────────────────────────────────────────────────────── */}
-      <section id="about" className="bg-white py-20 px-5">
+      <section className="bg-white py-20 px-5">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-14">
             <h2 className="text-3xl md:text-4xl text-slate-900" style={{ fontFamily: 'var(--font-display)' }}>What We Do</h2>
@@ -356,7 +364,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── About ─────────────────────────────────────────────────────────── */}
-      <section className="py-20 px-5 bg-slate-50">
+      <section id="about" className="py-20 px-5 bg-slate-50">
         <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
           <div>
             <h2 className="text-3xl md:text-4xl text-slate-900 mb-5 leading-tight" style={{ fontFamily: 'var(--font-display)' }}>
@@ -403,8 +411,8 @@ export default function LandingPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h3 className="text-xl font-bold text-blue-800 mb-2">Message ready to send!</h3>
-              <p className="text-blue-700 text-sm mb-6">Your email client opened with the message pre-filled. Just hit send.</p>
+              <h3 className="text-xl font-bold text-blue-800 mb-2">Message sent!</h3>
+              <p className="text-blue-700 text-sm mb-6">We&apos;ll get back to you shortly.</p>
               <button
                 onClick={() => setSent(false)}
                 className="px-6 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 transition"
@@ -520,7 +528,32 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              {/* Row 4: Optional notes */}
+              {/* Row 4: How did you hear about us? */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-slate-700">
+                  How did you hear about us?
+                  <span className="text-slate-400 font-normal ml-1.5">Optional</span>
+                </label>
+                <select
+                  name="heardAbout"
+                  value={form.heardAbout}
+                  onChange={handleChange}
+                  className="border border-slate-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white appearance-none"
+                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
+                >
+                  <option value="">Select one</option>
+                  <option value="Referral / Word of mouth">Referral / Word of mouth</option>
+                  <option value="Google search">Google search</option>
+                  <option value="LinkedIn">LinkedIn</option>
+                  <option value="Trade show / Event">Trade show / Event</option>
+                  <option value="Industry publication">Industry publication</option>
+                  <option value="Social media">Social media</option>
+                  <option value="Existing client">Existing client</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              {/* Row 5: Optional notes */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-slate-700">
                   Anything else?
@@ -539,9 +572,9 @@ export default function LandingPage() {
               <button
                 type="submit"
                 disabled={sending || !form.name || !form.email || !form.product || !form.category}
-                className="w-full py-3.5 bg-slate-900 text-white font-semibold rounded-lg hover:bg-slate-800 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                className="w-full py-3.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
               >
-                {sending ? 'Opening email client...' : 'Send Message'}
+                {sending ? 'Sending...' : 'Send Message'}
               </button>
               <p className="text-xs text-center text-slate-400">
                 Or{' '}
@@ -573,12 +606,16 @@ export default function LandingPage() {
           </div>
           <div className="flex gap-6 text-sm">
             <a href="#about" className="hover:text-white transition">About</a>
+            <a href="#clients" className="hover:text-white transition">Clients</a>
             <a href="#contact" className="hover:text-white transition">Contact</a>
             <Link href="/auth/login" className="hover:text-white transition">Portal Login</Link>
           </div>
-          <p className="text-xs text-slate-600 text-center md:text-right">
-            &copy; {new Date().getFullYear()} 3Brothers Marketing. All rights reserved.
-          </p>
+          <div className="text-center md:text-right">
+            <p className="text-xs text-slate-500">Minneapolis, MN</p>
+            <p className="text-xs text-slate-600 mt-1">
+              &copy; {new Date().getFullYear()} 3Brothers Marketing. All rights reserved.
+            </p>
+          </div>
         </div>
       </footer>
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { Logo } from './Logo';
 import { AuthButtons } from '../auth/AuthButtons';
 import { getMobileBrowserInfo } from '@/utils/mobileDetection';
@@ -24,8 +24,13 @@ export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps)
   const [scrolled, setScrolled] = useState(false);
   const [isSafari, setIsSafari] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
   const menuRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+
+  // Only use light/transparent variant on the homepage (which has a dark hero)
+  const isHomepage = pathname === '/';
+  const useLight = isHomepage && !scrolled;
 
   useEffect(() => {
     const info = getMobileBrowserInfo();
@@ -67,13 +72,13 @@ export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps)
   return (
     <header
       className={`sticky top-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? 'bg-white/90 backdrop-blur-xl shadow-sm border-b border-slate-200/60'
-          : 'bg-transparent'
+        useLight
+          ? 'bg-transparent'
+          : 'bg-white/90 backdrop-blur-xl shadow-sm border-b border-slate-200/60'
       }`}
     >
       <nav className="max-w-6xl mx-auto px-5 py-4 flex items-center justify-between">
-        <Logo variant={scrolled ? 'dark' : 'light'} />
+        <Logo variant={useLight ? 'light' : 'dark'} />
 
         {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-6">
@@ -82,27 +87,27 @@ export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps)
               key={l.href}
               href={l.href}
               className={`text-sm font-medium transition-colors duration-300 ${
-                scrolled
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-white/80 hover:text-white'
+                useLight
+                  ? 'text-white/80 hover:text-white'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               {l.label}
             </a>
           ))}
-          <AuthButtons user={user} loading={loading} onAccountClick={onAccountClick} onLogout={onLogout} variant={scrolled ? 'dark' : 'light'} />
+          <AuthButtons user={user} loading={loading} onAccountClick={onAccountClick} onLogout={onLogout} variant={useLight ? 'light' : 'dark'} />
         </div>
 
         {/* Mobile */}
         <div className="md:hidden flex items-center gap-2">
-          <AuthButtons user={user} loading={loading} onAccountClick={onAccountClick} onLogout={onLogout} variant={scrolled ? 'dark' : 'light'} />
+          <AuthButtons user={user} loading={loading} onAccountClick={onAccountClick} onLogout={onLogout} variant={useLight ? 'light' : 'dark'} />
           <button
             ref={btnRef}
             onClick={() => setMenuOpen(o => !o)}
             className={`p-2 rounded-lg transition-colors duration-300 ${
-              scrolled
-                ? 'text-slate-700 hover:bg-slate-100'
-                : 'text-white hover:bg-white/10'
+              useLight
+                ? 'text-white hover:bg-white/10'
+                : 'text-slate-700 hover:bg-slate-100'
             }`}
             aria-label="Toggle menu"
           >
@@ -119,7 +124,7 @@ export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps)
       {/* Mobile menu — slides down */}
       <div
         ref={menuRef}
-        className={`md:hidden overflow-hidden transition-all duration-200 bg-white border-t border-gray-100 ${
+        className={`md:hidden overflow-hidden transition-all duration-200 bg-white border-t border-slate-100 ${
           menuOpen ? 'max-h-80 opacity-100' : 'max-h-0 opacity-0'
         }`}
       >
@@ -129,7 +134,7 @@ export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps)
               key={l.href}
               href={l.href}
               onClick={() => setMenuOpen(false)}
-              className="text-gray-700 hover:text-[#0f172a] font-medium text-sm py-2.5 border-b border-gray-50 last:border-0"
+              className="text-slate-700 hover:text-[#0f172a] font-medium text-sm py-2.5 border-b border-slate-50 last:border-0"
             >
               {l.label}
             </a>
