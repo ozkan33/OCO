@@ -14,7 +14,7 @@ export interface AdminGridContextValue {
   scorecards: any[];
 
   // Comment state
-  comments: Record<string, Record<number, any[]>>;
+  comments: Record<string, Record<string, any[]>>;
   commentInput: string;
   editCommentIdx: number | null;
   editCommentText: string;
@@ -27,12 +27,12 @@ export interface AdminGridContextValue {
   setEditCommentText: (v: string) => void;
   setOpenCommentRowId: (v: number | null) => void;
   setOpenRetailerDrawer: (v: number | null) => void;
-  setComments: React.Dispatch<React.SetStateAction<Record<string, Record<number, any[]>>>>;
+  setComments: React.Dispatch<React.SetStateAction<Record<string, Record<string, any[]>>>>;
   setConfirmDeleteComment: (v: { rowId: number; commentIdx: number } | null) => void;
   handleAddComment: () => void;
   handleCloseCommentModal: () => void;
   updateComment: (commentId: string, newText: string) => Promise<void>;
-  deleteComment: (commentId: string, rowId: number) => Promise<void>;
+  deleteComment: (commentId: string, rowId: number | string) => Promise<void>;
 
   // Scorecard mutations (needed by retailer drawer migration logic)
   setScorecards: React.Dispatch<React.SetStateAction<any[]>>;
@@ -44,27 +44,25 @@ export interface AdminGridContextValue {
   updateCurrentData: (updates: Partial<{ columns: any[]; rows: any[] }>) => void;
   isScorecard: (categoryId: string) => boolean;
 
+  // Subgrid comment state
+  openSubgridCommentKey: string | null; // "sub:{parentRowId}:{storeName}"
+  setOpenSubgridCommentKey: (v: string | null) => void;
+  subgridCommentInput: string;
+  setSubgridCommentInput: (v: string) => void;
+  handleAddSubgridComment: () => void;
+
   // Subgrid state
   subGrids: Record<string, { columns: any[]; rows: any[] }>;
   expandedRowId: string | number | null;
   setExpandedRowId: (v: string | number | null) => void;
-  subgridTemplates: any[];
-  setSubgridTemplates: React.Dispatch<React.SetStateAction<any[]>>;
-  subgridTemplateName: string;
-  setSubgridTemplateName: (v: string) => void;
-  subgridIncludeRows: boolean;
-  setSubgridIncludeRows: (v: boolean) => void;
-  subgridTemplateError: string;
-  setSubgridTemplateError: (v: string) => void;
-  subgridSelectedTemplate: string;
-  setSubgridSelectedTemplate: (v: string) => void;
-  subgridImportWithRows: boolean;
-  setSubgridImportWithRows: (v: boolean) => void;
-  setSubgridTemplateModal: (v: { parentId: string | number; mode: 'save' | 'import' } | null) => void;
   setConfirmDelete: (v: any) => void;
-  saveSubgridTemplates: (templates: any[]) => void;
+
+  // Subgrid expansion
+  subgridExpanded: boolean;
+  setSubgridExpanded: (v: boolean) => void;
 
   // Subgrid actions
+  refreshStoresForSubgrid: (parentId: string | number) => void;
   handleSubGridAddColumn: (parentId: string | number | undefined) => void;
   handleSubGridAddRow: (parentId: string | number | undefined) => void;
   handleSubGridRowsChange: (parentId: string | number | undefined, newRows: any[]) => void;
@@ -74,8 +72,6 @@ export interface AdminGridContextValue {
   handleDeleteSubGrid: (parentId: string | number | undefined) => void;
   handleImportSubgridExcel: (event: React.ChangeEvent<HTMLInputElement>, parentId: string | number) => void;
   handleExportSubgridExcel: (parentId: string | number) => void;
-  handleSaveSubgridTemplate: (parentId: string | number) => void;
-  handleImportSubgridTemplate: (parentId: string | number) => void;
 }
 
 const AdminGridContext = createContext<AdminGridContextValue | null>(null);

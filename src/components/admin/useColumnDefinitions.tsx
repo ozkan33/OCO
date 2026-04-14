@@ -29,7 +29,7 @@ export function useColumnDefinitions({
   const defaultColumnKeys = ['name', 'retail_price', 'buyer', 'store_count', 'hq_location', 'cmg'];
   const retailersColumns: MyColumn[] = [
     {
-      key: 'name', name: 'Retailer Name', editable: true, sortable: true, isDefault: true, frozen: true, width: 220,
+      key: 'name', name: 'Customer', editable: true, sortable: true, isDefault: true, frozen: true, width: 220,
       renderCell: (props) => <div className="retailer-col">{props.row["name"]}</div>
     },
     // Priority dropdown column
@@ -103,23 +103,11 @@ export function useColumnDefinitions({
     },
     // Product columns will be added dynamically after this (do NOT set isDefault)
     {
-      key: 'store_count', name: 'Store Count', editable: true, sortable: true, isDefault: true, renderEditCell: ({ row, column, onRowChange }: RenderEditCellProps<Row>) => (
-        <input
-          type="number"
-          step="1"
-          min="0"
-          defaultValue={row[column.key] !== undefined ? String(row[column.key]) : ''}
-          onChange={e => {
-            const value = e.target.value;
-            if (/^\d*$/.test(value)) {
-              onRowChange({ ...row, [column.key]: value === '' ? '' : parseInt(value, 10) });
-            }
-          }}
-          className="w-full h-full px-2 py-1"
-          autoFocus
-          placeholder="Enter store count (integer)"
-        />
-      )
+      key: 'store_count', name: 'Store Count', editable: false, sortable: true, isDefault: true,
+      renderCell: ({ row }: { row: Row }) => {
+        const count = row['store_count'];
+        return count !== undefined && count !== null && count !== '' ? String(count) : '';
+      },
     },
     // Route To Market column
     {
@@ -596,7 +584,7 @@ export function useColumnDefinitions({
   };
 
   let columnsWithDelete: MyColumn[] = [...editableColumns];
-  // For ScoreCards, insert comment column and user-added columns after Retailer Name
+  // For ScoreCards, insert comment column and user-added columns after Customer
   if (selectedCategory && isScorecard(selectedCategory)) {
     const nameIdx = columnsWithDelete.findIndex(col => col.key === 'name');
     // Extract user-added columns (not isDefault)
@@ -708,9 +696,9 @@ export function useColumnDefinitions({
     return sortedRows;
   }
 
-  // In main grid columnsWithDelete, add delete button for product columns only (between Retailer Name and Retail Price)
+  // In main grid columnsWithDelete, add delete button for product columns only (between Customer and Retail Price)
   columnsWithDelete = columnsWithDelete.map((col, idx) => {
-    // Always use special logic for 'Retailer Name' column
+    // Always use special logic for 'Customer' column
     if (col.key === 'name') {
       return {
         ...col,

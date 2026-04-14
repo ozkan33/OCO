@@ -2,6 +2,15 @@
 import React, { useState, useMemo } from 'react';
 import { DataGrid, type Column, type SortColumn, type RenderEditCellProps } from 'react-data-grid';
 import { useAdminGrid } from './AdminDataGridContext';
+import { AUTHORIZATION_OPTIONS } from './useSubGridHandlers';
+import { FaRegCommentDots } from 'react-icons/fa';
+import { toast } from 'sonner';
+
+const AUTH_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  'Authorized': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
+  'Discontinued': { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
+  'Not Authorized': { bg: 'bg-slate-100', text: 'text-slate-500', border: 'border-slate-200' },
+};
 
 interface Row {
   id: number | string;
@@ -39,7 +48,7 @@ function SubGridHeaderCell({ col, idx, parentId, subgridSortColumns, setSubgridS
 
   const canDelete = !col.isDefault && col.key !== 'name' && col.key !== 'priority' && col.key !== 'retailPrice' &&
     col.key !== 'categoryReviewDate' && col.key !== 'buyer' && col.key !== 'storeContact' && col.key !== 'delete' &&
-    col.key !== 'retailerName' && typeof col.name === 'string' && !col.name.toLowerCase().includes('retailer') &&
+    col.key !== 'retailerName' && col.key !== 'comments' && typeof col.name === 'string' && !col.name.toLowerCase().includes('retailer') &&
     !col.name.toLowerCase().includes('priority') && !col.name.toLowerCase().includes('price') &&
     !col.name.toLowerCase().includes('category') && !col.name.toLowerCase().includes('buyer') &&
     !col.name.toLowerCase().includes('contact');
@@ -83,18 +92,146 @@ function SubGridHeaderCell({ col, idx, parentId, subgridSortColumns, setSubgridS
   );
 }
 
+// ─── Subgrid Comment Drawer ──────────────────────────────────────────────────
+function SubgridCommentDrawer() {
+  const ctx = useAdminGrid();
+  const {
+    openSubgridCommentKey, setOpenSubgridCommentKey,
+    subgridCommentInput, setSubgridCommentInput,
+    handleAddSubgridComment,
+    comments, selectedCategory, user,
+    editCommentIdx, editCommentText, setEditCommentIdx, setEditCommentText,
+    updateComment, setConfirmDeleteComment,
+  } = ctx;
+
+  if (!openSubgridCommentKey) return null;
+
+  // Parse "sub:{parentRowId}:{storeName}"
+  const parts = openSubgridCommentKey.match(/^sub:(.+?):(.+)$/);
+  if (!parts) return null;
+  const storeName = parts[2];
+
+  const rowComments = comments[selectedCategory]?.[openSubgridCommentKey] || [];
+
+  return (
+    <div className="fixed inset-0 z-[60] flex">
+      <div className="fixed inset-0 bg-black bg-opacity-40 transition-opacity" onClick={() => { setOpenSubgridCommentKey(null); setSubgridCommentInput(''); }} />
+      <div className="relative ml-auto w-full max-w-md h-full bg-white shadow-2xl flex flex-col animate-slideInRight rounded-l-2xl border-l border-slate-200">
+        <div className="flex items-center justify-between border-b px-6 py-4 bg-slate-50 rounded-t-2xl">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">{storeName}</h2>
+            <p className="text-xs text-slate-400">Store Comments</p>
+          </div>
+          <button onClick={() => { setOpenSubgridCommentKey(null); setSubgridCommentInput(''); }} className="text-slate-400 hover:text-slate-700 text-2xl font-bold">x</button>
+        </div>
+        <div className="flex-1 flex flex-col px-6 py-4 overflow-y-auto">
+          <h3 className="text-sm font-semibold text-slate-700 mb-3">Comments</h3>
+          <div className="flex-1 overflow-y-auto mb-4 space-y-3 pr-1" style={{ maxHeight: '50vh' }}>
+            {rowComments.length === 0 ? (
+              <div className="text-slate-400 text-center py-8 text-sm">No comments yet. Be the first to comment!</div>
+            ) : (
+              <ul className="space-y-3">
+                {rowComments.map((c: any, i: number) => {
+                  const isAuthor = user?.id === c.user_id;
+                  const rawName = c.user_email?.split('@')[0] || 'Unknown';
+                  const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+                  const createdAt = new Date(c.created_at).toLocaleString();
+                  const isEdited = c.updated_at && c.created_at && new Date(c.updated_at).getTime() - new Date(c.created_at).getTime() > 1000;
+                  return (
+                    <li key={c.id || i} className="flex items-start gap-3 bg-white rounded-xl shadow-sm border border-slate-200 p-3">
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">
+                        {displayName[0]?.toUpperCase() || 'A'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-center mb-0.5">
+                          <span className="font-semibold text-slate-800 text-sm">{displayName}</span>
+                          <span className="text-[10px] text-slate-400 ml-2 whitespace-nowrap">
+                            {createdAt}{isEdited && <span className="italic text-slate-300 ml-1">(edited)</span>}
+                          </span>
+                        </div>
+                        {editCommentIdx === i && openSubgridCommentKey ? (
+                          <div className="flex flex-col gap-1.5 mt-1">
+                            <textarea
+                              value={editCommentText}
+                              onChange={e => setEditCommentText(e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"
+                              rows={2}
+                              autoFocus
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await updateComment(c.id, editCommentText);
+                                    setEditCommentIdx(null);
+                                    setEditCommentText('');
+                                    toast.success('Comment updated!');
+                                  } catch { toast.error('Failed to update comment'); }
+                                }}
+                                className="px-2.5 py-1 bg-blue-600 text-white rounded text-xs font-semibold"
+                              >Save</button>
+                              <button
+                                onClick={() => { setEditCommentIdx(null); setEditCommentText(''); }}
+                                className="px-2.5 py-1 bg-slate-200 text-slate-700 rounded text-xs font-semibold"
+                              >Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-slate-700 text-sm whitespace-pre-line">{c.text}</div>
+                        )}
+                        {isAuthor && editCommentIdx !== i && (
+                          <div className="flex gap-2 mt-1">
+                            <button onClick={() => { setEditCommentIdx(i); setEditCommentText(c.text); }} className="text-[11px] text-blue-600 hover:underline">Edit</button>
+                            <button onClick={() => setConfirmDeleteComment({ rowId: i, commentIdx: i })} className="text-[11px] text-red-500 hover:underline">Delete</button>
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          <div className="pt-3 border-t flex gap-2.5 items-start mt-2">
+            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm mt-1">
+              {(user?.name || user?.email || 'A')[0].toUpperCase()}
+            </div>
+            <div className="flex-1">
+              <textarea
+                value={subgridCommentInput}
+                onChange={e => setSubgridCommentInput(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-blue-500 px-3 py-2 text-sm bg-white shadow-sm resize-none transition-all"
+                placeholder="Add a comment..."
+                rows={2}
+                style={{ minHeight: 40, maxHeight: 100 }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddSubgridComment(); } }}
+              />
+              <button
+                onClick={handleAddSubgridComment}
+                className="mt-1.5 px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow transition-all float-right"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SubGridRenderer({ parentId }: { parentId: string | number | undefined }) {
   const ctx = useAdminGrid();
   const {
-    subGrids, expandedRowId, setExpandedRowId, subgridTemplates,
+    subGrids, expandedRowId, setExpandedRowId,
     handleSubGridAddColumn, handleSubGridAddRow, handleSubGridRowsChange,
     handleSubGridColumnNameChange, handleSubGridDeleteRow, handleSubGridDeleteColumn,
     handleDeleteSubGrid, handleImportSubgridExcel, handleExportSubgridExcel,
-    setSubgridTemplateModal, getCurrentData,
+    getCurrentData,
+    comments, selectedCategory, setOpenSubgridCommentKey,
   } = ctx;
 
   const [subgridSortColumns, setSubgridSortColumns] = useState<SortColumn[]>([]);
-  const [isExpanded, setIsExpanded] = useState(false);
 
   const grid = parentId !== undefined ? subGrids[parentId] : null;
   const isVisible = !!grid && expandedRowId === parentId;
@@ -117,38 +254,116 @@ export default function SubGridRenderer({ parentId }: { parentId: string | numbe
 
   const subgridRows = [...sortedSubgridRows, { isAddRow: true, id: 'add-row' }];
 
-  const subEditableColumns: MyColumn[] = grid.columns.map((col: MyColumn, idx: number) => ({
-    ...col,
-    minWidth: 120,
-    resizable: true,
-    renderHeaderCell: () => (
-      <SubGridHeaderCell
-        col={col} idx={idx} parentId={parentId}
-        subgridSortColumns={subgridSortColumns}
-        setSubgridSortColumns={setSubgridSortColumns}
-        handleSubGridColumnNameChange={handleSubGridColumnNameChange}
-        handleSubGridDeleteColumn={handleSubGridDeleteColumn}
-      />
-    ),
-    renderCell: (props: { row: Row }) => {
-      if (props.row.isDummy) return null;
-      if (props.row.isAddRow) {
-        return idx === 0 ? (
-          <button onClick={() => handleSubGridAddRow(parentId)} className="w-full h-full flex items-center justify-start text-slate-400 hover:text-blue-600 transition-colors font-medium pl-2" style={{ minHeight: 24, fontSize: '13px', padding: 0 }}>+ Add Row</button>
-        ) : null;
-      }
-      const cellValue = props.row[col.key];
+  // Build columns - replace 'comment' column with 'comments' icon column
+  const subEditableColumns: MyColumn[] = grid.columns
+    .filter((col: any) => col.key !== 'comment') // Remove old plain-text comment column
+    .map((col: MyColumn & { isProductAuth?: boolean }, idx: number) => {
+    const isProductAuth = !!(col as any).isProductAuth;
+
+    return {
+      ...col,
+      minWidth: isProductAuth ? 140 : col.key === 'store_name' ? 180 : 120,
+      resizable: true,
+      renderHeaderCell: () => (
+        <SubGridHeaderCell
+          col={col} idx={idx} parentId={parentId}
+          subgridSortColumns={subgridSortColumns}
+          setSubgridSortColumns={setSubgridSortColumns}
+          handleSubGridColumnNameChange={handleSubGridColumnNameChange}
+          handleSubGridDeleteColumn={handleSubGridDeleteColumn}
+        />
+      ),
+      renderCell: (props: { row: Row }) => {
+        if (props.row.isDummy) return null;
+        if (props.row.isAddRow) {
+          return idx === 0 ? (
+            <button onClick={() => handleSubGridAddRow(parentId)} className="w-full h-full flex items-center justify-start text-slate-400 hover:text-blue-600 transition-colors font-medium pl-2" style={{ minHeight: 24, fontSize: '13px', padding: 0 }}>+ Add Row</button>
+          ) : null;
+        }
+        const cellValue = props.row[col.key];
+
+        // Product authorization columns: render as colored badge
+        if (isProductAuth && cellValue) {
+          const colors = AUTH_COLORS[cellValue as string] || { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200' };
+          return (
+            <div className="flex items-center px-1.5 py-0.5 overflow-hidden" style={{ fontSize: '12px', minHeight: '24px' }}>
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${colors.bg} ${colors.text} ${colors.border}`}>
+                {cellValue as string}
+              </span>
+            </div>
+          );
+        }
+
+        return (
+          <div className="flex items-center px-2 py-1 overflow-hidden" style={{ fontSize: '13px', minHeight: '24px', backgroundColor: 'transparent' }} title={cellValue ? String(cellValue) : undefined}>
+            <span className="text-slate-800 truncate">{cellValue ? String(cellValue) : ''}</span>
+          </div>
+        );
+      },
+      renderEditCell: isProductAuth
+        ? ({ row, column, onRowChange, onClose }: RenderEditCellProps<Row>) => (
+            <select
+              autoFocus
+              className="w-full h-full px-1.5 py-0.5 border border-blue-300 rounded bg-white text-[12px]"
+              value={row[column.key] || ''}
+              onChange={e => {
+                onRowChange({ ...row, [column.key]: e.target.value }, true);
+              }}
+              onBlur={() => onClose(true)}
+            >
+              <option value="">-- Select --</option>
+              {AUTHORIZATION_OPTIONS.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          )
+        : ({ row, column, onRowChange }: RenderEditCellProps<Row>) => (
+            <input defaultValue={row[column.key] !== undefined ? String(row[column.key]) : ''} onChange={e => onRowChange({ ...row, [column.key]: e.target.value })}
+              className="w-full h-full px-2 py-1 border border-blue-300 rounded bg-white" autoFocus style={{ fontSize: '13px', height: '24px', minHeight: '24px' }} />
+          ),
+    };
+  });
+
+  // Insert comments icon column after store_name (position 1)
+  const commentsColumn: MyColumn = {
+    key: 'comments',
+    name: '',
+    width: 44,
+    frozen: false,
+    renderHeaderCell: () => null,
+    renderCell: ({ row }: { row: Row }) => {
+      if (row.isAddRow || row.isDummy) return null;
+      const storeName = row.store_name || row.name || '';
+      if (!storeName) return null;
+      const commentKey = `sub:${parentId}:${storeName}`;
+      const commentCount = comments[selectedCategory]?.[commentKey]?.length ?? 0;
       return (
-        <div className="flex items-center px-2 py-1 overflow-hidden" style={{ fontSize: '13px', minHeight: '24px', backgroundColor: 'transparent' }} title={cellValue ? String(cellValue) : undefined}>
-          <span className="text-slate-800 truncate">{cellValue ? String(cellValue) : ''}</span>
-        </div>
+        <button
+          onClick={e => {
+            e.stopPropagation();
+            setOpenSubgridCommentKey(commentKey);
+          }}
+          className="w-full h-full flex items-center justify-center gap-1 text-slate-400 hover:text-blue-600 transition-colors"
+          title="View/Add Comments"
+          style={{ minHeight: 24 }}
+        >
+          <FaRegCommentDots size={12} />
+          {commentCount > 0 && (
+            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 rounded-full px-1 min-w-[16px] text-center">{commentCount}</span>
+          )}
+        </button>
       );
     },
-    renderEditCell: ({ row, column, onRowChange }: RenderEditCellProps<Row>) => (
-      <input defaultValue={row[column.key] !== undefined ? String(row[column.key]) : ''} onChange={e => onRowChange({ ...row, [column.key]: e.target.value })}
-        className="w-full h-full px-2 py-1 border border-blue-300 rounded bg-white" autoFocus style={{ fontSize: '13px', height: '24px', minHeight: '24px' }} />
-    ),
-  }));
+    renderEditCell: () => <></>,
+  };
+
+  // Insert after store_name column (index 0)
+  const storeNameIdx = subEditableColumns.findIndex(col => col.key === 'store_name');
+  if (storeNameIdx !== -1) {
+    subEditableColumns.splice(storeNameIdx + 1, 0, commentsColumn);
+  } else {
+    subEditableColumns.unshift(commentsColumn);
+  }
 
   // Delete column
   subEditableColumns.push({
@@ -179,19 +394,7 @@ export default function SubGridRenderer({ parentId }: { parentId: string | numbe
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => setIsExpanded(e => !e)}
-            className="text-slate-400 hover:text-slate-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors"
-            aria-label={isExpanded ? 'Collapse' : 'Expand to full screen'}
-            title={isExpanded ? 'Collapse' : 'Expand'}
-          >
-            {isExpanded ? (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" /></svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
-            )}
-          </button>
-          <button onClick={() => { setIsExpanded(false); setExpandedRowId(null); }} className="text-slate-400 hover:text-slate-600 text-xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors" aria-label="Close">&times;</button>
+          <button onClick={() => setExpandedRowId(null)} className="text-slate-400 hover:text-slate-600 text-xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors" aria-label="Close">&times;</button>
         </div>
       </div>
       <div className="flex items-center gap-1 px-4 py-2 border-b border-slate-100 shrink-0 flex-wrap">
@@ -209,40 +412,37 @@ export default function SubGridRenderer({ parentId }: { parentId: string | numbe
         <button onClick={() => handleExportSubgridExcel(parentId)} className="grid-toolbar-btn sm" title="Export">
           <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12M12 16.5V3" /></svg>
         </button>
-        <div className="toolbar-separator" />
-        <button onClick={() => setSubgridTemplateModal({ parentId, mode: 'save' })} className="grid-toolbar-btn sm" title="Save template">
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
-        </button>
-        <button onClick={() => setSubgridTemplateModal({ parentId, mode: 'import' })} className="grid-toolbar-btn sm" disabled={subgridTemplates.length === 0} title="Load template">
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m6.75 12-3-3m0 0-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-        </button>
         <div className="flex-1" />
         <button onClick={() => handleDeleteSubGrid(parentId)} className="grid-toolbar-btn sm danger" title="Delete subgrid">
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 00-7.5 0" /></svg>
         </button>
       </div>
       <div className="flex-1 overflow-auto p-4">
-        <DataGrid
-          key={parentId + '-' + grid.rows.length + '-' + grid.columns.length}
-          columns={subEditableColumns}
-          rows={subgridRows}
-          onRowsChange={(newRows: Row[]) => handleSubGridRowsChange(parentId, newRows)}
-          sortColumns={subgridSortColumns}
-          onSortColumnsChange={setSubgridSortColumns}
-          className="fill-grid subgrid-with-separators"
-          enableVirtualization={false}
-          style={{ fontSize: '12px', height: '100%' }}
-        />
+        {grid.rows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center px-6 py-12">
+            <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+              <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 .75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349M3.75 21V9.349m0 0a3.001 3.001 0 0 0 3.75-.615A2.993 2.993 0 0 0 9.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 0 0 2.25 1.016c.896 0 1.7-.393 2.25-1.015a3.001 3.001 0 0 0 3.75.614m-16.5 0a3.004 3.004 0 0 1-.621-4.72l1.189-1.19A1.5 1.5 0 0 1 5.378 3h13.243a1.5 1.5 0 0 1 1.06.44l1.19 1.189a3 3 0 0 1-.621 4.72M6.75 18h3.75a.75.75 0 0 0 .75-.75V13.5a.75.75 0 0 0-.75-.75H6.75a.75.75 0 0 0-.75.75v3.75c0 .414.336.75.75.75Z" /></svg>
+            </div>
+            <p className="text-sm font-medium text-slate-600 mb-1">No stores found for &ldquo;{parentName}&rdquo;</p>
+            <p className="text-xs text-slate-400 max-w-xs">This customer doesn&apos;t have matching chain store data yet. Refer to Chain Store Data.</p>
+          </div>
+        ) : (
+          <DataGrid
+            key={parentId + '-' + grid.rows.length + '-' + grid.columns.length}
+            columns={subEditableColumns}
+            rows={subgridRows}
+            onRowsChange={(newRows: Row[]) => handleSubGridRowsChange(parentId, newRows)}
+            sortColumns={subgridSortColumns}
+            onSortColumnsChange={setSubgridSortColumns}
+            className="fill-grid subgrid-with-separators"
+            enableVirtualization={false}
+            style={{ fontSize: '12px', height: '100%' }}
+          />
+        )}
       </div>
+      <SubgridCommentDrawer />
     </div>
   );
 
-  if (!isExpanded) return gridContent;
-
-  // Expanded: render as full-screen overlay on top of everything
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white" style={{ animation: 'slideInRight 0.15s ease-out' }}>
-      {gridContent}
-    </div>
-  );
+  return gridContent;
 }

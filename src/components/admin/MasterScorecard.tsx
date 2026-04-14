@@ -225,7 +225,7 @@ export default function MasterScorecard({ apiUrl = '/api/master-scorecard', onCu
               >
                 <div className="flex items-center gap-1.5">
                   <span className="w-4" /> {/* spacer for expand icon */}
-                  Retailer
+                  Customer
                   <SortIcon col="__retailer" />
                 </div>
               </th>
@@ -351,7 +351,7 @@ export default function MasterScorecard({ apiUrl = '/api/master-scorecard', onCu
       <div className="mt-4 flex items-start gap-2 p-3 bg-blue-50 rounded-lg">
         <FaInfoCircle className="text-blue-500 mt-0.5 flex-shrink-0" />
         <div className="text-sm text-blue-700">
-          <strong>How to read:</strong> Columns = brands. Rows = retailers. Cells show authorization % (authorized/total).
+          <strong>How to read:</strong> Columns = brands. Rows = customers. Cells show authorization % (authorized/total).
           Click any row to expand and see individual product statuses. Click headers to sort. Drag column edges to resize.
         </div>
       </div>

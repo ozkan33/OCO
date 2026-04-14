@@ -81,7 +81,7 @@ export async function GET(request: Request) {
 
       // Find the retailer name column
       const retailerCol = columns.find(
-        (col: any) => col.name === 'Retailer Name' || col.key === 'name'
+        (col: any) => col.name === 'Customer' || col.name === 'Customer Name' || col.name === 'Retailer Name' || col.key === 'name'
       );
       if (!retailerCol) continue;
 
@@ -157,7 +157,7 @@ function handleLegacyView(scorecards: any[], scorecardId: string) {
   const rows = sc.data?.rows || [];
 
   const retailerCol = columns.find(
-    (col: any) => col.name === 'Retailer Name' || col.key === 'name'
+    (col: any) => col.name === 'Customer' || col.name === 'Customer Name' || col.name === 'Retailer Name' || col.key === 'name'
   );
   if (!retailerCol) {
     return NextResponse.json({

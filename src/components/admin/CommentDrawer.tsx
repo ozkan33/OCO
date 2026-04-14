@@ -21,8 +21,10 @@ function CommentList({ rowId }: { rowId: number }) {
     <>
       {rowComments.map((c: any, i: number) => {
         const isAuthor = user?.id === c.user_id;
-        const displayName = user?.name || user?.email || 'Anonymous';
+        const rawDisplayName = user?.name || user?.email || 'Anonymous';
+        const displayName = rawDisplayName.charAt(0).toUpperCase() + rawDisplayName.slice(1);
         const createdAt = new Date(c.created_at).toLocaleString();
+        const isEdited = c.updated_at && c.created_at && new Date(c.updated_at).getTime() - new Date(c.created_at).getTime() > 1000;
         return (
           <li key={c.id || i} className="flex items-start gap-3 bg-white rounded-xl shadow border border-slate-200 p-4">
             <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">
@@ -31,7 +33,9 @@ function CommentList({ rowId }: { rowId: number }) {
             <div className="flex-1">
               <div className="flex justify-between items-center mb-1">
                 <span className="font-semibold text-slate-800">{displayName}</span>
-                <span className="text-xs text-slate-400 ml-2 whitespace-nowrap">{createdAt}</span>
+                <span className="text-xs text-slate-400 ml-2 whitespace-nowrap">
+                  {createdAt}{isEdited && <span className="italic text-slate-300 ml-1">(edited)</span>}
+                </span>
               </div>
               {editCommentIdx === i ? (
                 <div className="flex flex-col gap-2 mt-1">

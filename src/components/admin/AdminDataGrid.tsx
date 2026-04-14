@@ -23,7 +23,6 @@ import {
   ExportExcelModal,
   ContactCardModal,
   ImportPreviewModal,
-  SubgridTemplateModal,
 } from './GridModals';
 import ScorecardSidebar from './ScorecardSidebar';
 import GridToolbar from './GridToolbar';
@@ -157,7 +156,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   const [commentInput, setCommentInput] = useState('');
   const [user, setUser] = useState<any>(null);
   // Comments are now stored in database - structure: { scorecardId: { rowId: Comment[] } }
-  const [comments, setComments] = useState<Record<string, Record<number, any[]>>>({});
+  const [comments, setComments] = useState<Record<string, Record<string, any[]>>>({});
 
   // Add state and modal for the advanced retailer drawer if not present
   const [openRetailerDrawer, setOpenRetailerDrawer] = useState<number | null>(null);
@@ -165,6 +164,10 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   // Added for comment editing
   const [editCommentIdx, setEditCommentIdx] = useState<number | null>(null);
   const [editCommentText, setEditCommentText] = useState('');
+
+  // Subgrid comment state
+  const [openSubgridCommentKey, setOpenSubgridCommentKey] = useState<string | null>(null);
+  const [subgridCommentInput, setSubgridCommentInput] = useState('');
 
   // Add state for contact card modal
   const [openContactModal, setOpenContactModal] = useState<{ rowId: number; key: string; value: string } | null>(null);
@@ -223,13 +226,15 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   });
   // Only one expanded row at a time
   const [expandedRowId, setExpandedRowId] = useState<string | number | null>(null);
+  const [subgridExpanded, setSubgridExpanded] = useState(false);
   // Reset expandedRowId when switching scorecards
   useEffect(() => {
     setExpandedRowId(null);
+    setSubgridExpanded(false);
   }, [selectedCategory]);
 
   // Add state for custom delete confirmation modal
-  const [confirmDelete, setConfirmDelete] = useState<null | { type: 'row' | 'column' | 'scorecard' | 'template' | 'subgrid-template', id: string | number, name?: string }>(null);
+  const [confirmDelete, setConfirmDelete] = useState<null | { type: 'row' | 'column' | 'scorecard' | 'template', id: string | number, name?: string }>(null);
 
   // 1. Add state for Priority picker
   const [priorityPicker, setPriorityPicker] = React.useState<PickerState | null>(null);
@@ -270,15 +275,8 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     handleSubGridColumnNameChange, handleSubGridDeleteRow, handleSubGridDeleteColumn,
     updateParentRowSubgrid,
     handleImportSubgridExcel, handleExportSubgridExcel,
-    handleSaveSubgridTemplate, handleImportSubgridTemplate,
-    saveSubgridTemplates,
-    subgridTemplateModal, setSubgridTemplateModal,
-    subgridTemplateName, setSubgridTemplateName,
-    subgridIncludeRows, setSubgridIncludeRows,
-    subgridSelectedTemplate, setSubgridSelectedTemplate,
-    subgridImportWithRows, setSubgridImportWithRows,
-    subgridTemplateError, setSubgridTemplateError,
-    subgridTemplates, setSubgridTemplates,
+    syncSubgridsWithColumns,
+    refreshStoresForSubgrid,
   } = useSubGridHandlers({
     subGrids, setSubGrids, expandedRowId, setExpandedRowId,
     editingScoreCard, getCurrentData, updateCurrentData,
@@ -495,18 +493,28 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     }
   }
 
-  // On scorecard load, initialize subGrids from any subgrid data in rows
+  // On scorecard load, initialize subGrids from any subgrid data in rows and sync store_count
   useEffect(() => {
     if (!selectedCategory || !isScorecard(selectedCategory)) return;
     const currentData = getCurrentData();
     if (!currentData) return;
     const newSubGrids: { [parentId: string]: { columns: MyColumn[]; rows: Row[] } } = {};
-    for (const row of currentData.rows) {
+    let needsStoreCountSync = false;
+    const updatedRows = currentData.rows.map((row: any) => {
       if (row.subgrid && row.subgrid.columns && row.subgrid.rows) {
         newSubGrids[row.id] = { columns: row.subgrid.columns, rows: row.subgrid.rows };
+        const correctCount = row.subgrid.rows.length;
+        if (row.store_count !== correctCount) {
+          needsStoreCountSync = true;
+          return { ...row, store_count: correctCount };
+        }
       }
-    }
+      return row;
+    });
     setSubGrids(newSubGrids);
+    if (needsStoreCountSync) {
+      updateCurrentData({ rows: updatedRows });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory]);
 
@@ -901,6 +909,8 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     );
     const updatedRows = currentData.rows.map(row => ({ ...row, [key]: '' }));
     updateCurrentData({ columns: updatedColumns, rows: updatedRows });
+    // Sync all existing subgrids with the new product column
+    setTimeout(() => syncSubgridsWithColumns(), 0);
     setShowAddColModal(false);
     setNewColName('');
     setColError('');
@@ -1191,6 +1201,10 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
                 if (col.key === 'cmg' && col.name === 'Category Manager') {
                   return { ...col, name: '3B Contact' };
                 }
+                // Update any old "Retailer Name" to "Customer"
+                if (col.key === 'name' && col.name !== 'Customer') {
+                  return { ...col, name: 'Customer' };
+                }
                 return col;
               }),
             rows: sc.data.rows || [],
@@ -1374,7 +1388,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
 
         if (!detailHeaderSet) {
           detailSheet.columns = [
-            { header: 'Retailer', key: 'Retailer' },
+            { header: 'Customer', key: 'Retailer' },
             ...subColNames.map((name: string) => ({ header: name, key: name })),
           ];
           styleHeaderRow(detailSheet);
@@ -1403,7 +1417,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     if (includeNotes) {
       const notesSheet = workbook.addWorksheet('Notes');
       notesSheet.columns = [
-        { header: 'Retailer', key: 'Retailer' },
+        { header: 'Customer', key: 'Retailer' },
         { header: 'Date', key: 'Date' },
         { header: 'Author', key: 'Author' },
         { header: 'Note', key: 'Note' },
@@ -1464,6 +1478,52 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   const [excludeSubgridExport, setExcludeSubgridExport] = useState(false);
   const [includeNotesExport, setIncludeNotesExport] = useState(false);
 
+  // ─── Subgrid comment handler ───────────────────────────────────────────────
+  const handleAddSubgridComment = useCallback(async () => {
+    if (!subgridCommentInput.trim() || !openSubgridCommentKey || !isScorecard(selectedCategory) || !user) return;
+
+    // Parse composite key: "sub:{parentRowId}:{storeName}"
+    const parts = openSubgridCommentKey.match(/^sub:(.+?):(.+)$/);
+    if (!parts) return;
+    const [, parentRowId, storeName] = parts;
+
+    try {
+      const requestBody: any = {
+        scorecard_id: selectedCategory,
+        user_id: storeName, // row_id = store name for subgrid comments
+        text: subgridCommentInput.trim(),
+        parent_row_id: parentRowId,
+      };
+
+      const response = await fetch('/api/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to add comment');
+      }
+
+      const newComment = await response.json();
+
+      setComments(prev => ({
+        ...prev,
+        [selectedCategory]: {
+          ...(prev[selectedCategory] || {}),
+          [openSubgridCommentKey]: [...((prev[selectedCategory] || {})[openSubgridCommentKey] || []), newComment],
+        }
+      }));
+
+      setSubgridCommentInput('');
+    } catch (error) {
+      console.error('Error adding subgrid comment:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to add comment');
+    }
+  }, [subgridCommentInput, openSubgridCommentKey, selectedCategory, user, isScorecard, setComments]);
+
   // ─── Context value for extracted child components ─────────────────────────
   const gridContextValue: AdminGridContextValue = React.useMemo(() => ({
     selectedCategory, userRole, user, editingScoreCard, scorecards,
@@ -1475,26 +1535,23 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     updateComment, deleteComment,
     setScorecards, setEditingScoreCard, setSelectedCategory,
     getCurrentData, updateCurrentData, isScorecard,
+    openSubgridCommentKey, setOpenSubgridCommentKey,
+    subgridCommentInput, setSubgridCommentInput,
+    handleAddSubgridComment,
     subGrids, expandedRowId, setExpandedRowId,
-    subgridTemplates, setSubgridTemplates,
-    subgridTemplateName, setSubgridTemplateName,
-    subgridIncludeRows, setSubgridIncludeRows,
-    subgridTemplateError, setSubgridTemplateError,
-    subgridSelectedTemplate, setSubgridSelectedTemplate,
-    subgridImportWithRows, setSubgridImportWithRows,
-    setSubgridTemplateModal, setConfirmDelete, saveSubgridTemplates,
+    subgridExpanded, setSubgridExpanded,
+    setConfirmDelete,
+    refreshStoresForSubgrid,
     handleSubGridAddColumn, handleSubGridAddRow, handleSubGridRowsChange,
     handleSubGridColumnNameChange, handleSubGridDeleteRow,
     handleSubGridDeleteColumn, handleDeleteSubGrid,
     handleImportSubgridExcel, handleExportSubgridExcel,
-    handleSaveSubgridTemplate, handleImportSubgridTemplate,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [
     selectedCategory, editingScoreCard, scorecards, comments, commentInput,
     editCommentIdx, editCommentText, openCommentRowId, openRetailerDrawer,
-    subGrids, expandedRowId, subgridTemplates, subgridTemplateName,
-    subgridIncludeRows, subgridTemplateError, subgridSelectedTemplate,
-    subgridImportWithRows,
+    openSubgridCommentKey, subgridCommentInput, handleAddSubgridComment,
+    subGrids, expandedRowId, subgridExpanded,
   ]);
 
   return (
@@ -1581,7 +1638,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
                 .filter(sc => {
                   // Check if scorecard has product columns (user-added columns)
                   const columns = sc.columns || [];
-                  const retailerCol = columns.find(col => col.name === 'Retailer Name' || col.key === 'name');
+                  const retailerCol = columns.find(col => col.name === 'Customer' || col.key === 'name');
                   if (!retailerCol) return false;
 
                   const productCols = columns.filter(col =>
@@ -2116,10 +2173,33 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
             <div className="fixed inset-0 z-40 flex">
               <div
                 className="fixed inset-0 bg-black/20 transition-opacity"
-                onClick={() => setExpandedRowId(null)}
+                onClick={() => { setSubgridExpanded(false); setExpandedRowId(null); }}
               />
-              <div className="relative ml-auto w-full max-w-xl h-full bg-white shadow-2xl flex flex-col border-l border-slate-200 overflow-hidden" style={{ animation: 'slideInRight 0.2s ease-out' }}>
-                <SubGridRenderer parentId={expandedRowId} />
+              <div
+                className="relative ml-auto h-full flex"
+                style={{
+                  width: subgridExpanded ? '50vw' : '36rem',
+                  transition: 'width 0.25s ease-in-out',
+                  animation: 'slideInRight 0.2s ease-out',
+                }}
+              >
+                {/* Expand/Collapse tab on left edge */}
+                <button
+                  onClick={() => setSubgridExpanded(!subgridExpanded)}
+                  className="absolute -left-7 top-1/2 -translate-y-1/2 z-10 w-7 h-14 bg-white border border-r-0 border-slate-200 rounded-l-lg shadow-md flex items-center justify-center hover:bg-slate-50 transition-colors group"
+                  title={subgridExpanded ? 'Collapse panel' : 'Expand panel'}
+                >
+                  <svg className="w-4 h-4 text-slate-400 group-hover:text-slate-600 transition-colors" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    {subgridExpanded ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 4.5l7.5 7.5-7.5 7.5m-6-15l7.5 7.5-7.5 7.5" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5" />
+                    )}
+                  </svg>
+                </button>
+                <div className="flex-1 h-full bg-white shadow-2xl flex flex-col border-l border-slate-200 overflow-hidden">
+                  <SubGridRenderer parentId={expandedRowId} />
+                </div>
               </div>
             </div>
           )}
@@ -2133,7 +2213,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
           {contactCardModal}
 
           {/* Delete Confirmation Modal */}
-          {confirmDelete && confirmDelete.type !== 'template' && confirmDelete.type !== 'subgrid-template' && (
+          {confirmDelete && confirmDelete.type !== 'template' && (
             <DeleteConfirmModal
               type={confirmDelete.type}
               name={confirmDelete.name}
@@ -2185,41 +2265,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
             />
           )}
 
-          {/* Subgrid Template Modal */}
-          {subgridTemplateModal && (
-            <SubgridTemplateModal
-              mode={subgridTemplateModal.mode}
-              templateName={subgridTemplateName}
-              includeRows={subgridIncludeRows}
-              templateError={subgridTemplateError}
-              templates={subgridTemplates}
-              selectedTemplate={subgridSelectedTemplate}
-              importWithRows={subgridImportWithRows}
-              onNameChange={setSubgridTemplateName}
-              onIncludeRowsChange={setSubgridIncludeRows}
-              onSave={() => handleSaveSubgridTemplate(subgridTemplateModal.parentId)}
-              onTemplateChange={(v) => {
-                setSubgridSelectedTemplate(v);
-                const t = subgridTemplates.find(t => t.name === v);
-                setSubgridImportWithRows(!!(t && t.rows));
-              }}
-              onImportWithRowsChange={setSubgridImportWithRows}
-              onImport={() => handleImportSubgridTemplate(subgridTemplateModal.parentId)}
-              onDeleteTemplate={(name) => {
-                const t = subgridTemplates.find(t => t.name === name);
-                if (!t) return;
-                if (window.confirm(`Delete template '${t.name}'? This cannot be undone.`)) {
-                  const newTemplates = subgridTemplates.filter(st => st.name !== t.name);
-                  setSubgridTemplates(newTemplates);
-                  saveSubgridTemplates(newTemplates);
-                  setSubgridSelectedTemplate('');
-                  setSubgridImportWithRows(true);
-                }
-              }}
-              onCancel={() => { setSubgridTemplateModal(null); setSubgridTemplateError(''); setSubgridTemplateName(''); setSubgridIncludeRows(true); }}
-            />
-          )}
-
           {/* Comment Delete Confirmation */}
           {confirmDeleteComment && (
             <DeleteCommentModal
@@ -2268,22 +2313,6 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
             />
           )}
 
-          {/* Subgrid Template Delete */}
-          {confirmDelete && confirmDelete.type === 'subgrid-template' && (
-            <DeleteConfirmModal
-              type="subgrid-template"
-              name={confirmDelete.name}
-              onConfirm={() => {
-                const newTemplates = subgridTemplates.filter(st => st.name !== confirmDelete.id);
-                setSubgridTemplates(newTemplates);
-                saveSubgridTemplates(newTemplates);
-                setSubgridSelectedTemplate('');
-                setSubgridImportWithRows(true);
-                setConfirmDelete(null);
-              }}
-              onCancel={() => setConfirmDelete(null)}
-            />
-          )}
         </main>
       </div>
     </AdminGridProvider>

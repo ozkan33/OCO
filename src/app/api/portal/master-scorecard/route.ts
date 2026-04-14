@@ -68,7 +68,7 @@ export async function GET(request: Request) {
       brandNames.push(brandName);
 
       const retailerCol = columns.find(
-        (col: any) => col.name === 'Retailer Name' || col.key === 'name'
+        (col: any) => col.name === 'Customer' || col.name === 'Customer Name' || col.name === 'Retailer Name' || col.key === 'name'
       );
       if (!retailerCol) continue;
 

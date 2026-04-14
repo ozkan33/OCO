@@ -270,7 +270,7 @@ aside::-webkit-scrollbar-thumb:hover,
   background-color: #f0f7ff !important;
 }
 
-/* Remove separator between Retailer Name and Comments columns */
+/* Remove separator between Customer and Comments columns */
 .main-grid-with-separators .rdg-cell[data-col-key="name"],
 .main-grid-with-separators .rdg-cell[data-col-key="comments"],
 .main-grid-with-separators .rdg-cell.retailer-col,
