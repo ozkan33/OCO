@@ -83,14 +83,26 @@ export default function LoginPage() {
 
       // Check if 2FA is required and device is not trusted
       if (totpEnabled && !mustChangePassword) {
-        // Check trusted device cookie (server already set it, we check via API)
+        // First check if this device is already trusted (has valid cookie + DB record)
+        const trustedRes = await fetch('/api/auth/2fa/check-trusted', { credentials: 'include' });
+        const trustedData = trustedRes.ok ? await trustedRes.json() : null;
+
+        if (trustedData?.trusted) {
+          // Device is trusted — skip 2FA, log session and navigate
+          await fetch('/api/auth/log-session', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', body: JSON.stringify({ action: 'login', device_trusted: true }),
+          }).catch(() => {});
+          if (isSafari) { window.location.href = redirectTo; }
+          else { try { await router.push(redirectTo); } catch { window.location.href = redirectTo; } }
+          return;
+        }
+
+        // Device not trusted — check if 2FA is actually enabled and show the prompt
         const tfaRes = await fetch('/api/auth/2fa/setup', { credentials: 'include' });
         const tfaData = tfaRes.ok ? await tfaRes.json() : null;
 
         if (tfaData?.enabled) {
-          // Check if this device has the trusted_device cookie
-          // If the cookie exists and is valid, the server will handle it
-          // For now, show the 2FA input
           setPendingRedirect(redirectTo);
           setNeeds2FA(true);
           return;

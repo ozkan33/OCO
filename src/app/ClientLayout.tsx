@@ -4,6 +4,8 @@ import { useRouter, usePathname } from 'next/navigation';
 import { Header } from '@/components/layout/Header';
 import { Inter, DM_Serif_Display } from 'next/font/google';
 import { getMobileBrowserInfo } from '@/utils/mobileDetection';
+import { Suspense } from 'react';
+import VisitorTracker from '@/components/VisitorTracker';
 
 const inter = Inter({ subsets: ['latin'] });
 const dmSerif = DM_Serif_Display({ weight: '400', subsets: ['latin'], variable: '--font-display' });
@@ -111,6 +113,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   return (
     <div className={`${inter.className} ${dmSerif.variable}`}>
+      <Suspense fallback={null}><VisitorTracker /></Suspense>
       {!isDashboard && <Header user={user} loading={loading} onAccountClick={handleAccountClick} onLogout={handleLogout} />}
       <main className="min-h-screen">
         {children}

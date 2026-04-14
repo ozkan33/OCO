@@ -324,6 +324,12 @@ export default function ClientLogosPage() {
               >
                 Logos
               </button>
+              <button
+                onClick={() => router.push('/admin/visitors')}
+                className="px-3.5 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-md hover:bg-white/60 transition-all"
+              >
+                Visitors
+              </button>
             </div>
           </div>
           <div className="relative" ref={menuRef}>
