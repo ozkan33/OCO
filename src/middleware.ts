@@ -170,7 +170,8 @@ export async function middleware(request: NextRequest) {
       const refreshedPayload = decodeToken(refreshed.access_token);
       const refreshedTotpEnabled = refreshedPayload?.user_metadata?.totp_enabled;
       const refreshedHas2FA = request.cookies.get('2fa_verified')?.value === 'true';
-      const refreshedHasTrusted = !!request.cookies.get('trusted_device')?.value;
+      const refreshedTrustedCookie = request.cookies.get('trusted_device')?.value || '';
+      const refreshedHasTrusted = refreshedTrustedCookie ? await verifyDeviceTokenEdge(refreshedTrustedCookie) : false;
       if (refreshedTotpEnabled && !refreshedHas2FA && !refreshedHasTrusted) {
         const allowed = pathname.startsWith('/api/auth/2fa') || pathname.startsWith('/auth/login') || pathname.startsWith('/admin/settings');
         if (!allowed) {

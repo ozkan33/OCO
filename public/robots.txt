@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /portal/
+Disallow: /auth/
+Disallow: /api/
+
+Sitemap: https://3brothersmarketing.com/sitemap.xml
