@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useAdminGrid } from './AdminDataGridContext';
 
 // Shared comment list used by both drawer variants
-function CommentList({ rowId }: { rowId: number }) {
+function CommentList({ rowId }: { rowId: number | string }) {
   const {
     comments, selectedCategory, user,
     editCommentIdx, editCommentText, setEditCommentIdx, setEditCommentText,
@@ -21,7 +21,8 @@ function CommentList({ rowId }: { rowId: number }) {
     <>
       {rowComments.map((c: any, i: number) => {
         const isAuthor = user?.id === c.user_id;
-        const rawDisplayName = user?.name || user?.email || 'Anonymous';
+        const authorEmail = c.user_email || c.email || '';
+        const rawDisplayName = authorEmail ? authorEmail.split('@')[0] : 'Anonymous';
         const displayName = rawDisplayName.charAt(0).toUpperCase() + rawDisplayName.slice(1);
         const createdAt = new Date(c.created_at).toLocaleString();
         const isEdited = c.updated_at && c.created_at && new Date(c.updated_at).getTime() - new Date(c.created_at).getTime() > 1000;

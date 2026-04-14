@@ -17,7 +17,7 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const parsed = portalCommentSchema.parse(body);
-    const { scorecard_id, row_id, text } = parsed;
+    const { scorecard_id, row_id, text, parent_row_id, store_name } = parsed;
 
     // Verify user is assigned to this scorecard
     const { data: assignment, error: assignErr } = await supabaseAdmin
@@ -57,18 +57,34 @@ export async function POST(request: Request) {
     const rowName = matchedRow?.name || `Row ${row_id}`;
     const scorecardName = scorecard.title || 'Untitled Scorecard';
 
-    // Insert comment
+    // Insert comment (with optional subgrid context)
+    const insertData: any = {
+      scorecard_id,
+      user_id: user.id,
+      user_email: user.email,
+      row_id: store_name || String(row_id), // Use store_name as row_id for subgrid comments
+      text: text.trim(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    if (parent_row_id || store_name) {
+      // This is a store-level comment — find the parent row if not provided
+      if (!parent_row_id && store_name) {
+        const normalize = (s: string) => s.trim().toLowerCase().replace(/\s*&\s*/g, '&').replace(/\s+/g, ' ');
+        const normalizedStore = normalize(store_name);
+        const parentMatch = rows.find((r: any) => {
+          const rn = normalize(String(r.name || ''));
+          return normalizedStore.includes(rn) || rn.includes(normalizedStore);
+        });
+        if (parentMatch) insertData.parent_row_id = String(parentMatch.id);
+      } else {
+        insertData.parent_row_id = parent_row_id;
+      }
+    }
+
     const { data: comment, error: commentErr } = await supabaseAdmin
       .from('comments')
-      .insert({
-        scorecard_id,
-        user_id: user.id,
-        user_email: user.email,
-        row_id: String(row_id),
-        text: text.trim(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .insert(insertData)
       .select()
       .single();
 

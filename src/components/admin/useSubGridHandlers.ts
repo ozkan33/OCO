@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+interface DeltaTracker {
+  recordCellDelta: (delta: { rowId?: number | string; columnKey: string; value: any; parentRowId?: number | string; subRowId?: number | string }) => void;
+  markStructuralChange: () => void;
+}
+
 interface UseSubGridHandlersParams {
   subGrids: any;
   setSubGrids: any;
@@ -11,6 +16,7 @@ interface UseSubGridHandlersParams {
   updateCurrentData: (updates: Partial<{ columns: any[]; rows: any[] }>) => void;
   selectedCategory: string;
   isScorecard: (id: string) => boolean;
+  deltaTracker?: DeltaTracker;
 }
 
 // Default column keys that are NOT product columns
@@ -35,7 +41,7 @@ export const AUTHORIZATION_OPTIONS = ['Authorized', 'Discontinued', 'Not Authori
 export function useSubGridHandlers({
   subGrids, setSubGrids, expandedRowId, setExpandedRowId,
   editingScoreCard, getCurrentData, updateCurrentData,
-  selectedCategory, isScorecard,
+  selectedCategory, isScorecard, deltaTracker,
 }: UseSubGridHandlersParams) {
 
   // Subgrid template state
@@ -238,6 +244,7 @@ export function useSubGridHandlers({
 
   function handleDeleteSubGrid(parentId: string | number | undefined) {
     if (parentId === undefined) return;
+    deltaTracker?.markStructuralChange();
     // Remove subgrid from parent row so auto-save persists the deletion
     if (selectedCategory && isScorecard(selectedCategory)) {
       const currentData = getCurrentData();
@@ -277,6 +284,7 @@ export function useSubGridHandlers({
 
   function handleSubGridAddColumn(parentId: string | number | undefined) {
     if (parentId === undefined) return;
+    deltaTracker?.markStructuralChange();
     const colKey = `col_${Date.now()}`;
     setSubGrids((prev: any) => {
       const grid = prev[parentId] || { columns: [], rows: [] };
@@ -297,6 +305,7 @@ export function useSubGridHandlers({
 
   function handleSubGridAddRow(parentId: string | number | undefined) {
     if (parentId === undefined) return;
+    deltaTracker?.markStructuralChange();
     setSubGrids((prev: any) => {
       const grid = prev[parentId] || { columns: [], rows: [] };
       const newId = grid.rows.length > 0 ? Math.max(...grid.rows.map((r: any) => typeof r.id === 'number' ? r.id : 0)) + 1 : 1;
@@ -310,6 +319,21 @@ export function useSubGridHandlers({
 
   function handleSubGridRowsChange(parentId: string | number | undefined, newRows: any[]) {
     if (parentId === undefined) return;
+    // Diff subgrid rows to record cell-level deltas
+    if (deltaTracker) {
+      const oldRows = subGrids[parentId]?.rows || [];
+      for (const newRow of newRows) {
+        if (newRow.isAddRow) continue;
+        const oldRow = oldRows.find((r: any) => r.id === newRow.id);
+        if (!oldRow) continue;
+        for (const key of Object.keys(newRow)) {
+          if (key === 'id' || key === 'isAddRow') continue;
+          if (newRow[key] !== oldRow[key]) {
+            deltaTracker.recordCellDelta({ parentRowId: parentId, subRowId: newRow.id, columnKey: key, value: newRow[key] });
+          }
+        }
+      }
+    }
     setSubGrids((prev: any) => {
       const updated = { ...prev, [parentId]: { ...prev[parentId], rows: newRows.filter((r: any) => !r.isAddRow) } };
       updateParentRowSubgrid(parentId, updated[parentId]);
@@ -331,6 +355,7 @@ export function useSubGridHandlers({
 
   function handleSubGridDeleteRow(parentId: string | number | undefined, rowId: number | string | undefined) {
     if (parentId === undefined || rowId === undefined) return;
+    deltaTracker?.markStructuralChange();
     setSubGrids((prev: any) => {
       const grid = prev[parentId];
       if (!grid) return prev;
@@ -342,6 +367,7 @@ export function useSubGridHandlers({
 
   function handleSubGridDeleteColumn(parentId: string | number | undefined, colKey: string) {
     if (parentId === undefined) return;
+    deltaTracker?.markStructuralChange();
     setSubGrids((prev: any) => {
       const grid = prev[parentId];
       if (!grid) return prev;

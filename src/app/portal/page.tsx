@@ -8,7 +8,7 @@ import MasterScorecard from '@/components/admin/MasterScorecard';
 
 interface Product { name: string; status: string; }
 interface RetailerInfo { priority: string; buyer: string; storeCount: number; hqLocation: string; contact: string; }
-interface Comment { id?: string; text: string; author: string; date: string; isOwn?: boolean; }
+interface Comment { id?: string; text: string; author: string; date: string; updated_at?: string; isOwn?: boolean; }
 interface Retailer { rowId: string; retailerName: string; products: Product[]; retailerInfo: RetailerInfo; comments?: Comment[]; notes?: string; }
 interface Scorecard { id: string; scorecardName: string; retailers: Retailer[]; }
 interface Summary { totalRetailers: number; authorized: number; inProcess: number; buyerPassed: number; presented: number; other: number; }
@@ -50,6 +50,8 @@ export default function PortalDashboard() {
   const [submittingNote, setSubmittingNote] = useState(false);
   const [editingComment, setEditingComment] = useState<{ id: string; scorecardId: string; rowId: string } | null>(null);
   const [editText, setEditText] = useState('');
+  const [photoCommentText, setPhotoCommentText] = useState<Record<string, string>>({});
+  const [submittingPhotoComment, setSubmittingPhotoComment] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -61,6 +63,35 @@ export default function PortalDashboard() {
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
+
+  const handleAddPhotoComment = async (visitId: string, storeName: string) => {
+    const text = photoCommentText[visitId]?.trim();
+    if (!text || submittingPhotoComment) return;
+    setSubmittingPhotoComment(visitId);
+    try {
+      // Find the scorecard for this brand
+      const scorecardId = data?.scorecards?.[0]?.id;
+      if (!scorecardId) return;
+
+      const res = await fetch('/api/portal/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          scorecard_id: scorecardId,
+          row_id: storeName, // store name as the row identifier
+          text,
+          store_name: storeName, // tells API this is a store-level comment
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to add comment');
+      setPhotoCommentText(prev => ({ ...prev, [visitId]: '' }));
+    } catch {
+      // silent
+    } finally {
+      setSubmittingPhotoComment(null);
+    }
+  };
 
   const handleAddNote = async (scorecardId: string, rowId: string) => {
     if (!noteText.trim() || submittingNote) return;
@@ -85,9 +116,11 @@ export default function PortalDashboard() {
               ...sc,
               retailers: sc.retailers.map(r => {
                 if (r.rowId !== rowId) return r;
+                const rawAuthor = newComment.author || 'You';
+                const friendlyAuthor = rawAuthor.includes('@') ? rawAuthor.split('@')[0].charAt(0).toUpperCase() + rawAuthor.split('@')[0].slice(1) : rawAuthor;
                 return {
                   ...r,
-                  comments: [...(r.comments || []), { id: newComment.id, text: newComment.text || noteText.trim(), author: newComment.author || 'You', date: newComment.created_at || new Date().toISOString(), isOwn: true }],
+                  comments: [...(r.comments || []), { id: newComment.id, text: newComment.text || noteText.trim(), author: friendlyAuthor, date: newComment.created_at || new Date().toISOString(), updated_at: newComment.updated_at || newComment.created_at || new Date().toISOString(), isOwn: true }],
                 };
               }),
             };
@@ -120,7 +153,7 @@ export default function PortalDashboard() {
             if (sc.id !== scorecardId) return sc;
             return { ...sc, retailers: sc.retailers.map(r => {
               if (r.rowId !== rowId) return r;
-              return { ...r, comments: r.comments?.map(c => c.id === commentId ? { ...c, text: editText.trim() } : c) };
+              return { ...r, comments: r.comments?.map(c => c.id === commentId ? { ...c, text: editText.trim(), updated_at: new Date().toISOString() } : c) };
             })};
           }),
         };
@@ -352,84 +385,89 @@ export default function PortalDashboard() {
                               </td>
                             </tr>
                           )}
-                          {/* Notes and comments row - chat bubbles */}
+                          {/* Notes and comments row */}
                           {((r.comments?.length ?? 0) > 0 || r.notes) && (
-                            <tr className="bg-slate-50/80">
+                            <tr className="bg-slate-50/50">
                               <td colSpan={r.products.length + 3} className="px-4 py-3">
-                                <div className="flex flex-col gap-2 max-w-2xl">
+                                <div className="flex flex-col gap-2 max-w-2xl max-h-72 overflow-y-auto">
                                   {/* Broker note (from admin) */}
                                   {r.notes && (
-                                    <div className="flex items-start gap-2">
-                                      <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center shrink-0 mt-0.5">
-                                        <svg className="w-3 h-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
+                                    <div className="flex items-start gap-2.5">
+                                      <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
+                                        <svg className="w-3.5 h-3.5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
                                       </div>
-                                      <div className="bg-amber-50 border border-amber-100 rounded-xl rounded-tl-sm px-3 py-2">
+                                      <div className="bg-white border border-slate-200 rounded-lg shadow-sm px-3.5 py-2.5 border-l-2 border-l-amber-400">
                                         <p className="text-xs font-semibold text-amber-700 mb-0.5">Broker Note</p>
-                                        <p className="text-sm text-slate-700">{r.notes}</p>
+                                        <p className="text-sm text-slate-700 leading-relaxed">{r.notes}</p>
                                       </div>
                                     </div>
                                   )}
-                                  {/* Comment bubbles */}
+                                  {/* Comment cards */}
                                   {r.comments?.map((c, ci) => {
                                     const isEditing = editingComment?.id === c.id;
                                     const initial = (c.author || '?')[0].toUpperCase();
+                                    const isEdited = c.updated_at && c.date && (Math.abs(new Date(c.updated_at).getTime() - new Date(c.date).getTime()) > 1000);
                                     return (
-                                    <div key={c.id || ci} className={`flex items-start gap-2 group/comment ${c.isOwn ? 'flex-row-reverse' : ''}`}>
+                                    <div key={c.id || ci} className="flex items-start gap-2.5 group/comment">
                                       {/* Avatar */}
-                                      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold ${c.isOwn ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                                      <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[11px] font-bold ${c.isOwn ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
                                         {initial}
                                       </div>
-                                      {/* Bubble */}
-                                      <div className={`max-w-sm ${c.isOwn ? 'items-end' : 'items-start'}`}>
-                                        <div className={`rounded-xl px-3 py-2 ${c.isOwn ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-white border border-slate-200 rounded-tl-sm'}`}>
+                                      {/* Card */}
+                                      <div className="flex-1 min-w-0">
+                                        <div className={`bg-white border border-slate-200 rounded-lg shadow-sm px-3.5 py-2.5 ${c.isOwn ? 'border-l-2 border-l-blue-400' : 'border-l-2 border-l-slate-300'}`}>
                                           {/* Author & date header */}
-                                          <div className={`flex items-center gap-1.5 mb-0.5 ${c.isOwn ? 'justify-end' : ''}`}>
-                                            <span className={`text-[11px] font-semibold ${c.isOwn ? 'text-blue-100' : 'text-slate-700'}`}>{c.author}</span>
-                                            <span className={`text-[10px] ${c.isOwn ? 'text-blue-200' : 'text-slate-400'}`}>
+                                          <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-xs font-semibold text-slate-800">{c.author}</span>
+                                            {c.isOwn && <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">You</span>}
+                                            <span className="text-[11px] text-slate-400">
                                               {new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                              {' '}
+                                              {', '}
                                               {new Date(c.date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                                             </span>
+                                            {isEdited && <span className="text-[10px] text-slate-400 italic">(edited)</span>}
                                           </div>
                                           {/* Message text or edit form */}
                                           {isEditing ? (
-                                            <div className="flex flex-col gap-1.5 mt-1">
+                                            <div className="flex flex-col gap-2 mt-1.5">
                                               <input
                                                 type="text"
                                                 value={editText}
                                                 onChange={e => setEditText(e.target.value)}
-                                                className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white"
+                                                className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-slate-50"
                                                 autoFocus
                                                 onKeyDown={e => {
                                                   if (e.key === 'Enter') handleEditComment(c.id!, sc.id, r.rowId);
                                                   if (e.key === 'Escape') { setEditingComment(null); setEditText(''); }
                                                 }}
                                               />
-                                              <div className="flex items-center gap-1.5">
-                                                <button onClick={() => handleEditComment(c.id!, sc.id, r.rowId)} className="text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded transition-colors">Save</button>
-                                                <button onClick={() => { setEditingComment(null); setEditText(''); }} className="text-xs font-medium text-slate-400 hover:text-slate-600 px-2 py-0.5 rounded transition-colors">Cancel</button>
+                                              <div className="flex items-center gap-2">
+                                                <button onClick={() => handleEditComment(c.id!, sc.id, r.rowId)} className="text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 px-2.5 py-1 rounded-md transition-colors">Save</button>
+                                                <button onClick={() => { setEditingComment(null); setEditText(''); }} className="text-xs font-medium text-slate-500 hover:text-slate-700 px-2.5 py-1 rounded-md hover:bg-slate-100 transition-colors">Cancel</button>
                                               </div>
                                             </div>
                                           ) : (
-                                            <p className={`text-sm leading-relaxed ${c.isOwn ? 'text-white' : 'text-slate-700'}`}>{c.text}</p>
+                                            <p className="text-sm text-slate-700 leading-relaxed">{c.text}</p>
                                           )}
                                         </div>
                                         {/* Edit/Delete actions on hover */}
                                         {c.isOwn && c.id && !isEditing && (
-                                          <div className={`flex gap-1 mt-0.5 opacity-0 group-hover/comment:opacity-100 transition-opacity ${c.isOwn ? 'justify-end' : 'justify-start'}`}>
+                                          <div className="flex gap-1.5 mt-1 opacity-0 group-hover/comment:opacity-100 transition-opacity">
                                             <button
                                               onClick={() => { setEditingComment({ id: c.id!, scorecardId: sc.id, rowId: r.rowId }); setEditText(c.text); }}
-                                              className="text-slate-400 hover:text-blue-600 transition-colors p-0.5 rounded"
+                                              className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-blue-600 transition-colors px-1.5 py-0.5 rounded hover:bg-blue-50"
                                               title="Edit note"
                                             >
                                               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
+                                              Edit
                                             </button>
                                             <button
                                               onClick={() => handleDeleteComment(c.id!, sc.id, r.rowId)}
-                                              className="text-slate-400 hover:text-red-600 transition-colors p-0.5 rounded"
+                                              className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-red-600 transition-colors px-1.5 py-0.5 rounded hover:bg-red-50"
                                               title="Delete note"
                                             >
                                               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+                                              Delete
                                             </button>
                                           </div>
                                         )}
@@ -506,6 +544,25 @@ export default function PortalDashboard() {
                       )}
                       {v.address && <p className="text-xs text-slate-500 mt-1">{v.address}</p>}
                       {v.note && <p className="text-sm text-slate-600 mt-2">{v.note}</p>}
+                      <div className="mt-3 pt-3 border-t border-slate-100">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="Add a comment..."
+                            value={photoCommentText[v.id] || ''}
+                            onChange={e => setPhotoCommentText(prev => ({ ...prev, [v.id]: e.target.value }))}
+                            onKeyDown={e => { if (e.key === 'Enter') handleAddPhotoComment(v.id, v.store_name); }}
+                            className="flex-1 text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none"
+                          />
+                          <button
+                            onClick={() => handleAddPhotoComment(v.id, v.store_name)}
+                            disabled={!photoCommentText[v.id]?.trim() || submittingPhotoComment === v.id}
+                            className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors font-medium"
+                          >
+                            {submittingPhotoComment === v.id ? '...' : 'Send'}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ))}

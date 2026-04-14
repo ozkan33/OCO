@@ -383,6 +383,9 @@ export default function SubGridRenderer({ parentId }: { parentId: string | numbe
   const parentRow = getCurrentData()?.rows.find((r: Row) => r.id === parentId);
   const parentName = parentRow?.name || 'Item';
 
+  // Get parent row comments (from brand users or admin) to show in subgrid header
+  const parentRowComments = comments[selectedCategory]?.[String(parentId)] || [];
+
   const gridContent = (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200 shrink-0">
@@ -397,6 +400,25 @@ export default function SubGridRenderer({ parentId }: { parentId: string | numbe
           <button onClick={() => setExpandedRowId(null)} className="text-slate-400 hover:text-slate-600 text-xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors" aria-label="Close">&times;</button>
         </div>
       </div>
+      {parentRowComments.length > 0 && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-100 shrink-0">
+          <div className="flex items-center gap-1.5 mb-1">
+            <FaRegCommentDots size={10} className="text-amber-500" />
+            <span className="text-[11px] font-semibold text-amber-700">Customer Notes ({parentRowComments.length})</span>
+          </div>
+          <div className="space-y-1 max-h-20 overflow-y-auto">
+            {parentRowComments.slice(-3).map((c: any) => {
+              const author = (c.user_email || '').split('@')[0] || 'Unknown';
+              const name = author.charAt(0).toUpperCase() + author.slice(1);
+              return (
+                <p key={c.id} className="text-[11px] text-amber-900 truncate">
+                  <span className="font-medium">{name}:</span> {c.text}
+                </p>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-1 px-4 py-2 border-b border-slate-100 shrink-0 flex-wrap">
         <button onClick={() => handleSubGridAddColumn(parentId)} className="grid-toolbar-btn sm primary">
           <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>Column

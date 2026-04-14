@@ -64,6 +64,8 @@ export const portalCommentSchema = z.object({
   scorecard_id: z.string().uuid('Valid scorecard ID required'),
   row_id: z.union([z.string(), z.number()]).transform(String),
   text: z.string().min(1, 'Comment text is required').max(5000),
+  parent_row_id: z.string().optional().nullable(), // For subgrid store-level comments
+  store_name: z.string().optional().nullable(), // Store name for subgrid matching
 });
 
 // Notification mark-as-read

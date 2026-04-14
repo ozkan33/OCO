@@ -3,8 +3,11 @@ import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../../lib/apiAuth';
 
 // PATCH /api/scorecards/[id]/cells
-// Body: { changes: [{ rowId: number, columnKey: string, value: string }] }
-// Upserts individual cells. Used by auto-save for cell-level granularity.
+// Granular cell-level save: applies deltas to the JSONB data blob.
+// Body: {
+//   changes: [{ rowId, columnKey, value, parentRowId?, subRowId? }],
+//   expectedLastModified?: string  // optimistic concurrency check
+// }
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -13,16 +16,22 @@ export async function PATCH(
     const user = await getUserFromToken(request);
     const { id: scorecardId } = await params;
     const body = await request.json();
-    const changes: { rowId: number; columnKey: string; value: string }[] = body.changes ?? [];
+    const changes: {
+      rowId: number | string;
+      columnKey: string;
+      value: any;
+      parentRowId?: number | string;
+      subRowId?: number | string;
+    }[] = body.changes ?? [];
 
     if (!changes.length) {
       return NextResponse.json({ updated: 0 });
     }
 
-    // Verify ownership
+    // Read current scorecard (verify ownership)
     const { data: sc, error: scErr } = await supabaseAdmin
       .from('user_scorecards')
-      .select('id')
+      .select('id, data, last_modified')
       .eq('id', scorecardId)
       .eq('user_id', user.id)
       .single();
@@ -31,104 +40,67 @@ export async function PATCH(
       return NextResponse.json({ error: 'Scorecard not found' }, { status: 404 });
     }
 
-    // Upsert each changed cell
-    const upserts = changes.map(c => ({
-      scorecard_id: scorecardId,
-      row_id: c.rowId,
-      column_key: c.columnKey,
-      value: c.value ?? '',
-      updated_at: new Date().toISOString(),
-      updated_by: user.id,
-    }));
-
-    const { error } = await supabaseAdmin
-      .from('scorecard_cells')
-      .upsert(upserts, { onConflict: 'scorecard_id,row_id,column_key' });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    // Optimistic concurrency check
+    if (body.expectedLastModified) {
+      const serverTime = new Date(sc.last_modified).getTime();
+      const clientTime = new Date(body.expectedLastModified).getTime();
+      // Allow 2s tolerance for clock skew
+      if (serverTime > clientTime + 2000) {
+        return NextResponse.json(
+          { error: 'Conflict', serverLastModified: sc.last_modified },
+          { status: 409 }
+        );
+      }
     }
 
-    return NextResponse.json({ updated: upserts.length });
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-}
+    // Apply deltas to the JSONB data
+    const data = sc.data || {};
+    const rows: any[] = data.rows || [];
 
-// POST /api/scorecards/[id]/cells/rows — add a row
-// Body: { rowId: number, position: number }
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const user = await getUserFromToken(request);
-    const { id: scorecardId } = await params;
-    const { rowId, position } = await request.json();
+    let applied = 0;
 
-    const { data: sc, error: scErr } = await supabaseAdmin
+    for (const change of changes) {
+      if (change.parentRowId !== undefined && change.subRowId !== undefined) {
+        // Subgrid cell delta
+        const parentRow = rows.find((r: any) => String(r.id) === String(change.parentRowId));
+        if (parentRow?.subgrid?.rows) {
+          const subRow = parentRow.subgrid.rows.find((sr: any) => String(sr.id) === String(change.subRowId));
+          if (subRow) {
+            subRow[change.columnKey] = change.value;
+            applied++;
+          }
+        }
+      } else {
+        // Main grid cell delta
+        const row = rows.find((r: any) => String(r.id) === String(change.rowId));
+        if (row) {
+          row[change.columnKey] = change.value;
+          applied++;
+        }
+      }
+    }
+
+    if (applied === 0) {
+      // No rows matched — likely stale deltas; tell client to do a full save
+      return NextResponse.json(
+        { error: 'No matching rows', serverLastModified: sc.last_modified },
+        { status: 409 }
+      );
+    }
+
+    // Write back the modified data
+    const now = new Date().toISOString();
+    const { error: updateErr } = await supabaseAdmin
       .from('user_scorecards')
-      .select('id')
+      .update({ data: { ...data, rows }, last_modified: now })
       .eq('id', scorecardId)
-      .eq('user_id', user.id)
-      .single();
+      .eq('user_id', user.id);
 
-    if (scErr || !sc) {
-      return NextResponse.json({ error: 'Scorecard not found' }, { status: 404 });
+    if (updateErr) {
+      return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
-    const { error } = await supabaseAdmin
-      .from('scorecard_rows')
-      .insert({ id: rowId, scorecard_id: scorecardId, position: position ?? 0 });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ rowId });
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-}
-
-// DELETE /api/scorecards/[id]/cells?rowId=123 — delete a row and all its cells
-export async function DELETE(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const user = await getUserFromToken(request);
-    const { id: scorecardId } = await params;
-    const { searchParams } = new URL(request.url);
-    const rowId = searchParams.get('rowId');
-
-    if (!rowId) {
-      return NextResponse.json({ error: 'rowId required' }, { status: 400 });
-    }
-
-    const { data: sc, error: scErr } = await supabaseAdmin
-      .from('user_scorecards')
-      .select('id')
-      .eq('id', scorecardId)
-      .eq('user_id', user.id)
-      .single();
-
-    if (scErr || !sc) {
-      return NextResponse.json({ error: 'Scorecard not found' }, { status: 404 });
-    }
-
-    // Cells deleted automatically via CASCADE
-    const { error } = await supabaseAdmin
-      .from('scorecard_rows')
-      .delete()
-      .eq('scorecard_id', scorecardId)
-      .eq('id', parseInt(rowId, 10));
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ deleted: rowId });
+    return NextResponse.json({ updated: applied, last_modified: now });
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
