@@ -77,9 +77,11 @@ export async function PATCH(request: Request) {
     }
 
     if (parsed.ids && parsed.ids.length > 0) {
+      // Only mark notifications intended for ADMIN role — prevent cross-role modification
       const { error } = await supabaseAdmin
         .from('notifications')
         .update({ is_read: true })
+        .eq('recipient_role', 'ADMIN')
         .in('id', parsed.ids);
 
       if (error) {

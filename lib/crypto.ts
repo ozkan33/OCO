@@ -9,8 +9,15 @@ function getEncryptionKey(): Buffer {
   if (key && key.length === 64) {
     return Buffer.from(key, 'hex');
   }
-  // Derive a 32-byte key from JWT_SECRET or a fallback
-  const secret = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || 'default-dev-key';
+  // Derive a 32-byte key from JWT_SECRET — refuse to use a hardcoded fallback in production
+  const secret = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || '';
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('TOTP_ENCRYPTION_KEY or JWT_SECRET must be set in production');
+    }
+    // Only allow a dev-only fallback in non-production
+    return crypto.createHash('sha256').update('dev-only-insecure-key').digest();
+  }
   return crypto.createHash('sha256').update(secret).digest();
 }
 
@@ -38,7 +45,14 @@ export function decryptSecret(stored: string): string {
 // Signs device tokens so middleware can verify without a DB lookup.
 
 function getSigningKey(): string {
-  return process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || 'default-dev-key';
+  const key = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || '';
+  if (!key) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('JWT_SECRET or SUPABASE_JWT_SECRET must be set in production');
+    }
+    return 'dev-only-insecure-signing-key';
+  }
+  return key;
 }
 
 export function signDeviceToken(token: string): string {

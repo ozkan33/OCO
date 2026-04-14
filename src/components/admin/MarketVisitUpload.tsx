@@ -142,7 +142,7 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
+    <form onSubmit={handleSubmit} noValidate className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
       <h3 className="text-lg font-bold text-gray-900">New Market Visit</h3>
 
       {/* Photo drop zone */}

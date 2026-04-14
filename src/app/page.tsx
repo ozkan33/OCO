@@ -184,28 +184,170 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-white">
 
-      {/* JSON-LD Structured Data for SEO */}
+      {/* JSON-LD Structured Data for SEO — multiple schemas for rich results */}
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify({
-          '@context': 'https://schema.org',
-          '@type': 'Organization',
-          name: '3Brothers Marketing',
-          url: 'https://3brothersmarketing.com',
-          logo: 'https://i.hizliresim.com/rm69m47.png',
-          description: 'Boutique CPG sales brokerage for emerging food & beverage brands across the Upper Midwest.',
-          areaServed: ['Minnesota', 'Wisconsin', 'Michigan', 'North Dakota', 'South Dakota'],
-          sameAs: [
-            'https://www.instagram.com/3brothersmarketingmn/',
-            'https://www.linkedin.com/company/3brothersmarketing',
-          ],
-          contactPoint: {
-            '@type': 'ContactPoint',
-            email: 'volkan@3brothersmarketing.com',
-            contactType: 'sales',
+        dangerouslySetInnerHTML={{ __html: JSON.stringify([
+          // 1. Organization + LocalBusiness (dual-type for max coverage)
+          {
+            '@context': 'https://schema.org',
+            '@type': ['Organization', 'LocalBusiness'],
+            '@id': 'https://3brothersmarketing.com/#organization',
+            name: '3Brothers Marketing',
+            alternateName: '3 Brothers Marketing',
+            url: 'https://3brothersmarketing.com',
+            logo: {
+              '@type': 'ImageObject',
+              url: 'https://i.hizliresim.com/rm69m47.png',
+              width: 512,
+              height: 512,
+            },
+            image: 'https://i.hizliresim.com/rm69m47.png',
+            description: 'Boutique CPG sales brokerage helping emerging food & beverage brands win shelf space across 5,400+ retail doors in the Upper Midwest. Retail execution, buyer relationships, and category management.',
+            foundingDate: '2024-08',
+            numberOfEmployees: { '@type': 'QuantitativeValue', minValue: 2, maxValue: 10 },
+            address: {
+              '@type': 'PostalAddress',
+              addressLocality: 'Minneapolis',
+              addressRegion: 'MN',
+              addressCountry: 'US',
+            },
+            geo: {
+              '@type': 'GeoCoordinates',
+              latitude: 44.9778,
+              longitude: -93.2650,
+            },
+            areaServed: [
+              { '@type': 'State', name: 'Minnesota', sameAs: 'https://en.wikipedia.org/wiki/Minnesota' },
+              { '@type': 'State', name: 'Wisconsin', sameAs: 'https://en.wikipedia.org/wiki/Wisconsin' },
+              { '@type': 'State', name: 'Michigan', sameAs: 'https://en.wikipedia.org/wiki/Michigan' },
+              { '@type': 'State', name: 'North Dakota', sameAs: 'https://en.wikipedia.org/wiki/North_Dakota' },
+              { '@type': 'State', name: 'South Dakota', sameAs: 'https://en.wikipedia.org/wiki/South_Dakota' },
+            ],
+            sameAs: [
+              'https://www.instagram.com/3brothersmarketingmn/',
+              'https://www.linkedin.com/company/3brothersmarketing',
+            ],
+            contactPoint: [
+              {
+                '@type': 'ContactPoint',
+                email: 'volkan@3brothersmarketing.com',
+                contactType: 'sales',
+                areaServed: 'US',
+                availableLanguage: 'English',
+              },
+            ],
+            knowsAbout: [
+              'CPG sales', 'food brokerage', 'retail execution', 'category management',
+              'beverage distribution', 'shelf space management', 'grocery retail',
+              'natural food distribution', 'emerging brand strategy',
+            ],
+            priceRange: '$$',
           },
-          knowsAbout: ['CPG sales', 'food brokerage', 'retail execution', 'category management', 'beverage distribution'],
-        }) }}
+          // 2. WebSite schema (enables sitelinks search box in Google)
+          {
+            '@context': 'https://schema.org',
+            '@type': 'WebSite',
+            '@id': 'https://3brothersmarketing.com/#website',
+            url: 'https://3brothersmarketing.com',
+            name: '3Brothers Marketing',
+            description: 'CPG sales brokerage for emerging food & beverage brands in the Upper Midwest',
+            publisher: { '@id': 'https://3brothersmarketing.com/#organization' },
+            inLanguage: 'en-US',
+          },
+          // 3. WebPage schema
+          {
+            '@context': 'https://schema.org',
+            '@type': 'WebPage',
+            '@id': 'https://3brothersmarketing.com/#webpage',
+            url: 'https://3brothersmarketing.com',
+            name: '3Brothers Marketing | CPG Sales Brokerage — Midwest Food & Beverage',
+            description: 'Boutique CPG sales brokerage helping emerging food & beverage brands win shelf space across 5,400+ retail doors in MN, WI, MI, ND & SD.',
+            isPartOf: { '@id': 'https://3brothersmarketing.com/#website' },
+            about: { '@id': 'https://3brothersmarketing.com/#organization' },
+            inLanguage: 'en-US',
+            primaryImageOfPage: {
+              '@type': 'ImageObject',
+              url: 'https://i.hizliresim.com/rm69m47.png',
+            },
+          },
+          // 4. BreadcrumbList
+          {
+            '@context': 'https://schema.org',
+            '@type': 'BreadcrumbList',
+            itemListElement: [
+              { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://3brothersmarketing.com' },
+            ],
+          },
+          // 5. Service schema — concrete service offerings for rich results
+          {
+            '@context': 'https://schema.org',
+            '@type': 'Service',
+            '@id': 'https://3brothersmarketing.com/#service-brokerage',
+            name: 'CPG Sales Brokerage',
+            description: 'Full-service CPG sales representation including retail buyer introductions, shelf placement, and ongoing account management across the Upper Midwest.',
+            provider: { '@id': 'https://3brothersmarketing.com/#organization' },
+            serviceType: 'Sales Brokerage',
+            areaServed: ['Minnesota', 'Wisconsin', 'Michigan', 'North Dakota', 'South Dakota'],
+            hasOfferCatalog: {
+              '@type': 'OfferCatalog',
+              name: 'Brokerage Services',
+              itemListElement: [
+                { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Retail Buyer Introductions' } },
+                { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Shelf Placement & Category Management' } },
+                { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Store-Level Retail Audits' } },
+                { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Distributor & Retailer Relationship Management' } },
+              ],
+            },
+          },
+          // 6. FAQPage schema — targets "People Also Ask" and FAQ rich results
+          {
+            '@context': 'https://schema.org',
+            '@type': 'FAQPage',
+            mainEntity: [
+              {
+                '@type': 'Question',
+                name: 'What is a CPG sales broker?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'A CPG sales broker represents consumer packaged goods brands to retail buyers. They help brands get products onto store shelves by leveraging buyer relationships, managing presentations, and handling ongoing account management. 3Brothers Marketing specializes in food and beverage brands across the Upper Midwest.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'What states does 3Brothers Marketing cover?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: '3Brothers Marketing operates across five Upper Midwest states: Minnesota, Wisconsin, Michigan, North Dakota, and South Dakota. We have relationships with over 5,400 retail doors across these markets.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'How is 3Brothers Marketing different from large CPG brokers?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Unlike large brokers that carry hundreds of brands, 3Brothers Marketing keeps its roster intentionally small. This means every brand gets direct access to the founders, dedicated attention, and honest feedback rather than being one of hundreds competing for time within a massive portfolio.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'What types of brands does 3Brothers Marketing work with?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'We specialize in emerging and growth-stage food and beverage brands including beverages, snacks, health and wellness products, supplements, frozen foods, dairy, and specialty grocery items. We have helped brands grow from 20 doors to over 200.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'Do you provide real-time reporting on retail placements?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Yes. Every partner gets access to our live Partner Portal from day one. It includes a real-time scorecard showing product status across all retailers, store-level detail, market visit photos with proof of placement, and direct collaboration tools — no more waiting for monthly email reports.',
+                },
+              },
+            ],
+          },
+        ]) }}
       />
 
       {/* ── Hero ───────────────────────────────────────────────────────────── */}

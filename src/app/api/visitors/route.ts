@@ -2,9 +2,38 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
 
+// Simple in-memory rate limiter for public visitor tracking endpoint
+const visitorRateLimit = new Map<string, { count: number; resetAt: number }>();
+const VISITOR_RATE_MAX = 20;   // max requests per window
+const VISITOR_RATE_WINDOW = 60 * 1000; // 1 minute
+
+function isVisitorRateLimited(ip: string): boolean {
+  const now = Date.now();
+  // Periodic cleanup
+  if (visitorRateLimit.size > 200 && Math.random() < 0.05) {
+    visitorRateLimit.forEach((record, key) => {
+      if (now > record.resetAt) visitorRateLimit.delete(key);
+    });
+  }
+  const record = visitorRateLimit.get(ip);
+  if (!record || now > record.resetAt) {
+    visitorRateLimit.set(ip, { count: 1, resetAt: now + VISITOR_RATE_WINDOW });
+    return false;
+  }
+  record.count += 1;
+  return record.count > VISITOR_RATE_MAX;
+}
+
 // POST /api/visitors — record a page visit (public, no auth required)
 export async function POST(request: Request) {
   try {
+    // Rate limit by IP to prevent database spam
+    const forwarded = request.headers.get('x-forwarded-for');
+    const clientIp = forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip') || 'unknown';
+    if (isVisitorRateLimited(clientIp)) {
+      return NextResponse.json({ ok: false, error: 'Rate limited' }, { status: 429 });
+    }
+
     const body = await request.json();
     const { pageUrl, referrer, utmSource, utmMedium, utmCampaign, sessionId } = body;
 
@@ -15,8 +44,7 @@ export async function POST(request: Request) {
     const os = parseOS(userAgent);
 
     // Get IP from headers (works behind most proxies/CDNs)
-    const forwarded = request.headers.get('x-forwarded-for');
-    const ip = forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip') || '';
+    const ip = clientIp;
 
     // Geo lookup via IP (best-effort, non-blocking)
     let country = '', city = '', region = '';
