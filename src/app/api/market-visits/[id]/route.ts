@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../lib/apiAuth';
+import { logger } from '../../../../../lib/logger';
 
 // PUT /api/market-visits/[id] - Update visit metadata
 export async function PUT(
@@ -32,6 +33,13 @@ export async function PUT(
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
 
+    // Fetch current visit data before update (for comment sync)
+    const { data: currentVisit } = await supabaseAdmin
+      .from('market_visits')
+      .select('store_name, note, visit_date, brands')
+      .eq('id', id)
+      .single();
+
     const { data: updated, error } = await supabaseAdmin
       .from('market_visits')
       .update(updates)
@@ -40,6 +48,26 @@ export async function PUT(
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Sync note changes to auto-generated comments
+    if (body.note !== undefined && currentVisit) {
+      try {
+        const oldPrefix = `[Market Visit — ${currentVisit.visit_date}]`;
+        const newText = `${oldPrefix} ${body.note}`;
+
+        // Update both main-row and subgrid comments that match this market visit
+        const { error: syncErr } = await supabaseAdmin
+          .from('comments')
+          .update({ text: newText, updated_at: new Date().toISOString() })
+          .eq('user_id', user.id)
+          .ilike('text', `${oldPrefix}%`);
+
+        if (syncErr) logger.error('Comment sync failed:', syncErr);
+      } catch (syncErr) {
+        logger.error('Comment sync error:', syncErr);
+      }
+    }
+
     return NextResponse.json(updated);
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

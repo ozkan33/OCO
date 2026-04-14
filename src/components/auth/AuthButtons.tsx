@@ -41,7 +41,9 @@ export function AuthButtons({ user, loading, onAccountClick, onLogout, variant =
   }
 
   const email: string = user.email || '';
-  const displayName = user.name || user.username || (user.role === 'ADMIN' ? 'Admin' : email.split('@')[0]);
+  const rawName = user.user_metadata?.name || user.user_metadata?.display_name || user.username || email.split('@')[0] || 'User';
+  const cleanName = rawName.includes('@') ? rawName.split('@')[0] : rawName;
+  const displayName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
   const initial = (displayName[0] || 'U').toUpperCase();
   const dashboardHref = user.role === 'ADMIN' ? '/admin/dashboard' : user.role === 'BRAND' ? '/portal' : '/admin/dashboard';
   const roleLabel = user.role === 'ADMIN' ? 'Admin' : user.role === 'BRAND' ? 'Brand' : 'User';

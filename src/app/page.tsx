@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import 'swiper/css';
 import { useState, useEffect } from 'react';
@@ -132,6 +131,19 @@ export default function LandingPage() {
   const [sent, setSent] = useState(false);
   const [clientLogos, setClientLogos] = useState<{ src: string; alt: string }[]>([]);
 
+  const handlePortalClick = async () => {
+    try {
+      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        const role = data.user?.role;
+        router.push(role === 'ADMIN' ? '/admin/dashboard' : '/portal');
+        return;
+      }
+    } catch { /* not logged in */ }
+    router.push('/auth/login');
+  };
+
   useEffect(() => {
     fetch('/api/client-logos')
       .then(res => res.ok ? res.json() : [])
@@ -197,7 +209,7 @@ export default function LandingPage() {
         {/* Content */}
         <div className="relative z-10 flex flex-col items-center justify-center text-center px-5 py-20 md:py-28 max-w-4xl mx-auto gap-5" style={{ minHeight: 'min(100svh, 780px)' }}>
           <span className="inline-block bg-blue-500/15 text-blue-200 text-xs font-semibold tracking-widest uppercase px-4 py-1.5 rounded-full border border-blue-400/30 backdrop-blur-sm">
-            Minnesota · Wisconsin · Michigan · North Dakota · South Dakota
+            Michigan · Minnesota · North Dakota · South Dakota · Wisconsin
           </span>
 
           <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl leading-[1.05] tracking-tight" style={{ fontFamily: 'var(--font-display)', textShadow: '0 2px 24px rgba(0,0,0,0.5)' }}>
@@ -214,7 +226,7 @@ export default function LandingPage() {
             <span className="text-3xl sm:text-4xl font-extrabold text-blue-400 tracking-tight">5,438</span>
             <div className="text-left">
               <p className="text-sm font-semibold text-white/90 leading-tight">Retail Doors</p>
-              <p className="text-xs text-white/50">across MN, WI, MI, ND &amp; SD</p>
+              <p className="text-xs text-white/50">across MI, MN, ND, SD &amp; WI</p>
             </div>
           </div>
 
@@ -226,7 +238,7 @@ export default function LandingPage() {
               Get in Touch
             </a>
             <button
-              onClick={() => router.push('/auth/login')}
+              onClick={handlePortalClick}
               className="px-8 py-3.5 bg-white/10 text-white font-semibold rounded-lg hover:bg-white/20 active:scale-95 transition-all text-base border border-white/25 backdrop-blur-sm"
             >
               Partner Portal
@@ -252,8 +264,8 @@ export default function LandingPage() {
                 return (
                   <Wrapper key={idx} {...linkProps} className={`flex-shrink-0 flex flex-col items-center justify-center gap-2 px-5 py-2 opacity-70 hover:opacity-100 transition-opacity ${url ? 'cursor-pointer' : ''}`} title={url ? `Visit ${logo.alt}` : logo.alt}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={logo.src} alt={logo.alt} className="max-h-10 max-w-[100px] object-contain" />
-                    <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider leading-none text-center whitespace-nowrap">{logo.alt}</span>
+                    <img src={logo.src} alt={logo.alt} className="max-h-16 max-w-[140px] object-contain" />
+                    <span className="text-xs font-medium text-slate-400 uppercase tracking-wider leading-none text-center whitespace-nowrap">{logo.alt}</span>
                   </Wrapper>
                 );
               })}
@@ -280,7 +292,7 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10">
             <h2 className="text-3xl md:text-4xl text-slate-900" style={{ fontFamily: 'var(--font-display)' }}>
-              Our Brands Are Sold by These Retailers
+              Retailer and Distributor Partners
             </h2>
             <p className="text-slate-500 mt-3 max-w-xl mx-auto text-base">
               From regional grocers to national distributors, our brands are on shelves where it matters.
@@ -297,12 +309,12 @@ export default function LandingPage() {
                   <Wrapper
                     key={`r1-${idx}`}
                     {...linkProps}
-                    className={`flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-700 whitespace-nowrap transition-colors duration-200 ${r.url ? 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 cursor-pointer' : ''}`}
+                    className={`flex-shrink-0 inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full border border-slate-200 bg-white text-base font-semibold text-slate-700 whitespace-nowrap transition-colors duration-200 ${r.url ? 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 cursor-pointer' : ''}`}
                   >
                     {domain ? (
-                      <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`} alt="" className="w-4 h-4 rounded-sm flex-shrink-0" />
+                      <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`} alt="" className="w-5 h-5 rounded-sm flex-shrink-0" />
                     ) : (
-                      <span className="w-4 h-4 rounded-sm bg-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-500 flex-shrink-0">{r.name[0]}</span>
+                      <span className="w-5 h-5 rounded-sm bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500 flex-shrink-0">{r.name[0]}</span>
                     )}
                     {r.name}
                   </Wrapper>
@@ -321,12 +333,12 @@ export default function LandingPage() {
                   <Wrapper
                     key={`r2-${idx}`}
                     {...linkProps}
-                    className={`flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-full border border-slate-200 bg-white text-sm font-semibold text-slate-700 whitespace-nowrap transition-colors duration-200 ${r.url ? 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 cursor-pointer' : ''}`}
+                    className={`flex-shrink-0 inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full border border-slate-200 bg-white text-base font-semibold text-slate-700 whitespace-nowrap transition-colors duration-200 ${r.url ? 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 cursor-pointer' : ''}`}
                   >
                     {domain ? (
-                      <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`} alt="" className="w-4 h-4 rounded-sm flex-shrink-0" />
+                      <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`} alt="" className="w-5 h-5 rounded-sm flex-shrink-0" />
                     ) : (
-                      <span className="w-4 h-4 rounded-sm bg-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-500 flex-shrink-0">{r.name[0]}</span>
+                      <span className="w-5 h-5 rounded-sm bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500 flex-shrink-0">{r.name[0]}</span>
                     )}
                     {r.name}
                   </Wrapper>
@@ -343,7 +355,7 @@ export default function LandingPage() {
           <div className="text-center mb-14">
             <h2 className="text-3xl md:text-4xl text-slate-900" style={{ fontFamily: 'var(--font-display)' }}>What We Do</h2>
             <p className="text-slate-500 mt-3 max-w-xl mx-auto text-base">
-              We bridge the gap between emerging brands and the retailers that matter most.
+              Hands-on retail execution from headquarters to the shelf — we handle the work that moves product.
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -375,15 +387,15 @@ export default function LandingPage() {
               3 Brothers Marketing is a boutique CPG sales and strategy partner built for emerging brands. Founded in August 2024, we saw that small and mid-sized brands were being overlooked in massive portfolios at the largest distributors and brokerage agencies.
             </p>
             <p className="text-slate-600 leading-relaxed">
-              We created 3 Brothers Marketing to give these brands the attention they deserve — with hands-on execution, tailored strategies, and deep Midwest retail expertise. Most brokers are built for volume. We are built for impact.
+              Most brokers carry hundreds of brands. We keep our roster small on purpose — so every brand gets real attention, honest feedback, and a team that actually picks up the phone.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             {[
-              { label: "Boutique Attention", desc: "Your brand isn't lost in a 500-SKU portfolio. You get a dedicated partner." },
-              { label: "Buyer Relationships", desc: "Direct buyer contact at the category level across MN, WI, MI, ND & SD." },
-              { label: "Execution Focused", desc: "Store visits, HQ calls, category reviews — we handle the ground game." },
-              { label: "Built for Growth", desc: "We've helped brands expand from 20 doors to 200+ with sustainable velocity." },
+              { label: "Small Roster, Big Focus", desc: "We limit our portfolio so your brand never competes with 500 others for our time." },
+              { label: "Midwest Roots", desc: "Deep relationships across MI, MN, ND, SD & WI — we know the buyers, the stores, and the market." },
+              { label: "Founder-Led", desc: "You work directly with the founders. No account managers, no hand-offs, no runaround." },
+              { label: "Built for Emerging Brands", desc: "We've helped brands grow from 20 doors to 200+. We know what early-stage brands actually need." },
             ].map(item => (
               <div key={item.label} className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm">
                 <p className="font-semibold text-slate-900 text-sm mb-1">{item.label}</p>
@@ -608,7 +620,7 @@ export default function LandingPage() {
             <a href="#about" className="hover:text-white transition">About</a>
             <a href="#clients" className="hover:text-white transition">Clients</a>
             <a href="#contact" className="hover:text-white transition">Contact</a>
-            <Link href="/auth/login" className="hover:text-white transition">Portal Login</Link>
+            <button onClick={handlePortalClick} className="hover:text-white transition">Portal Login</button>
           </div>
           <div className="text-center md:text-right">
             <p className="text-xs text-slate-500">Minneapolis, MN</p>

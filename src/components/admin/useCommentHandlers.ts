@@ -1,8 +1,8 @@
 import { toast } from 'sonner';
 
 interface UseCommentHandlersParams {
-  comments: Record<string, Record<number, any[]>>;
-  setComments: React.Dispatch<React.SetStateAction<Record<string, Record<number, any[]>>>>;
+  comments: Record<string, Record<string, any[]>>;
+  setComments: React.Dispatch<React.SetStateAction<Record<string, Record<string, any[]>>>>;
   commentInput: string;
   setCommentInput: (v: string) => void;
   openCommentRowId: number | null;
@@ -37,11 +37,14 @@ export function useCommentHandlers({
       }
 
       const commentsData = await response.json();
-      const groupedComments: Record<number, any[]> = {};
+      const groupedComments: Record<string, any[]> = {};
       commentsData.forEach((comment: any) => {
-        const rowId = parseInt(comment.row_id);
-        if (!groupedComments[rowId]) groupedComments[rowId] = [];
-        groupedComments[rowId].push(comment);
+        // Subgrid comments use composite key: "sub:{parentRowId}:{storeName}"
+        const key = comment.parent_row_id
+          ? `sub:${comment.parent_row_id}:${comment.row_id}`
+          : String(comment.row_id);
+        if (!groupedComments[key]) groupedComments[key] = [];
+        groupedComments[key].push(comment);
       });
 
       setComments(prev => ({ ...prev, [scorecardId]: groupedComments }));
@@ -80,7 +83,7 @@ export function useCommentHandlers({
     }
   }
 
-  async function deleteComment(commentId: string, rowId: number) {
+  async function deleteComment(commentId: string, rowId: number | string) {
     try {
       const response = await fetch(`/api/comments/${commentId}`, { method: 'DELETE', credentials: 'include' });
       if (!response.ok) throw new Error('Failed to delete comment');

@@ -94,7 +94,7 @@ export async function POST(request: Request) {
 
     // Validate input
     const parsed = createCommentSchema.parse(body);
-    const { scorecard_id, user_id: row_id, text, scorecard_data } = parsed;
+    const { scorecard_id, user_id: row_id, text, parent_row_id, scorecard_data } = parsed;
 
     // Resolve scorecard (verify ownership or migrate) — single query
     let scorecard;
@@ -104,16 +104,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Scorecard not found or access denied' }, { status: 404 });
     }
 
+    const insertData: any = {
+      scorecard_id: scorecard.id,
+      user_id: user.id,
+      user_email: user.email || '',
+      row_id: row_id,
+      text: text.trim(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    if (parent_row_id) insertData.parent_row_id = parent_row_id;
+
     const { data: comment, error } = await supabaseAdmin
       .from('comments')
-      .insert({
-        scorecard_id: scorecard.id,
-        user_id: user.id,
-        row_id: row_id,
-        text: text.trim(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .insert(insertData)
       .select()
       .single();
 
@@ -141,12 +145,13 @@ export async function POST(request: Request) {
         .eq('scorecard_id', scorecard.id);
 
       if (assignments && assignments.length > 0) {
-        const message = `Volkan added a note on ${rowName} in ${scorecardName}`;
+        const adminName = user.user_metadata?.name || user.email?.split('@')[0] || 'Admin';
+        const message = `${adminName} added a note on ${rowName} in ${scorecardName}`;
         const notifs = assignments.map((a: { user_id: string }) => ({
           recipient_role: 'BRAND',
           recipient_user_id: a.user_id,
           actor_user_id: user.id,
-          actor_name: 'Volkan',
+          actor_name: adminName,
           action_type: 'comment_added',
           scorecard_id: scorecard.id,
           scorecard_name: scorecardName,

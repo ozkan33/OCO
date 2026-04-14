@@ -4,6 +4,7 @@ export const createCommentSchema = z.object({
   scorecard_id: z.string().min(1, 'Scorecard ID is required'),
   user_id: z.union([z.string(), z.number()]).transform(String), // row_id (misnamed in client)
   text: z.string().min(1, 'Text is required').max(5000),
+  parent_row_id: z.string().optional().nullable(), // For subgrid comments: the parent row ID
   scorecard_data: z
     .object({
       name: z.string().optional(),

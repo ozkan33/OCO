@@ -1,16 +1,24 @@
 export async function reverseGeocode(
   lat: number,
   lng: number
-): Promise<string | null> {
+): Promise<{ address: string; storeName?: string } | null> {
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18`,
-      { headers: { 'User-Agent': '3BrothersMarketing/1.0' } }
-    );
-    if (!res.ok) return null;
+    const res = await fetch('/api/geocode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lng }),
+    });
+    if (!res.ok) {
+      console.warn('Reverse geocode failed:', res.status);
+      return null;
+    }
     const data = await res.json();
-    return data.display_name ?? null;
-  } catch {
+    return {
+      address: data.address || data.fullAddress || null,
+      storeName: data.storeName || undefined,
+    };
+  } catch (err) {
+    console.warn('Reverse geocode error:', err);
     return null;
   }
 }

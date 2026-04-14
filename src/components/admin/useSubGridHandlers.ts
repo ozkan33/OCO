@@ -13,6 +13,25 @@ interface UseSubGridHandlersParams {
   isScorecard: (id: string) => boolean;
 }
 
+// Default column keys that are NOT product columns
+const DEFAULT_COLUMN_KEYS = new Set([
+  'name', 'priority', 'retail_price', 'category_review_date',
+  'buyer', 'store_count', 'hq_location', 'cmg', 'route_to_market',
+  'comments', 'delete', 'store_contact',
+]);
+
+// The fixed store-info columns for subgrids (comments handled by icon column in SubGridRenderer)
+const STORE_INFO_COLUMNS = [
+  { key: 'store_name', name: 'Store Name', editable: false, sortable: true },
+  { key: 'address', name: 'Address', editable: false, sortable: true },
+  { key: 'city', name: 'City', editable: false, sortable: true },
+  { key: 'state', name: 'State', editable: false, sortable: true },
+  { key: 'zipcode', name: 'Zipcode', editable: false, sortable: true },
+];
+
+// Authorization options for product columns in subgrid
+export const AUTHORIZATION_OPTIONS = ['Authorized', 'Discontinued', 'Not Authorized'];
+
 export function useSubGridHandlers({
   subGrids, setSubGrids, expandedRowId, setExpandedRowId,
   editingScoreCard, getCurrentData, updateCurrentData,
@@ -46,26 +65,175 @@ export function useSubGridHandlers({
     if (!selectedCategory || !isScorecard(selectedCategory)) return;
     const currentData = getCurrentData();
     if (!currentData) return;
+    const storeCount = subgrid.rows.length;
     const updatedRows = currentData.rows.map((row: any) =>
-      row.id === parentId ? { ...row, subgrid: { columns: subgrid.columns, rows: subgrid.rows } } : row
+      row.id === parentId ? { ...row, store_count: storeCount, subgrid: { columns: subgrid.columns, rows: subgrid.rows } } : row
     );
     updateCurrentData({ rows: updatedRows });
+  }
+
+  // Sync all existing subgrids when a new product column is added to the scorecard
+  function syncSubgridsWithColumns() {
+    const newColumns = buildSubgridColumns();
+    setSubGrids((prev: any) => {
+      const updated = { ...prev };
+      let changed = false;
+      for (const parentId of Object.keys(updated)) {
+        const grid = updated[parentId];
+        if (!grid) continue;
+        // Check if any new product columns are missing from this subgrid
+        const existingKeys = new Set(grid.columns.map((c: any) => c.key));
+        const missingCols = newColumns.filter((c: any) => !existingKeys.has(c.key));
+        if (missingCols.length === 0) continue;
+        changed = true;
+        const updatedGrid = {
+          columns: [...grid.columns, ...missingCols],
+          rows: grid.rows.map((row: any) => {
+            const newRow = { ...row };
+            missingCols.forEach((col: any) => { if (!(col.key in newRow)) newRow[col.key] = ''; });
+            return newRow;
+          }),
+        };
+        updated[parentId] = updatedGrid;
+        updateParentRowSubgrid(Number(parentId) || parentId, updatedGrid);
+      }
+      return changed ? updated : prev;
+    });
+  }
+
+  // Extract product column keys from the current scorecard (columns between name and priority that are user-added)
+  function getProductColumns(): { key: string; name: string }[] {
+    const currentData = getCurrentData();
+    if (!currentData) return [];
+    return currentData.columns
+      .filter((col: any) => !DEFAULT_COLUMN_KEYS.has(col.key) && col.key !== 'name')
+      .map((col: any) => ({ key: `product_${col.key}`, name: col.name || col.key }));
+  }
+
+  // Build the full subgrid column set: store info + product columns
+  function buildSubgridColumns(): any[] {
+    const productCols = getProductColumns();
+    const productColDefs = productCols.map(pc => ({
+      key: pc.key,
+      name: pc.name,
+      editable: true,
+      sortable: true,
+      isProductAuth: true, // flag for dropdown rendering
+    }));
+    return [...STORE_INFO_COLUMNS, ...productColDefs];
+  }
+
+  // Fetch stores from API by chain name and populate subgrid
+  // Shared logic for fetching and building store rows
+  async function fetchStoreRows(chainName: string) {
+    const res = await fetch(`/api/stores?chain=${encodeURIComponent(chainName)}`, { credentials: 'include' });
+    if (!res.ok) return null;
+    const stores: any[] = await res.json();
+    if (!stores || stores.length === 0) return null;
+
+    const columns = buildSubgridColumns();
+    const rows = stores.map((store: any, idx: number) => {
+      const row: any = {
+        id: idx + 1,
+        store_name: store.store_name || '',
+        address: store.address || '',
+        city: store.city || '',
+        state: store.state || '',
+        zipcode: store.zipcode || '',
+      };
+      columns.forEach((col: any) => {
+        if (col.isProductAuth && !(col.key in row)) row[col.key] = '';
+      });
+      return row;
+    });
+    return { columns, rows };
+  }
+
+  async function fetchAndPopulateStores(parentId: string | number, chainName: string) {
+    try {
+      const result = await fetchStoreRows(chainName);
+      if (!result) return;
+
+      setSubGrids((prev: any) => {
+        const existing = prev[parentId];
+        // Only auto-populate if subgrid has no rows yet (don't overwrite user data)
+        if (existing && existing.rows && existing.rows.length > 0) return prev;
+
+        const updated = { ...prev, [parentId]: result };
+        updateParentRowSubgrid(parentId, updated[parentId]);
+        return updated;
+      });
+    } catch (err) {
+      console.warn('Failed to fetch chain stores:', err);
+    }
+  }
+
+  // Force-refresh: re-fetches stores from DB, preserving product column values where store names match
+  async function refreshStoresForSubgrid(parentId: string | number) {
+    const currentData = getCurrentData();
+    const parentRow = currentData?.rows?.find((r: any) => r.id === parentId);
+    if (!parentRow?.name) return;
+
+    try {
+      const result = await fetchStoreRows(parentRow.name);
+      if (!result) return; // No stores in DB for this chain — keep existing subgrid data as-is
+
+      setSubGrids((prev: any) => {
+        const existing = prev[parentId];
+        // Preserve product column values from old rows where store_name matches
+        const oldRowsByStore: Record<string, any> = {};
+        if (existing?.rows) {
+          for (const row of existing.rows) {
+            if (row.store_name) oldRowsByStore[row.store_name] = row;
+          }
+        }
+
+        const mergedRows = result.rows.map((newRow: any) => {
+          const oldRow = oldRowsByStore[newRow.store_name];
+          if (!oldRow) return newRow;
+          // Copy over product column values from old row
+          const merged = { ...newRow };
+          for (const col of result.columns) {
+            if ((col as any).isProductAuth && oldRow[col.key]) {
+              merged[col.key] = oldRow[col.key];
+            }
+          }
+          return merged;
+        });
+
+        const updated = { ...prev, [parentId]: { columns: result.columns, rows: mergedRows } };
+        updateParentRowSubgrid(parentId, updated[parentId]);
+        return updated;
+      });
+    } catch (err) {
+      console.warn('Failed to refresh stores:', err);
+    }
   }
 
   function ensureSubGrid(parentId: string | number | undefined) {
     if (parentId === undefined) return;
     if (!subGrids[parentId]) {
+      const columns = buildSubgridColumns();
       setSubGrids((prev: any) => ({
         ...prev,
-        [parentId]: { columns: [{ key: 'task', name: 'Task', editable: true, sortable: true }], rows: [] }
+        [parentId]: { columns, rows: [] }
       }));
     }
   }
 
   function handleToggleSubGrid(parentId: string | number | undefined) {
     if (parentId === undefined) return;
-    setExpandedRowId(expandedRowId === parentId ? null : parentId);
+
+    if (expandedRowId === parentId) {
+      setExpandedRowId(null);
+      return;
+    }
+
+    setExpandedRowId(parentId);
     ensureSubGrid(parentId);
+
+    // Always refresh stores from DB (preserves existing product auth values)
+    refreshStoresForSubgrid(parentId);
   }
 
   function handleDeleteSubGrid(parentId: string | number | undefined) {
@@ -77,7 +245,7 @@ export function useSubGridHandlers({
         const updatedRows = currentData.rows.map((row: any) => {
           if (row.id === parentId) {
             const { subgrid, ...rest } = row;
-            return rest;
+            return { ...rest, store_count: 0 };
           }
           return row;
         });
@@ -88,15 +256,23 @@ export function useSubGridHandlers({
   }
 
   function handleAddSubGrid(parentId: string | number) {
+    const columns = buildSubgridColumns();
     setSubGrids((prev: any) => {
       const updated = {
         ...prev,
-        [parentId]: { columns: [{ key: 'note', name: 'Note', editable: true, sortable: true }], rows: [] }
+        [parentId]: { columns, rows: [] }
       };
       updateParentRowSubgrid(parentId, updated[parentId]);
       return updated;
     });
     setExpandedRowId(parentId);
+
+    // Auto-fetch stores
+    const currentData = getCurrentData();
+    const parentRow = currentData?.rows?.find((r: any) => r.id === parentId);
+    if (parentRow?.name) {
+      fetchAndPopulateStores(parentId, parentRow.name);
+    }
   }
 
   function handleSubGridAddColumn(parentId: string | number | undefined) {
@@ -306,5 +482,6 @@ export function useSubGridHandlers({
     subgridImportWithRows, setSubgridImportWithRows,
     subgridTemplateError, setSubgridTemplateError,
     subgridTemplates, setSubgridTemplates,
+    fetchAndPopulateStores, refreshStoresForSubgrid, buildSubgridColumns, getProductColumns, syncSubgridsWithColumns,
   };
 }

@@ -73,8 +73,9 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
       if (exif.latitude !== null && exif.longitude !== null) {
         setLatitude(exif.latitude);
         setLongitude(exif.longitude);
-        const addr = await reverseGeocode(exif.latitude, exif.longitude);
-        if (addr) setAddress(addr);
+        const geo = await reverseGeocode(exif.latitude, exif.longitude);
+        if (geo?.address) setAddress(geo.address);
+        if (geo?.storeName && !storeName) setStoreName(geo.storeName);
       } else {
         setNoGps(true);
       }

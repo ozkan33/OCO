@@ -46,8 +46,10 @@ export default function AdminHeader({ rightContent }: AdminHeaderProps) {
     window.location.href = '/auth/login';
   };
 
-  const rawName = user?.name || user?.user_metadata?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Admin';
-  const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+  const rawName = user?.user_metadata?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Admin';
+  // If the name looks like an email, extract just the part before @
+  const cleanName = rawName.includes('@') ? rawName.split('@')[0] : rawName;
+  const displayName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
   const initial = displayName.charAt(0).toUpperCase();
 
   return (
