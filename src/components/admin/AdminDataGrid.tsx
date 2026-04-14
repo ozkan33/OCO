@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Toaster, toast } from 'sonner';
 import { useScoreCardAutoSave } from '../../hooks/useAutoSave';
 import { useDeltaTracker } from '../../hooks/useDeltaTracker';
+import { useRealtimeScorecard } from '../../hooks/useRealtimeScorecard';
 import MasterScorecard from './MasterScorecard';
 
 // ─── Extracted components ────────────────────────────────────────────────────
@@ -337,6 +338,33 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     editingScoreCard, // resetValue
     deltaTracker
   );
+
+  // Realtime multi-tab sync — receive remote updates from other tabs/sessions
+  const { suppressEcho } = useRealtimeScorecard({
+    scorecardId: editingScoreCard?.id || null,
+    isSaving: saveStatus === 'saving',
+    onRemoteUpdate: React.useCallback((data: { columns: any[]; rows: any[] }, lastModified: string) => {
+      if (!editingScoreCard) return;
+      // Only apply if we don't have unsaved changes (avoid overwriting local edits)
+      if (hasUnsavedChanges) return;
+      const updatedScorecard = {
+        ...editingScoreCard,
+        columns: data.columns || editingScoreCard.columns,
+        rows: data.rows || editingScoreCard.rows,
+        lastModified: new Date(lastModified),
+      };
+      setEditingScoreCard(updatedScorecard);
+      setScorecards(prev => prev.map(sc =>
+        sc.id === editingScoreCard.id ? updatedScorecard : sc
+      ));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editingScoreCard?.id, hasUnsavedChanges]),
+  });
+
+  // Suppress realtime echo after our own saves
+  React.useEffect(() => {
+    if (saveStatus === 'saved') suppressEcho();
+  }, [saveStatus, suppressEcho]);
 
   // Warn user if they try to close tab/navigate away with unsaved changes
   React.useEffect(() => {
