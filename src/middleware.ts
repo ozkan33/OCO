@@ -10,8 +10,8 @@ async function verifyDeviceTokenEdge(signedToken: string): Promise<boolean> {
   const sig = signedToken.substring(dotIndex + 1);
   if (!token || !sig || sig.length !== 64) return false;
 
-  const secret = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || '';
-  if (!secret) return false;
+  const secret = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || 'dev-only-insecure-signing-key';
+  if (secret === 'dev-only-insecure-signing-key' && process.env.NODE_ENV === 'production') return false;
 
   try {
     const encoder = new TextEncoder();
@@ -20,7 +20,13 @@ async function verifyDeviceTokenEdge(signedToken: string): Promise<boolean> {
     );
     const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(token));
     const expected = Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
-    return sig === expected;
+    // Constant-time comparison to prevent timing attacks
+    if (sig.length !== expected.length) return false;
+    let mismatch = 0;
+    for (let i = 0; i < sig.length; i++) {
+      mismatch |= sig.charCodeAt(i) ^ expected.charCodeAt(i);
+    }
+    return mismatch === 0;
   } catch {
     return false;
   }
@@ -28,8 +34,11 @@ async function verifyDeviceTokenEdge(signedToken: string): Promise<boolean> {
 
 // ─── In-memory rate limiter ───────────────────────────────────────────────────
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const contactAttempts = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_MAX    = 10;
 const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
+const CONTACT_RATE_MAX  = 5;
+const CONTACT_RATE_WINDOW = 60 * 60 * 1000; // 1 hour
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -106,6 +115,28 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // ── Rate-limit the public contact form ────────────────────────────────────
+  if (pathname === '/api/contact' && request.method === 'POST') {
+    const ip =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+      request.headers.get('x-real-ip') ??
+      'unknown';
+    const now = Date.now();
+    const record = contactAttempts.get(ip);
+    if (!record || now > record.resetAt) {
+      contactAttempts.set(ip, { count: 1, resetAt: now + CONTACT_RATE_WINDOW });
+    } else {
+      record.count += 1;
+      if (record.count > CONTACT_RATE_MAX) {
+        return NextResponse.json(
+          { error: 'Too many submissions. Please try again later.' },
+          { status: 429 },
+        );
+      }
+    }
+    return NextResponse.next();
+  }
+
   // ── Only protect /admin, /vendor, and /portal routes ───────────────────────
   const isProtected = pathname.startsWith('/admin') || pathname.startsWith('/vendor') || pathname.startsWith('/portal');
   if (!isProtected) {
@@ -173,7 +204,7 @@ export async function middleware(request: NextRequest) {
       const refreshedTrustedCookie = request.cookies.get('trusted_device')?.value || '';
       const refreshedHasTrusted = refreshedTrustedCookie ? await verifyDeviceTokenEdge(refreshedTrustedCookie) : false;
       if (refreshedTotpEnabled && !refreshedHas2FA && !refreshedHasTrusted) {
-        const allowed = pathname.startsWith('/api/auth/2fa') || pathname.startsWith('/auth/login') || pathname.startsWith('/admin/settings');
+        const allowed = pathname.startsWith('/api/auth/2fa') || pathname.startsWith('/api/auth/log-session') || pathname.startsWith('/auth/login');
         if (!allowed) {
           return NextResponse.redirect(new URL('/auth/login', request.url));
         }
@@ -202,5 +233,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/vendor/:path*', '/portal/:path*', '/api/auth/set-session'],
+  matcher: ['/admin/:path*', '/vendor/:path*', '/portal/:path*', '/api/auth/set-session', '/api/contact'],
 };

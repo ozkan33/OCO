@@ -1,0 +1,22 @@
+{
+  "name": "3Brothers Marketing — CPG Sales Brokerage",
+  "short_name": "3Brothers",
+  "description": "Boutique CPG sales brokerage for emerging food & beverage brands across the Upper Midwest.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#3b82f6",
+  "icons": [
+    {
+      "src": "https://i.hizliresim.com/rm69m47.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/3brothers-favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": ["business", "food"]
+}

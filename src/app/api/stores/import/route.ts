@@ -21,6 +21,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Excel file is required' }, { status: 400 });
     }
 
+    // Limit file size to 20MB to prevent memory exhaustion via crafted XLSX
+    const MAX_XLSX_SIZE = 20 * 1024 * 1024;
+    if (file.size > MAX_XLSX_SIZE) {
+      return NextResponse.json({ error: 'Excel file must be under 20MB' }, { status: 400 });
+    }
+
     // Parse Excel
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: 'array' });
@@ -69,6 +75,12 @@ export async function POST(request: Request) {
 
     if (stores.length === 0) {
       return NextResponse.json({ error: 'No valid store data found in Excel' }, { status: 400 });
+    }
+
+    // Cap at 50,000 rows to prevent excessive database inserts
+    const MAX_ROWS = 50_000;
+    if (stores.length > MAX_ROWS) {
+      return NextResponse.json({ error: `Too many rows (${stores.length}). Maximum is ${MAX_ROWS}.` }, { status: 400 });
     }
 
     // Optionally clear existing data

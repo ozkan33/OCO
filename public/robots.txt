@@ -4,5 +4,25 @@ Disallow: /admin/
 Disallow: /portal/
 Disallow: /auth/
 Disallow: /api/
+Disallow: /orders/
+Disallow: /customer/
+
+# Google-specific: maximize crawl budget
+User-agent: Googlebot
+Allow: /
+Disallow: /admin/
+Disallow: /portal/
+Disallow: /auth/
+Disallow: /api/
+Disallow: /orders/
+Disallow: /customer/
+
+# Image indexing
+User-agent: Googlebot-Image
+Allow: /logos/
+Allow: /hero.jpg
+Allow: /logo.png
 
 Sitemap: https://3brothersmarketing.com/sitemap.xml
+
+Host: https://3brothersmarketing.com

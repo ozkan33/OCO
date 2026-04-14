@@ -23,7 +23,10 @@ export async function GET() {
 // POST /api/client-logos — upload a new logo (admin only)
 export async function POST(request: Request) {
   try {
-    await getUserFromToken(request); // auth check
+    const user = await getUserFromToken(request);
+    if (user.user_metadata?.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
 
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
@@ -93,7 +96,10 @@ export async function POST(request: Request) {
 // PUT /api/client-logos — seed logos from URL (no file upload, admin only)
 export async function PUT(request: Request) {
   try {
-    await getUserFromToken(request);
+    const user = await getUserFromToken(request);
+    if (user.user_metadata?.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
 
     const body = await request.json();
     const logos: { label: string; image_url: string; sort_order: number }[] = body.logos;

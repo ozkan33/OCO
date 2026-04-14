@@ -2,14 +2,15 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
 
-// GET /api/brands - Get distinct brand names from scorecards
+// GET /api/brands - Get distinct brand names from the current user's scorecards
 export async function GET(request: Request) {
   try {
-    await getUserFromToken(request); // auth check
+    const user = await getUserFromToken(request);
 
     const { data, error } = await supabaseAdmin
       .from('user_scorecards')
       .select('title')
+      .eq('user_id', user.id)
       .order('title', { ascending: true });
 
     if (error) {

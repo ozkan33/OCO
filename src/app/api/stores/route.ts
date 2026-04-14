@@ -66,6 +66,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'stores array is required' }, { status: 400 });
     }
 
+    // Cap at 50,000 rows to prevent excessive database inserts
+    if (stores.length > 50_000) {
+      return NextResponse.json({ error: `Too many stores (${stores.length}). Maximum is 50,000.` }, { status: 400 });
+    }
+
     // Insert in batches of 500
     const BATCH_SIZE = 500;
     let inserted = 0;

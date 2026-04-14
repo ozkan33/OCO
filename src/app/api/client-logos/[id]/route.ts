@@ -10,7 +10,10 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await getUserFromToken(request);
+    const user = await getUserFromToken(request);
+    if (user.user_metadata?.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
     const { id } = await params;
     const body = await request.json();
 
@@ -34,13 +37,16 @@ export async function PUT(
   }
 }
 
-// DELETE /api/client-logos/:id — remove a logo
+// DELETE /api/client-logos/:id — remove a logo (admin only)
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await getUserFromToken(request);
+    const user = await getUserFromToken(request);
+    if (user.user_metadata?.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
     const { id } = await params;
 
     // Fetch the logo to get storage path

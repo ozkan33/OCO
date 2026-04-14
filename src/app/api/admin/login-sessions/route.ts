@@ -12,7 +12,9 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     const userId = url.searchParams.get('user_id');
+    const role = url.searchParams.get('role');
     const limit = parseInt(url.searchParams.get('limit') || '50');
+    const enriched = url.searchParams.get('enriched') === 'true';
 
     let query = supabaseAdmin
       .from('login_sessions')
@@ -28,7 +30,36 @@ export async function GET(request: Request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json(data || []);
+    if (!enriched) return NextResponse.json(data || []);
+
+    // Enrich sessions with user role and display name from auth
+    const uniqueUserIds = [...new Set((data || []).map((s: any) => s.user_id))];
+    const userMap: Record<string, { role: string; name: string }> = {};
+
+    for (const uid of uniqueUserIds) {
+      try {
+        const { data: { user: authUser } } = await supabaseAdmin.auth.admin.getUserById(uid as string);
+        if (authUser) {
+          userMap[uid as string] = {
+            role: authUser.user_metadata?.role || 'UNKNOWN',
+            name: authUser.user_metadata?.name || authUser.user_metadata?.display_name || authUser.email?.split('@')[0] || '',
+          };
+        }
+      } catch { /* skip missing users */ }
+    }
+
+    let enrichedData = (data || []).map((s: any) => ({
+      ...s,
+      user_role: userMap[s.user_id]?.role || 'UNKNOWN',
+      user_name: userMap[s.user_id]?.name || s.email?.split('@')[0] || '',
+    }));
+
+    // Filter by role if requested
+    if (role) {
+      enrichedData = enrichedData.filter((s: any) => s.user_role === role);
+    }
+
+    return NextResponse.json(enrichedData);
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

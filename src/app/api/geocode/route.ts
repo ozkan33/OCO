@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
+import { getUserFromToken } from '../../../../lib/apiAuth';
 
 // POST /api/geocode — reverse geocode lat/lng to an address (server-side to avoid CORS)
 export async function POST(request: Request) {
   try {
+    await getUserFromToken(request); // auth check — prevent unauthenticated abuse
     const { lat, lng } = await request.json();
 
     if (typeof lat !== 'number' || typeof lng !== 'number') {
@@ -44,7 +46,10 @@ export async function POST(request: Request) {
       fullAddress: data.display_name,
       storeName: addr.shop || addr.supermarket || addr.retail || addr.building || null,
     });
-  } catch {
+  } catch (err: any) {
+    if (err?.message === 'No token found' || err?.message === 'Invalid token') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     return NextResponse.json({ error: 'Geocoding failed' }, { status: 500 });
   }
 }

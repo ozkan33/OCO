@@ -12,6 +12,7 @@ const navItems = [
   { href: '/admin/clients', label: 'Clients' },
   { href: '/admin/client-logos', label: 'Logos' },
   { href: '/admin/visitors', label: 'Visitors' },
+  { href: '/admin/activity', label: 'Activity' },
 ];
 
 interface AdminHeaderProps {
