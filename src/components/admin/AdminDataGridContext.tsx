@@ -28,7 +28,7 @@ export interface AdminGridContextValue {
   setOpenCommentRowId: (v: number | null) => void;
   setOpenRetailerDrawer: (v: number | null) => void;
   setComments: React.Dispatch<React.SetStateAction<Record<string, Record<string, any[]>>>>;
-  setConfirmDeleteComment: (v: { rowId: number; commentIdx: number } | null) => void;
+  setConfirmDeleteComment: (v: { rowId: number | string; commentIdx: number } | null) => void;
   handleAddComment: () => void;
   handleCloseCommentModal: () => void;
   updateComment: (commentId: string, newText: string) => Promise<void>;

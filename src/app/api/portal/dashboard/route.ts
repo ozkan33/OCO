@@ -79,7 +79,7 @@ export async function GET(request: Request) {
     // Fetch comments for all assigned scorecards
     const { data: allComments } = await supabaseAdmin
       .from('comments')
-      .select('id, scorecard_id, row_id, text, user_id, user_email, created_at')
+      .select('id, scorecard_id, row_id, text, user_id, user_email, created_at, updated_at')
       .in('scorecard_id', scorecardIds)
       .order('created_at', { ascending: false });
 
@@ -123,7 +123,7 @@ export async function GET(request: Request) {
           .map((c: any) => {
             const emailName = (c.user_email || 'Admin').split('@')[0];
             const author = emailName.charAt(0).toUpperCase() + emailName.slice(1);
-            return { id: c.id, text: c.text, author, date: c.created_at, isOwn: c.user_id === user.id };
+            return { id: c.id, text: c.text, author, date: c.created_at, updated_at: c.updated_at, isOwn: c.user_id === user.id };
           });
 
         return {

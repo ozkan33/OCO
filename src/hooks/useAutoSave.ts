@@ -228,17 +228,19 @@ export function useAutoSave<T>(
   return { status, lastSaved, error, forceSave, isOnline, hasUnsavedChanges };
 }
 
-// ─── Scorecard-specific auto-save ────────────────────────────────────────────
+// ─── Scorecard-specific auto-save (delta-aware) ─────────────────────────────
 export function useScoreCardAutoSave(
   scoreCardId: string | null,
   data: any,
   options: AutoSaveOptions = {},
   resetKey?: string | number,
-  resetValue?: any
+  resetValue?: any,
+  deltaTracker?: { peek: () => { deltas: any[]; isStructural: boolean }; flush: () => any; markStructuralChange: () => void; reset: () => void }
 ) {
   // Ref to hold the real DB ID after migration (prevents ghost creation)
   const resolvedIdRef = useRef<string | null>(scoreCardId);
   const isMigratingRef = useRef(false);
+  const lastModifiedRef = useRef<string | null>(null);
 
   // Keep ref in sync with prop, but don't overwrite during migration
   useEffect(() => {
@@ -247,13 +249,19 @@ export function useScoreCardAutoSave(
     }
   }, [scoreCardId]);
 
+  // Reset delta tracker on scorecard switch
+  useEffect(() => {
+    deltaTracker?.reset();
+    lastModifiedRef.current = null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
+
   const saveToAPI = useCallback(async (data: any) => {
     const id = resolvedIdRef.current;
     if (!id) throw new Error('No scorecard ID');
 
-    // ── Local scorecard → create in DB first ─────────────────────────────────
+    // ── Local scorecard → create in DB first (always full save) ──────────────
     if (id.startsWith('scorecard_')) {
-      // Prevent double-creation: if already migrating, skip
       if (isMigratingRef.current) return null;
       isMigratingRef.current = true;
 
@@ -272,11 +280,10 @@ export function useScoreCardAutoSave(
         }
 
         const created = await res.json();
-
-        // Update the resolved ID immediately (before React re-renders)
         resolvedIdRef.current = created.id;
+        lastModifiedRef.current = created.last_modified || null;
+        deltaTracker?.flush(); // clear any pending deltas
 
-        // Update localStorage with the new ID
         try {
           const all = JSON.parse(localStorage.getItem('scorecards') || '[]');
           localStorage.setItem('scorecards', JSON.stringify(
@@ -292,7 +299,49 @@ export function useScoreCardAutoSave(
       }
     }
 
-    // ── Normal save: PUT to existing scorecard ───────────────────────────────
+    // ── Check if we can do a granular delta save ─────────────────────────────
+    const deltaState = deltaTracker?.peek();
+    const canDelta = deltaState && !deltaState.isStructural && deltaState.deltas.length > 0;
+
+    if (canDelta) {
+      // ── Delta PATCH: send only changed cells ──────────────────────────────
+      const res = await fetch(`/api/scorecards/${id}/cells`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          changes: deltaState.deltas,
+          expectedLastModified: lastModifiedRef.current,
+        }),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        lastModifiedRef.current = result.last_modified;
+        deltaTracker!.flush();
+
+        try {
+          const all = JSON.parse(localStorage.getItem('scorecards') || '[]');
+          localStorage.setItem('scorecards', JSON.stringify(
+            all.map((sc: any) => sc.id === id ? { ...sc, lastModified: new Date().toISOString() } : sc)
+          ));
+        } catch { /* */ }
+
+        return result;
+      }
+
+      if (res.status === 409) {
+        // Conflict or stale rows — fall through to full PUT
+        deltaTracker!.markStructuralChange();
+      } else {
+        const text = await res.text();
+        let errData: any = {};
+        try { errData = JSON.parse(text); } catch { errData = { error: text }; }
+        throw new Error(errData.error || `Delta save failed: ${res.status}`);
+      }
+    }
+
+    // ── Full PUT: send entire scorecard ──────────────────────────────────────
     const res = await fetch(`/api/scorecards/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -308,8 +357,9 @@ export function useScoreCardAutoSave(
     }
 
     const saved = await res.json();
+    lastModifiedRef.current = saved.last_modified || null;
+    deltaTracker?.flush(); // clear deltas after successful full save
 
-    // Sync localStorage with server state
     try {
       const all = JSON.parse(localStorage.getItem('scorecards') || '[]');
       localStorage.setItem('scorecards', JSON.stringify(

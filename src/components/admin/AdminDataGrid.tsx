@@ -5,6 +5,7 @@ import 'react-data-grid/lib/styles.css';
 import { useRouter } from 'next/navigation';
 import { Toaster, toast } from 'sonner';
 import { useScoreCardAutoSave } from '../../hooks/useAutoSave';
+import { useDeltaTracker } from '../../hooks/useDeltaTracker';
 import MasterScorecard from './MasterScorecard';
 
 // ─── Extracted components ────────────────────────────────────────────────────
@@ -269,6 +270,9 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     setScorecards, setEditingScoreCard, setSelectedCategory,
   });
 
+  // Delta tracker for granular cell-level saves
+  const deltaTracker = useDeltaTracker();
+
   const {
     ensureSubGrid, handleToggleSubGrid, handleDeleteSubGrid, handleAddSubGrid,
     handleSubGridAddColumn, handleSubGridAddRow, handleSubGridRowsChange,
@@ -280,7 +284,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   } = useSubGridHandlers({
     subGrids, setSubGrids, expandedRowId, setExpandedRowId,
     editingScoreCard, getCurrentData, updateCurrentData,
-    selectedCategory, isScorecard,
+    selectedCategory, isScorecard, deltaTracker,
   });
 
   // Auto-save uses resetKey (editingScoreCard?.id) to cleanly reset on switch
@@ -326,14 +330,12 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
           }
           setEditingScoreCard(prev => prev ? { ...prev, id: newId } : null);
         }
-        // No toast needed
       },
-      onSaveError: (error) => {
-        // No toast needed
-      },
+      onSaveError: () => {},
     },
     editingScoreCard?.id, // resetKey
-    editingScoreCard // resetValue
+    editingScoreCard, // resetValue
+    deltaTracker
   );
 
   // Warn user if they try to close tab/navigate away with unsaved changes
@@ -795,20 +797,35 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     ));
   }, [editingScoreCard]);
 
-  // Handle rows change
+  // Handle rows change — diff to record cell-level deltas
   const onRowsChange = useCallback((newRows: Row[]) => {
+    if (editingScoreCard) {
+      const oldRows = editingScoreCard.rows;
+      for (const newRow of newRows) {
+        if (newRow.isAddRow) continue;
+        const oldRow = oldRows.find((r: any) => r.id === newRow.id);
+        if (!oldRow) continue;
+        for (const key of Object.keys(newRow)) {
+          if (key === 'id' || key === 'isAddRow' || key === 'subgrid') continue;
+          if (newRow[key] !== oldRow[key]) {
+            deltaTracker.recordCellDelta({ rowId: newRow.id, columnKey: key, value: newRow[key] });
+          }
+        }
+      }
+    }
     updateCurrentScorecard({ rows: [...newRows] });
-  }, [updateCurrentScorecard]);
+  }, [editingScoreCard, updateCurrentScorecard, deltaTracker]);
 
-  // Handle column name change
+  // Handle column name change (structural — changes column shape)
   const handleColumnNameChange = useCallback((idx: number, newName: string) => {
     if (!editingScoreCard) return;
     const newColumns = [...editingScoreCard.columns];
     newColumns[idx] = { ...newColumns[idx], name: newName };
+    deltaTracker.markStructuralChange();
     updateCurrentScorecard({ columns: newColumns });
-  }, [editingScoreCard, updateCurrentScorecard]);
+  }, [editingScoreCard, updateCurrentScorecard, deltaTracker]);
 
-  // Add new row
+  // Add new row (structural)
   const handleAddRow = useCallback(() => {
     if (!editingScoreCard) return;
     const newRow: Row = {
@@ -821,15 +838,17 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       hq_location: '',
       notes: '',
     };
+    deltaTracker.markStructuralChange();
     updateCurrentScorecard({ rows: [...editingScoreCard.rows, newRow] });
-  }, [editingScoreCard, updateCurrentScorecard]);
+  }, [editingScoreCard, updateCurrentScorecard, deltaTracker]);
 
-  // Delete row
+  // Delete row (structural)
   const handleDeleteRow = useCallback((rowId: number | string) => {
     if (!editingScoreCard) return;
     const newRows = editingScoreCard.rows.filter(row => row.id !== rowId);
+    deltaTracker.markStructuralChange();
     updateCurrentScorecard({ rows: newRows });
-  }, [editingScoreCard, updateCurrentScorecard]);
+  }, [editingScoreCard, updateCurrentScorecard, deltaTracker]);
 
   const {
     columnsWithDelete, retailersColumns, getSortedRows, getCellPosition,
@@ -908,6 +927,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       col.key === 'comments' ? { ...col, name: '', renderHeaderCell: () => null } : col
     );
     const updatedRows = currentData.rows.map(row => ({ ...row, [key]: '' }));
+    deltaTracker.markStructuralChange();
     updateCurrentData({ columns: updatedColumns, rows: updatedRows });
     // Sync all existing subgrids with the new product column
     setTimeout(() => syncSubgridsWithColumns(), 0);
@@ -1180,7 +1200,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   // Subgrid template state and helpers (per subgrid)
 
   // Add state for comment delete confirmation
-  const [confirmDeleteComment, setConfirmDeleteComment] = useState<{ rowId: number, commentIdx: number } | null>(null);
+  const [confirmDeleteComment, setConfirmDeleteComment] = useState<{ rowId: number | string, commentIdx: number } | null>(null);
 
 
   useEffect(() => {
@@ -1879,14 +1899,12 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
                   // Get the current data and update it directly
                   const currentData = getCurrentData();
                   if (currentData) {
-                    // Create a new data object with the updated row
                     const updatedRows = [...currentData.rows];
                     updatedRows[statusPicker.rowIdx] = {
                       ...updatedRows[statusPicker.rowIdx],
                       [statusPicker.columnKey]: v
                     };
-
-                    // Update the data directly without going through onRowsChange
+                    deltaTracker.recordCellDelta({ rowId: updatedRows[statusPicker.rowIdx].id, columnKey: statusPicker.columnKey, value: v });
                     updateCurrentData({ rows: updatedRows });
 
                     // Force restore scroll position after a short delay
@@ -1949,14 +1967,12 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
                   // Get the current data and update it directly
                   const currentData = getCurrentData();
                   if (currentData) {
-                    // Create a new data object with the updated row
                     const updatedRows = [...currentData.rows];
                     updatedRows[priorityPicker.rowIdx] = {
                       ...updatedRows[priorityPicker.rowIdx],
                       [priorityPicker.columnKey]: v
                     };
-
-                    // Update the data directly without going through onRowsChange
+                    deltaTracker.recordCellDelta({ rowId: updatedRows[priorityPicker.rowIdx].id, columnKey: priorityPicker.columnKey, value: v });
                     updateCurrentData({ rows: updatedRows });
 
                     // Force restore scroll position after a short delay
@@ -2019,14 +2035,12 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
                   // Get the current data and update it directly
                   const currentData = getCurrentData();
                   if (currentData) {
-                    // Create a new data object with the updated row
                     const updatedRows = [...currentData.rows];
                     updatedRows[contactPicker.rowIdx] = {
                       ...updatedRows[contactPicker.rowIdx],
                       [contactPicker.columnKey]: v
                     };
-
-                    // Update the data directly without going through onRowsChange
+                    deltaTracker.recordCellDelta({ rowId: updatedRows[contactPicker.rowIdx].id, columnKey: contactPicker.columnKey, value: v });
                     updateCurrentData({ rows: updatedRows });
 
                     // Force restore scroll position after a short delay
@@ -2089,14 +2103,12 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
                   // Get the current data and update it directly
                   const currentData = getCurrentData();
                   if (currentData) {
-                    // Create a new data object with the updated row
                     const updatedRows = [...currentData.rows];
                     updatedRows[categoryReviewDatePicker.rowIdx] = {
                       ...updatedRows[categoryReviewDatePicker.rowIdx],
                       [categoryReviewDatePicker.columnKey]: v
                     };
-
-                    // Update the data directly without going through onRowsChange
+                    deltaTracker.recordCellDelta({ rowId: updatedRows[categoryReviewDatePicker.rowIdx].id, columnKey: categoryReviewDatePicker.columnKey, value: v });
                     updateCurrentData({ rows: updatedRows });
 
                     // Force restore scroll position after a short delay
