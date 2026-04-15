@@ -64,13 +64,26 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
     }
 
     setError(null);
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
+
+    // Read file bytes immediately — iOS Safari can garbage-collect the camera
+    // file reference while the user fills in the form, causing
+    // "The string did not match the expected pattern" on upload.
+    let stableFile: File;
+    try {
+      const buffer = await f.arrayBuffer();
+      stableFile = new File([buffer], f.name, { type: mime || 'image/jpeg', lastModified: f.lastModified });
+    } catch {
+      setError('Could not read the photo. Please re-select it.');
+      return;
+    }
+
+    setFile(stableFile);
+    setPreview(URL.createObjectURL(stableFile));
     setExtracting(true);
     setNoGps(false);
 
     try {
-      const exif = await extractExifFromFile(f);
+      const exif = await extractExifFromFile(stableFile);
 
       if (exif.dateTaken) {
         const d = new Date(exif.dateTaken);
@@ -137,13 +150,32 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Upload failed');
+        let msg = 'Upload failed';
+        try { const data = await res.json(); msg = data.error || msg; } catch { /* non-JSON response */ }
+        throw new Error(msg);
       }
 
       resetForm();
       onUploaded();
     } catch (err: any) {
+      // iOS browsers throw when the temp file blob is garbage-collected:
+      //   Safari/WebKit: "The string did not match the expected pattern"
+      //   Chrome on iOS:  "Failed to fetch" / "network error" / "NotReadableError"
+      //   Any browser:    "NotFoundError" / "AbortError" when blob is gone
+      const msg = (err.message || '').toLowerCase();
+      const name = (err.name || '').toLowerCase();
+      const isBlobGone = msg.includes('did not match') || msg.includes('expected pattern')
+        || msg.includes('not readable') || msg.includes('notfounderror')
+        || name === 'notreadableerror' || name === 'notfounderror' || name === 'aborterror'
+        || (msg.includes('failed to fetch') && /ipad|iphone|ipod/i.test(navigator.userAgent));
+      if (isBlobGone) {
+        setFile(null);
+        setPreview(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        setError('Photo expired — please re-select your photo and try again.');
+        setSubmitting(false);
+        return;
+      }
       setError(err.message || 'Upload failed');
     } finally {
       setSubmitting(false);
