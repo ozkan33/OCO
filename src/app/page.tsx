@@ -470,7 +470,7 @@ export default function LandingPage() {
                 return (
                   <Wrapper key={idx} {...linkProps} className={`flex-shrink-0 flex flex-col items-center justify-center gap-2 px-5 py-2 opacity-70 hover:opacity-100 transition-opacity ${url ? 'cursor-pointer' : ''}`} title={url ? `Visit ${logo.alt}` : logo.alt}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={logo.src} alt={logo.alt} className="max-h-16 max-w-[140px] object-contain" />
+                    <img src={logo.src} alt={logo.alt} className="max-h-12 sm:max-h-16 max-w-[100px] sm:max-w-[140px] object-contain" />
                     <span className="text-xs font-medium text-slate-400 uppercase tracking-wider leading-none text-center whitespace-nowrap">{logo.alt}</span>
                   </Wrapper>
                 );
@@ -518,7 +518,7 @@ export default function LandingPage() {
                     className={`flex-shrink-0 inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full border border-slate-200 bg-white text-base font-semibold text-slate-700 whitespace-nowrap transition-colors duration-200 ${r.url ? 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 cursor-pointer' : ''}`}
                   >
                     {domain ? (
-                      <img src={domain} alt="" className="w-5 h-5 rounded-sm flex-shrink-0" />
+                      <img src={domain} alt="" className="w-7 h-7 rounded-sm flex-shrink-0" />
                     ) : (
                       <span className="w-5 h-5 rounded-sm bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500 flex-shrink-0">{r.name[0]}</span>
                     )}
@@ -542,7 +542,7 @@ export default function LandingPage() {
                     className={`flex-shrink-0 inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full border border-slate-200 bg-white text-base font-semibold text-slate-700 whitespace-nowrap transition-colors duration-200 ${r.url ? 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 cursor-pointer' : ''}`}
                   >
                     {domain ? (
-                      <img src={domain} alt="" className="w-5 h-5 rounded-sm flex-shrink-0" />
+                      <img src={domain} alt="" className="w-7 h-7 rounded-sm flex-shrink-0" />
                     ) : (
                       <span className="w-5 h-5 rounded-sm bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500 flex-shrink-0">{r.name[0]}</span>
                     )}
@@ -668,7 +668,7 @@ export default function LandingPage() {
             </div>
 
             {/* Right: Portal visual mockup (CSS only) */}
-            <div className="relative" aria-hidden>
+            <div className="relative hidden sm:block" aria-hidden>
               <div className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
                 {/* Browser chrome */}
                 <div className="flex items-center gap-1.5 px-3 py-2 border-b border-slate-100 bg-slate-50 rounded-t-lg">
@@ -747,37 +747,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── About ─────────────────────────────────────────────────────────── */}
-      <section id="about" className="py-20 px-5 bg-slate-50">
-        <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-          <div>
-            <h2 className="text-3xl md:text-4xl text-slate-900 mb-5 leading-tight" style={{ fontFamily: 'var(--font-display)' }}>
-              We care about brands<br />
-              <span className="text-blue-600">that deserve the spotlight</span>
-            </h2>
-            <p className="text-slate-600 leading-relaxed mb-4">
-              3 Brothers Marketing is a boutique CPG sales and strategy partner built for emerging brands. Founded in August 2024, we saw that small and mid-sized brands were being overlooked in massive portfolios at the largest distributors and brokerage agencies.
-            </p>
-            <p className="text-slate-600 leading-relaxed">
-              Most brokers carry hundreds of brands. We keep our roster small on purpose — so every brand gets real attention, honest feedback, and a team that actually picks up the phone.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            {[
-              { label: "Small Roster, Big Focus", desc: "We limit our portfolio so your brand never competes with 500 others for our time." },
-              { label: "Midwest Roots", desc: "Deep relationships across MI, MN, ND, SD & WI — we know the buyers, the stores, and the market." },
-              { label: "Founder-Led", desc: "You work directly with the founders. No account managers, no hand-offs, no runaround." },
-              { label: "Built for Emerging Brands", desc: "We've helped brands grow from 20 doors to 200+. We know what early-stage brands actually need." },
-            ].map(item => (
-              <div key={item.label} className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm">
-                <p className="font-semibold text-slate-900 text-sm mb-1">{item.label}</p>
-                <p className="text-slate-500 text-xs leading-relaxed">{item.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* ── Contact ───────────────────────────────────────────────────────── */}
       <section id="contact" className="py-20 px-5 bg-white">
         <div className="max-w-2xl mx-auto">
@@ -807,7 +776,7 @@ export default function LandingPage() {
           ) : (
             <form
               onSubmit={handleSubmit}
-              className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 flex flex-col gap-5"
+              className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-8 flex flex-col gap-5"
             >
               {/* Row 1: Name + Email */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -990,11 +959,11 @@ export default function LandingPage() {
                 <p className="text-xs text-slate-500">MN · WI · MI · ND · SD</p>
               </div>
             </div>
-            <div className="flex gap-6 text-sm">
-              <a href="#about" className="hover:text-white transition">About</a>
-              <a href="#clients" className="hover:text-white transition">Clients</a>
-              <a href="#contact" className="hover:text-white transition">Contact</a>
-              <button onClick={handlePortalClick} className="hover:text-white transition">Portal Login</button>
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-6 text-sm text-center">
+              <a href="#retailers" className="hover:text-white transition py-1">Retailers</a>
+              <a href="#clients" className="hover:text-white transition py-1">Clients</a>
+              <a href="#contact" className="hover:text-white transition py-1">Contact</a>
+              <button onClick={handlePortalClick} className="hover:text-white transition py-1">Portal Login</button>
             </div>
             <div className="text-center md:text-right">
               <p className="text-xs text-slate-500">Minneapolis, MN</p>

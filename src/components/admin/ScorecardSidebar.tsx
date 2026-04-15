@@ -58,8 +58,11 @@ export default function ScorecardSidebar({
   }
 
   return (
+    <>
+    {/* Mobile backdrop */}
+    <div className="fixed inset-0 bg-black/30 z-40 md:hidden" onClick={onCollapse} />
     <aside
-      className="h-full bg-white border-r border-slate-200 shadow-sm flex flex-col shrink-0 transition-all duration-200 ease-in-out overflow-hidden"
+      className="h-full bg-white border-r border-slate-200 shadow-sm flex flex-col shrink-0 transition-all duration-200 ease-in-out overflow-hidden fixed md:relative z-50 md:z-auto"
       style={{ width: 240, opacity: 1 }}
     >
       <div className="px-4 pt-5 pb-3 flex items-center justify-between">
@@ -179,5 +182,6 @@ export default function ScorecardSidebar({
         )}
       </div>
     </aside>
+    </>
   );
 }
