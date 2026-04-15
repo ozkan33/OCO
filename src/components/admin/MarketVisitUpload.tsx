@@ -49,7 +49,16 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
       setError('Photo must be under 10MB');
       return;
     }
-    if (!f.type.match(/^image\/(jpeg|png|webp|heic)$/)) {
+    // iOS Safari often reports HEIC as "" or "image/heif" — also accept by extension
+    const mime = f.type.toLowerCase();
+    const ext = f.name.split('.').pop()?.toLowerCase() || '';
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+    const allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'];
+    if (mime && !allowedMimes.includes(mime)) {
+      setError('Only JPEG, PNG, WebP and HEIC images are allowed');
+      return;
+    }
+    if (!mime && !allowedExts.includes(ext)) {
       setError('Only JPEG, PNG, WebP and HEIC images are allowed');
       return;
     }
@@ -189,7 +198,7 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
           capture="environment"
           className="hidden"
           onChange={e => {
