@@ -103,17 +103,11 @@ body {
 
 /* Mobile-specific improvements */
 @media (max-width: 768px) {
-  /* Improve touch targets */
-  button, a {
-    min-height: 44px;
-    min-width: 44px;
-  }
-  
   /* Better text readability on mobile */
   p {
     line-height: 1.6;
   }
-  
+
   /* Improve form inputs on mobile */
   input, textarea, select {
     font-size: 16px !important; /* Prevents zoom on iOS */

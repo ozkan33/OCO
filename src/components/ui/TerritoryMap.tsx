@@ -101,7 +101,7 @@ export default function TerritoryMap() {
               onMouseEnter={() => setHovered(s.id)}
               onMouseLeave={() => setHovered(null)}
             >
-              <p className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              <p className="text-xl sm:text-3xl font-extrabold tracking-tight">
                 <span className={`bg-clip-text text-transparent transition-colors duration-200 ${
                   hovered === s.id ? 'bg-gradient-to-b from-blue-600 to-blue-500' : 'bg-gradient-to-b from-slate-900 to-slate-600'
                 }`}>

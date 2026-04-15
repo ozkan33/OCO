@@ -114,7 +114,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   const [newScoreCardName, setNewScoreCardName] = useState('');
   const [editingScoreCard, setEditingScoreCard] = useState<ScoreCard | null>(null);
   const [showEditScoreCardModal, setShowEditScoreCardModal] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
 
 
 
@@ -768,6 +768,8 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
 
     setSelectedCategory(category);
     setSortColumns([]);
+    // Auto-collapse sidebar on mobile after selection
+    if (window.innerWidth < 768) setSidebarCollapsed(true);
 
     if (category === 'master-scorecard') {
       setEditingScoreCard(null);
@@ -1631,7 +1633,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
         /* Add this to your global CSS (e.g., in globals.css or a style tag): */
         /* .custom-col-editing { background: #fff; box-shadow: 0 0 0 2px #2563eb; border-radius: 6px; } */
       `}</style>
-      <div className="flex h-screen w-full">
+      <div className="flex h-dvh w-full">
         <ScorecardSidebar
           scorecards={scorecards}
           selectedCategory={selectedCategory}
@@ -1653,7 +1655,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
         />
 
         {/* Main Content */}
-        <main className="flex-1 h-full flex flex-col p-6 overflow-auto bg-slate-50">
+        <main className="flex-1 h-full flex flex-col p-3 sm:p-6 overflow-auto bg-slate-50">
           {/* Auto-save handled by useScoreCardAutoSave hook directly */}
 
           {/* Toolbar */}
@@ -1708,7 +1710,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
 
           {/* DataGrid */}
           {selectedCategory !== 'master-scorecard' && currentData && currentData.columns && currentData.rows ? (
-            <div ref={gridContainerRef} className="flex-1 w-full flex flex-col" style={{ position: 'relative', minHeight: 'calc(100vh - 120px)' }}>
+            <div ref={gridContainerRef} className="flex-1 w-full flex flex-col" style={{ position: 'relative', minHeight: 'calc(100dvh - 120px)' }}>
               <DataGrid
                 ref={gridRef}
                 key={selectedCategory}
