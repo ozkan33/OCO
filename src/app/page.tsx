@@ -115,9 +115,49 @@ const retailers: { name: string; url?: string }[] = [
   { name: 'Wedge', url: 'https://wedge.coop/' },
 ];
 
-function retailerFavicon(url?: string) {
+const faviconMap: Record<string, string> = {
+  'www.cub.com': '/favicons/cub-com.png',
+  'www.unfi.com': '/favicons/unfi-com.png',
+  'www.festfoods.com': '/favicons/festfoods-com.png',
+  'coborns.com': '/favicons/coborns-com.png',
+  'www.lundsandbyerlys.com': '/favicons/lundsandbyerlys-com.png',
+  'luckysevengeneralstores.com': '/favicons/luckysevengeneralstores-com.png',
+  'vonhansons.com': '/favicons/vonhansons-com.png',
+  'liparifoods.com': '/favicons/liparifoods-com.png',
+  'www.spartannash.com': '/favicons/spartannash-com.png',
+  'www.usfoods.com': '/favicons/usfoods-com.png',
+  'www.ronmarfoods.com': '/favicons/ronmarfoods-com.png',
+  'www.billssuperette.com': '/favicons/billssuperette-com.png',
+  'cashwise.com': '/favicons/cashwise-com.png',
+  'ww2.freshthyme.com': '/favicons/ww2-freshthyme-com.png',
+  'www.cpw.coop': '/favicons/cpw-coop.png',
+  'brownsicecream.com': '/favicons/brownsicecream-com.png',
+  'www.doitbest.com': '/favicons/doitbest-com.png',
+  'www.gohugos.com': '/favicons/gohugos-com.png',
+  'www.shopthepig.com': '/favicons/shopthepig-com.png',
+  'www.woodmans-food.com': '/favicons/woodmans-food-com.png',
+  'www.kowalskis.com': '/favicons/kowalskis-com.png',
+  'www.leeversfoods.com': '/favicons/leeversfoods-com.png',
+  'hornbachers.com': '/favicons/hornbachers-com.png',
+  'www.jerrysfoods.com': '/favicons/jerrysfoods-com.png',
+  'www.nilssensfoods.com': '/favicons/nilssensfoods-com.png',
+  'www.dicksfreshmarket.com': '/favicons/dicksfreshmarket-com.png',
+  'www.luekens.com': '/favicons/luekens-com.png',
+  'www.lakewinds.coop': '/favicons/lakewinds-coop.png',
+  'mackenthuns.com': '/favicons/mackenthuns-com.png',
+  'www.hy-vee.com': '/favicons/hy-vee-com.png',
+  'seward.coop': '/favicons/seward-coop.png',
+  'wedge.coop': '/favicons/wedge-coop.png',
+  'www.fortunefishco.net': '',
+  'www.knowlansfreshfoods.com': '',
+};
+
+function retailerFavicon(url?: string): string | null {
   if (!url) return null;
-  try { return new URL(url).hostname; } catch { return null; }
+  try {
+    const hostname = new URL(url).hostname;
+    return faviconMap[hostname] || null;
+  } catch { return null; }
 }
 
 function getBrandUrl(label: string): string {
@@ -198,11 +238,11 @@ export default function LandingPage() {
             url: 'https://3brothersmarketing.com',
             logo: {
               '@type': 'ImageObject',
-              url: 'https://i.hizliresim.com/rm69m47.png',
+              url: 'https://3brothersmarketing.com/logo.png',
               width: 512,
               height: 512,
             },
-            image: 'https://i.hizliresim.com/rm69m47.png',
+            image: 'https://3brothersmarketing.com/logo.png',
             description: 'Boutique CPG sales brokerage helping emerging food & beverage brands win shelf space across 5,400+ retail doors in the Upper Midwest. Retail execution, buyer relationships, and category management.',
             foundingDate: '2024-08',
             numberOfEmployees: { '@type': 'QuantitativeValue', minValue: 2, maxValue: 10 },
@@ -268,7 +308,7 @@ export default function LandingPage() {
             inLanguage: 'en-US',
             primaryImageOfPage: {
               '@type': 'ImageObject',
-              url: 'https://i.hizliresim.com/rm69m47.png',
+              url: 'https://3brothersmarketing.com/logo.png',
             },
           },
           // 4. BreadcrumbList
@@ -478,7 +518,7 @@ export default function LandingPage() {
                     className={`flex-shrink-0 inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full border border-slate-200 bg-white text-base font-semibold text-slate-700 whitespace-nowrap transition-colors duration-200 ${r.url ? 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 cursor-pointer' : ''}`}
                   >
                     {domain ? (
-                      <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`} alt="" className="w-5 h-5 rounded-sm flex-shrink-0" />
+                      <img src={domain} alt="" className="w-5 h-5 rounded-sm flex-shrink-0" />
                     ) : (
                       <span className="w-5 h-5 rounded-sm bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500 flex-shrink-0">{r.name[0]}</span>
                     )}
@@ -502,7 +542,7 @@ export default function LandingPage() {
                     className={`flex-shrink-0 inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full border border-slate-200 bg-white text-base font-semibold text-slate-700 whitespace-nowrap transition-colors duration-200 ${r.url ? 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 cursor-pointer' : ''}`}
                   >
                     {domain ? (
-                      <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`} alt="" className="w-5 h-5 rounded-sm flex-shrink-0" />
+                      <img src={domain} alt="" className="w-5 h-5 rounded-sm flex-shrink-0" />
                     ) : (
                       <span className="w-5 h-5 rounded-sm bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500 flex-shrink-0">{r.name[0]}</span>
                     )}

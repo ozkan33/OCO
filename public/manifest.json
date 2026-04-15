@@ -8,14 +8,9 @@
   "theme_color": "#3b82f6",
   "icons": [
     {
-      "src": "https://i.hizliresim.com/rm69m47.png",
+      "src": "/logo.png",
       "sizes": "512x512",
       "type": "image/png"
-    },
-    {
-      "src": "/3brothers-favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml"
     }
   ],
   "categories": ["business", "food"]

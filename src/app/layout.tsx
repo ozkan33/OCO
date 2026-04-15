@@ -29,11 +29,10 @@ export const metadata: Metadata = {
   ],
   icons: {
     icon: [
-      { url: '/3brothers-favicon.svg', type: 'image/svg+xml' },
-      { url: 'https://i.hizliresim.com/rm69m47.png', type: 'image/png' },
+      { url: '/logo.png', type: 'image/png' },
     ],
-    shortcut: 'https://i.hizliresim.com/rm69m47.png',
-    apple: 'https://i.hizliresim.com/rm69m47.png',
+    shortcut: '/logo.png',
+    apple: '/logo.png',
   },
   openGraph: {
     title: '3Brothers Marketing | CPG Sales Brokerage — Midwest Food & Beverage',
@@ -44,7 +43,7 @@ export const metadata: Metadata = {
     type: 'website',
     images: [
       {
-        url: 'https://i.hizliresim.com/rm69m47.png',
+        url: '/logo.png',
         width: 512,
         height: 512,
         alt: '3Brothers Marketing — CPG Sales Brokerage for Midwest Food & Beverage Brands',
@@ -55,7 +54,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: '3Brothers Marketing | CPG Sales Brokerage',
     description: 'Boutique CPG sales brokerage for emerging food & beverage brands. 5,400+ retail doors across the Upper Midwest.',
-    images: ['https://i.hizliresim.com/rm69m47.png'],
+    images: ['/logo.png'],
   },
   robots: {
     index: true,
@@ -92,9 +91,8 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/3brothers-favicon.svg" type="image/svg+xml" />
-        <link rel="icon" href="https://i.hizliresim.com/rm69m47.png" type="image/png" />
-        <link rel="apple-touch-icon" href="https://i.hizliresim.com/rm69m47.png" />
+        <link rel="icon" href="/logo.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/logo.png" />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#3b82f6" />
       </head>
