@@ -3,7 +3,7 @@ import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
 import { logger } from '../../../../lib/logger';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 
 // POST /api/market-visits — upload a visit photo
 export async function POST(request: Request) {
@@ -27,14 +27,34 @@ export async function POST(request: Request) {
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json({ error: 'Photo must be under 10MB' }, { status: 400 });
     }
-    const mimeType = file.type.toLowerCase();
-    if (!ALLOWED_TYPES.includes(mimeType)) {
+    // iOS Safari often sends empty or "image/heif" MIME type for HEIC photos
+    const EXT_TO_MIME: Record<string, string> = {
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+      webp: 'image/webp', heic: 'image/heic', heif: 'image/heic',
+    };
+    const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'];
+    const rawExt = file.name.split('.').pop()?.toLowerCase() || '';
+    let mimeType = file.type.toLowerCase();
+
+    // If MIME is empty (common on iOS), infer from file extension
+    if (!mimeType || mimeType === 'application/octet-stream') {
+      mimeType = EXT_TO_MIME[rawExt] || '';
+    }
+    // Normalize image/heif to image/heic for storage
+    if (mimeType === 'image/heif') mimeType = 'image/heic';
+
+    if (!ALLOWED_TYPES.includes(mimeType) && !ALLOWED_EXTENSIONS.includes(rawExt)) {
       return NextResponse.json({ error: 'Only JPEG, PNG, WebP and HEIC images are allowed' }, { status: 400 });
     }
+    // Ensure we have a valid MIME type for storage
+    if (!mimeType) mimeType = EXT_TO_MIME[rawExt] || 'image/jpeg';
 
-    // Validate date
+    // Validate date — must be YYYY-MM-DD (Chrome, Safari, Firefox all use this format)
     if (!visitDate) {
       return NextResponse.json({ error: 'Visit date is required' }, { status: 400 });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(visitDate) || isNaN(Date.parse(visitDate))) {
+      return NextResponse.json({ error: 'Invalid date format' }, { status: 400 });
     }
 
     // Validate brands
@@ -60,8 +80,6 @@ export async function POST(request: Request) {
     }
 
     // Upload to Supabase Storage
-    const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic'];
-    const rawExt = file.name.split('.').pop()?.toLowerCase() || '';
     const ext = ALLOWED_EXTENSIONS.includes(rawExt) ? rawExt : 'jpg';
     const storagePath = `${user.id}/${crypto.randomUUID()}.${ext}`;
 
@@ -74,7 +92,8 @@ export async function POST(request: Request) {
       });
 
     if (uploadError) {
-      return NextResponse.json({ error: `Upload failed: ${uploadError.message}` }, { status: 500 });
+      logger.error('Market visit storage upload failed:', uploadError);
+      return NextResponse.json({ error: 'Photo upload failed. Please try again.' }, { status: 500 });
     }
 
     // Get public URL
@@ -82,7 +101,9 @@ export async function POST(request: Request) {
       .from('market-photos')
       .getPublicUrl(storagePath);
 
-    // Insert database row
+    // Insert database row — sanitize numeric fields to avoid NaN
+    const parsedLat = latitude ? parseFloat(latitude) : null;
+    const parsedLng = longitude ? parseFloat(longitude) : null;
     const { data: visit, error: dbError } = await supabaseAdmin
       .from('market_visits')
       .insert({
@@ -90,12 +111,12 @@ export async function POST(request: Request) {
         photo_url: urlData.publicUrl,
         photo_storage_path: storagePath,
         visit_date: visitDate,
-        latitude: latitude ? parseFloat(latitude) : null,
-        longitude: longitude ? parseFloat(longitude) : null,
+        latitude: parsedLat !== null && !isNaN(parsedLat) ? parsedLat : null,
+        longitude: parsedLng !== null && !isNaN(parsedLng) ? parsedLng : null,
         address: address || null,
         store_name: storeName || null,
         note: note || null,
-        brands,
+        brands: brands.filter(b => typeof b === 'string' && b.trim()),
       })
       .select()
       .single();
@@ -103,7 +124,8 @@ export async function POST(request: Request) {
     if (dbError) {
       // Clean up uploaded file on DB failure
       await supabaseAdmin.storage.from('market-photos').remove([storagePath]);
-      return NextResponse.json({ error: dbError.message }, { status: 500 });
+      logger.error('Market visit DB insert failed:', dbError);
+      return NextResponse.json({ error: 'Failed to save visit. Please try again.' }, { status: 500 });
     }
 
     // ── Auto-comment: match store_name to scorecard customer rows ──
