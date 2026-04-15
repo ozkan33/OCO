@@ -72,47 +72,6 @@ export default function ClientLogosPage() {
     }
   };
 
-  const handleSeedExisting = async () => {
-    if (!confirm('This will add all 18 current hardcoded logos to the database. Continue?')) return;
-
-    const hardcodedLogos = [
-      { label: 'Nature Blessed', image_url: 'https://i.hizliresim.com/4foaurk.jpg' },
-      { label: 'Cry Baby Craigs', image_url: 'https://i.hizliresim.com/52p13eh.jpg' },
-      { label: 'Buon Giorno Italia', image_url: 'https://i.hizliresim.com/krii546.jpg' },
-      { label: 'Northstar Kombucha', image_url: 'https://i.hizliresim.com/qfb79rk.png' },
-      { label: 'Taco Terco', image_url: 'https://i.hizliresim.com/tvz3il4.png' },
-      { label: "JoMomma's", image_url: '/logos/jomommas.jpg' },
-      { label: 'Sturdiwheat', image_url: 'https://i.hizliresim.com/d2zwezj.jpg' },
-      { label: 'Big Watt Beverage', image_url: 'https://i.hizliresim.com/gj0kg4t.jpg' },
-      { label: 'Seven Bridges', image_url: 'https://i.hizliresim.com/krf2p1g.jpg' },
-      { label: 'KenDavis', image_url: 'https://i.hizliresim.com/m4yzvq2.jpg' },
-      { label: 'Dinos', image_url: 'https://i.hizliresim.com/69suf7c.jpg' },
-      { label: 'Coloma Frozen Foods', image_url: 'https://i.hizliresim.com/q3bhb2t.jpg' },
-      { label: "Mama Stoen's", image_url: 'https://i.hizliresim.com/69le7h5.jpg' },
-      { label: 'Smude', image_url: 'https://i.hizliresim.com/88g01lk.jpg' },
-      { label: 'Superior Water', image_url: 'https://i.hizliresim.com/24tt7vi.jpeg' },
-      { label: 'La Perla', image_url: 'https://i.hizliresim.com/mui2jgt.jpg' },
-      { label: 'Skinny Sticks', image_url: 'https://i.hizliresim.com/iv5mkd3.jpeg' },
-      { label: 'Calvin Cleo', image_url: 'https://i.hizliresim.com/61u7kde.jpeg' },
-    ];
-
-    try {
-      const res = await fetch('/api/client-logos', {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ logos: hardcodedLogos.map((l, i) => ({ ...l, sort_order: i })) }),
-      });
-      if (!res.ok) {
-        toast.error('Failed to seed logos');
-        return;
-      }
-      toast.success('Existing logos loaded into database');
-      await fetchLogos();
-    } catch {
-      toast.error('Failed to seed logos');
-    }
-  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -450,14 +409,7 @@ export default function ClientLogosPage() {
 
           {logos.length === 0 ? (
             <div className="px-6 py-12 text-center text-sm">
-              <p className="text-slate-400 mb-4">No logos in database yet.</p>
-              <button
-                onClick={handleSeedExisting}
-                className="px-5 py-2.5 bg-slate-800 text-white text-sm font-semibold rounded-lg hover:bg-slate-900 transition-colors"
-              >
-                Load Existing Logos from Landing Page
-              </button>
-              <p className="text-slate-300 text-xs mt-2">This will import all 18 current logos into the database so you can manage them here.</p>
+              <p className="text-slate-400">No logos in database yet. Use the form above to add your first logo.</p>
             </div>
           ) : (
             <ul className="divide-y divide-slate-100">
