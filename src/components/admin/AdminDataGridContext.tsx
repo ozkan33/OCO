@@ -19,14 +19,14 @@ export interface AdminGridContextValue {
   editCommentIdx: number | null;
   editCommentText: string;
   openCommentRowId: number | null;
-  openRetailerDrawer: number | null;
+  openRetailerDrawer: number | string | null;
 
   // Comment actions
   setCommentInput: (v: string) => void;
   setEditCommentIdx: (v: number | null) => void;
   setEditCommentText: (v: string) => void;
   setOpenCommentRowId: (v: number | null) => void;
-  setOpenRetailerDrawer: (v: number | null) => void;
+  setOpenRetailerDrawer: (v: number | string | null) => void;
   setComments: React.Dispatch<React.SetStateAction<Record<string, Record<string, any[]>>>>;
   setConfirmDeleteComment: (v: { rowId: number | string; commentIdx: number } | null) => void;
   handleAddComment: () => void;

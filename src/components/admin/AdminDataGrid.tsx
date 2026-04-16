@@ -161,7 +161,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   const [comments, setComments] = useState<Record<string, Record<string, any[]>>>({});
 
   // Add state and modal for the advanced retailer drawer if not present
-  const [openRetailerDrawer, setOpenRetailerDrawer] = useState<number | null>(null);
+  const [openRetailerDrawer, setOpenRetailerDrawer] = useState<number | string | null>(null);
 
   // Added for comment editing
   const [editCommentIdx, setEditCommentIdx] = useState<number | null>(null);
@@ -797,12 +797,11 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
         if (rowId) {
           // Small delay to ensure state has settled after scorecard switch
           setTimeout(() => {
+            // Support both numeric and string row IDs
             const numericRowId = Number(rowId);
-            if (!isNaN(numericRowId)) {
-              setOpenRetailerDrawer(numericRowId);
-              // Also load comments for the scorecard
-              loadScorecardComments(scorecardId);
-            }
+            const resolvedRowId = !isNaN(numericRowId) ? numericRowId : rowId;
+            setOpenRetailerDrawer(resolvedRowId);
+            loadScorecardComments(scorecardId);
           }, 500);
         }
       };

@@ -146,7 +146,7 @@ export function SimpleCommentDrawer() {
         <div className="flex-1 flex flex-col px-8 py-6 overflow-y-auto bg-slate-50">
           <h3 className="text-base font-semibold text-slate-700 mb-4">Comments</h3>
           <div className="flex-1 overflow-y-auto mb-4 space-y-4 pr-1" style={{ maxHeight: '40vh' }}>
-            {typeof row.id === 'number' && <CommentList rowId={row.id} />}
+            {row.id != null && <CommentList rowId={row.id} />}
           </div>
           <CommentInput onSubmit={handleAddComment} />
         </div>
@@ -169,7 +169,8 @@ export function RetailerDrawer() {
   if (openRetailerDrawer === null || !selectedCategory || !isScorecard(selectedCategory)) return null;
 
   const currentData = getCurrentData();
-  const row = currentData?.rows.find((r: any) => r.id === openRetailerDrawer) || {};
+  // Flexible match: support both numeric and string row IDs
+  const row = currentData?.rows.find((r: any) => r.id === openRetailerDrawer || String(r.id) === String(openRetailerDrawer)) || {};
 
   const handleAddRetailerComment = async () => {
     if (!commentInput.trim() || openRetailerDrawer == null || !selectedCategory || !user) return;
@@ -277,7 +278,7 @@ export function RetailerDrawer() {
           </div>
           <h3 className="text-sm font-semibold text-slate-700 mb-2">Comments</h3>
           <div className="flex-1 overflow-y-auto mb-2 space-y-4 pr-1" style={{ maxHeight: '40vh' }}>
-            {typeof row.id === 'number' && <CommentList rowId={row.id} />}
+            {row.id != null && <CommentList rowId={row.id} />}
           </div>
           <div className="pt-4 border-t bg-slate-50 rounded-b-2xl flex gap-3 items-start mt-2" style={{ borderTop: '1px solid #e5e7eb' }}>
             <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg mt-1">
