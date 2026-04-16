@@ -5,38 +5,59 @@ import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../../lib/apiAuth';
 import { features } from '../../../../../../lib/features';
 import { decryptSecret, signDeviceToken } from '../../../../../../lib/crypto';
+import { logger } from '../../../../../../lib/logger';
 
 // POST /api/auth/2fa/verify - Verify TOTP code (during setup or login)
 export async function POST(request: Request) {
   if (!features.ENABLE_2FA) return NextResponse.json({ success: true, verified: true, skipped: true });
   try {
-    const user = await getUserFromToken(request);
+    // ── Step 1: Authenticate the user via session cookie ──────────────────────
+    let user;
+    try {
+      user = await getUserFromToken(request);
+    } catch (authErr) {
+      logger.warn('2FA verify: session auth failed —', authErr instanceof Error ? authErr.message : authErr);
+      return NextResponse.json(
+        { error: 'Your session has expired. Please sign in again.' },
+        { status: 401 },
+      );
+    }
+
+    // ── Step 2: Validate the TOTP code input ─────────────────────────────────
     const { code, trustDevice } = await request.json();
 
     if (!code || typeof code !== 'string' || code.length !== 6) {
       return NextResponse.json({ error: 'Invalid code. Enter the 6-digit code from your authenticator.' }, { status: 400 });
     }
 
-    // Get stored secret
-    const { data: totpData } = await supabaseAdmin
+    // ── Step 3: Look up the stored TOTP secret ───────────────────────────────
+    const { data: totpData, error: totpErr } = await supabaseAdmin
       .from('user_totp_secrets')
       .select('encrypted_secret, is_enabled')
       .eq('user_id', user.id)
       .single();
 
-    if (!totpData) {
+    if (totpErr || !totpData) {
+      logger.warn('2FA verify: no TOTP secret found for user', user.id);
       return NextResponse.json({ error: '2FA not set up. Please set up 2FA first.' }, { status: 400 });
     }
 
-    // Decrypt and verify the code
-    const secret = decryptSecret(totpData.encrypted_secret);
+    // ── Step 4: Decrypt and verify ───────────────────────────────────────────
+    let secret: string;
+    try {
+      secret = decryptSecret(totpData.encrypted_secret);
+    } catch (decryptErr) {
+      logger.error('2FA verify: decryption failed for user', user.id, decryptErr);
+      return NextResponse.json({ error: 'Unable to verify code. Please contact support.' }, { status: 500 });
+    }
+
     const result = await verifyTOTP({ token: code, secret });
 
     if (!result.valid) {
       return NextResponse.json({ error: 'Invalid code. Please try again.' }, { status: 400 });
     }
 
-    // If first verification (setup), enable 2FA
+    // ── Step 5: If first verification (setup), enable 2FA ────────────────────
     if (!totpData.is_enabled) {
       await supabaseAdmin
         .from('user_totp_secrets')
@@ -57,7 +78,7 @@ export async function POST(request: Request) {
 
     const response: any = { success: true, verified: true };
 
-    // Trust this device if requested
+    // ── Step 6: Trust this device if requested ───────────────────────────────
     if (trustDevice) {
       const deviceToken = crypto.randomBytes(32).toString('hex');
       const ua = request.headers.get('user-agent') || 'Unknown';
@@ -97,7 +118,8 @@ export async function POST(request: Request) {
       sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 7, // 7 days
     });
     return res;
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  } catch (err) {
+    logger.error('2FA verify: unexpected error —', err);
+    return NextResponse.json({ error: 'Verification failed. Please try again.' }, { status: 500 });
   }
 }

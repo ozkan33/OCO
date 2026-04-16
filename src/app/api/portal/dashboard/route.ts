@@ -76,12 +76,15 @@ export async function GET(request: Request) {
       }
     }
 
+    // Use actual scorecard IDs from fetched scorecards (handles self-healed stale IDs)
+    const finalScorecardIds = (scorecards || []).map((sc: any) => sc.id);
+
     // Fetch comments for all assigned scorecards
     const { data: allComments } = await supabaseAdmin
       .from('comments')
       .select('id, scorecard_id, row_id, text, user_id, user_email, created_at, updated_at')
-      .in('scorecard_id', scorecardIds)
-      .order('created_at', { ascending: false });
+      .in('scorecard_id', finalScorecardIds.length > 0 ? finalScorecardIds : ['__none__'])
+      .order('created_at', { ascending: true });
 
     // Build filtered view for each scorecard
     const statusCounts = { authorized: 0, inProcess: 0, buyerPassed: 0, presented: 0, other: 0 };
@@ -121,9 +124,10 @@ export async function GET(request: Request) {
         const rowComments = (allComments || [])
           .filter((c: any) => c.scorecard_id === sc.id && String(c.row_id) === String(row.id))
           .map((c: any) => {
-            const emailName = (c.user_email || 'Admin').split('@')[0];
+            const isAdmin = c.user_id === sc.user_id;
+            const emailName = (c.user_email || 'Unknown').split('@')[0];
             const author = emailName.charAt(0).toUpperCase() + emailName.slice(1);
-            return { id: c.id, text: c.text, author, date: c.created_at, updated_at: c.updated_at, isOwn: c.user_id === user.id };
+            return { id: c.id, text: c.text, author, date: c.created_at, updated_at: c.updated_at, isOwn: c.user_id === user.id, isAdmin };
           });
 
         return {
