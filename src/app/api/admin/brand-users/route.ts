@@ -63,6 +63,13 @@ export async function POST(request: Request) {
         brand: brandName,
         name: contactName,
         must_change_password: features.ENABLE_FORCED_PASSWORD_CHANGE,
+        // Flag the new user for mandatory 2FA enrollment. Cleared when verify succeeds.
+        // Middleware uses this to force them through /auth/change-password (which owns
+        // the enrollment UI) even after password change commits. Without this, a failed
+        // 2FA setup call leaves totp_enabled=false + must_change_password=false and the
+        // 2FA gate in middleware has nothing to latch onto → user lands on /portal
+        // unprotected. See supabase/migrations/20240101000027_brand_users_must_enroll_2fa.sql.
+        must_enroll_2fa: features.ENABLE_2FA,
       },
     });
 
@@ -79,6 +86,7 @@ export async function POST(request: Request) {
         contact_name: contactName,
         email,
         must_change_password: features.ENABLE_FORCED_PASSWORD_CHANGE,
+        must_enroll_2fa: features.ENABLE_2FA,
         created_by: admin.id,
       });
 

@@ -157,8 +157,20 @@ export async function middleware(request: NextRequest) {
     const role = payload?.user_metadata?.role;
     const mustChangePassword = payload?.user_metadata?.must_change_password;
 
-    // Brand users must change password before accessing portal
-    if (role === 'BRAND' && mustChangePassword && !pathname.startsWith('/auth/change-password') && !pathname.startsWith('/api/auth/change-password')) {
+    const mustEnroll2FA = payload?.user_metadata?.must_enroll_2fa;
+
+    // Brand users must change password and/or enroll 2FA before accessing portal.
+    // The /auth/change-password page owns both the password step and the 2FA
+    // enrollment step (scan QR → verify), so redirect there for either flag.
+    if (
+      role === 'BRAND' &&
+      (mustChangePassword || mustEnroll2FA) &&
+      !pathname.startsWith('/auth/change-password') &&
+      !pathname.startsWith('/api/auth/change-password') &&
+      !pathname.startsWith('/api/auth/2fa') &&
+      !pathname.startsWith('/api/auth/log-session') &&
+      !pathname.startsWith('/api/auth/me')
+    ) {
       return NextResponse.redirect(new URL('/auth/change-password', request.url));
     }
 
@@ -199,10 +211,27 @@ export async function middleware(request: NextRequest) {
     if (refreshed) {
       // Check 2FA on refreshed token too
       const refreshedPayload = decodeToken(refreshed.access_token);
+      const refreshedRole = refreshedPayload?.user_metadata?.role;
+      const refreshedMustChange = refreshedPayload?.user_metadata?.must_change_password;
+      const refreshedMustEnroll = refreshedPayload?.user_metadata?.must_enroll_2fa;
       const refreshedTotpEnabled = refreshedPayload?.user_metadata?.totp_enabled;
       const refreshedHas2FA = request.cookies.get('2fa_verified')?.value === 'true';
       const refreshedTrustedCookie = request.cookies.get('trusted_device')?.value || '';
       const refreshedHasTrusted = refreshedTrustedCookie ? await verifyDeviceTokenEdge(refreshedTrustedCookie) : false;
+
+      // Same onboarding redirect as the fast path above.
+      if (
+        refreshedRole === 'BRAND' &&
+        (refreshedMustChange || refreshedMustEnroll) &&
+        !pathname.startsWith('/auth/change-password') &&
+        !pathname.startsWith('/api/auth/change-password') &&
+        !pathname.startsWith('/api/auth/2fa') &&
+        !pathname.startsWith('/api/auth/log-session') &&
+        !pathname.startsWith('/api/auth/me')
+      ) {
+        return NextResponse.redirect(new URL('/auth/change-password', request.url));
+      }
+
       if (refreshedTotpEnabled && !refreshedHas2FA && !refreshedHasTrusted) {
         const allowed = pathname.startsWith('/api/auth/2fa') || pathname.startsWith('/api/auth/log-session') || pathname.startsWith('/auth/login');
         if (!allowed) {

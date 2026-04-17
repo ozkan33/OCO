@@ -79,15 +79,21 @@ export default function LoginPage() {
       // Determine redirect based on role
       const role = data.user?.user_metadata?.role;
       const mustChangePassword = data.user?.user_metadata?.must_change_password;
+      const mustEnroll2FA = data.user?.user_metadata?.must_enroll_2fa;
       const totpEnabled = data.user?.user_metadata?.totp_enabled;
       let redirectTo = '/admin/dashboard';
 
       if (role === 'BRAND') {
-        redirectTo = mustChangePassword ? '/auth/change-password' : '/portal';
+        // /auth/change-password owns both onboarding steps (password + 2FA enroll).
+        // If either flag is set, route there — middleware enforces the same gate
+        // defensively, but routing client-side avoids a flash of /portal.
+        redirectTo = (mustChangePassword || mustEnroll2FA) ? '/auth/change-password' : '/portal';
       }
 
-      // Check if 2FA is required and device is not trusted
-      if (totpEnabled && !mustChangePassword) {
+      // Check if 2FA is required and device is not trusted.
+      // Skip the prompt when the user is on an onboarding flow — enrollment (not
+      // verification) is what they need, and change-password owns that UI.
+      if (totpEnabled && !mustChangePassword && !mustEnroll2FA) {
         // First check if this device is already trusted (has valid cookie + DB record)
         const trustedRes = await fetch('/api/auth/2fa/check-trusted', { credentials: 'include' });
         const trustedData = trustedRes.ok ? await trustedRes.json() : null;
