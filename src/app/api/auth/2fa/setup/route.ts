@@ -5,13 +5,24 @@ import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../../lib/apiAuth';
 import { features } from '../../../../../../lib/features';
 import { encryptSecret } from '../../../../../../lib/crypto';
+import { logger } from '../../../../../../lib/logger';
 
 // POST /api/auth/2fa/setup - Generate TOTP secret and QR code
 export async function POST(request: Request) {
   if (!features.ENABLE_2FA) return NextResponse.json({ enabled: false, skipped: true });
-  try {
-    const user = await getUserFromToken(request);
 
+  let user;
+  try {
+    user = await getUserFromToken(request);
+  } catch (authErr) {
+    logger.warn('2FA setup POST: auth failed —', authErr instanceof Error ? authErr.message : authErr);
+    return NextResponse.json(
+      { error: 'Your session has expired. Please sign in again.' },
+      { status: 401 },
+    );
+  }
+
+  try {
     // Generate secret
     const secret = generateSecret();
     const email = user.email || 'user';
@@ -21,7 +32,7 @@ export async function POST(request: Request) {
     const qrDataUrl = await QRCode.toDataURL(otpauth, { width: 256, margin: 2 });
 
     // Store the secret encrypted at rest
-    await supabaseAdmin
+    const { error: upsertError } = await supabaseAdmin
       .from('user_totp_secrets')
       .upsert({
         user_id: user.id,
@@ -30,13 +41,19 @@ export async function POST(request: Request) {
         created_at: new Date().toISOString(),
       }, { onConflict: 'user_id' });
 
+    if (upsertError) {
+      logger.error('2FA setup POST: upsert failed —', upsertError.message);
+      return NextResponse.json({ error: 'Failed to save 2FA secret.' }, { status: 500 });
+    }
+
     return NextResponse.json({
       qrCode: qrDataUrl,
       secret, // Show to user as manual entry backup
       message: 'Scan the QR code with your authenticator app, then verify with a code.',
     });
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  } catch (err) {
+    logger.error('2FA setup POST: unexpected error —', err);
+    return NextResponse.json({ error: 'Failed to set up 2FA.' }, { status: 500 });
   }
 }
 
@@ -106,13 +123,14 @@ export async function GET(request: Request) {
       .from('user_totp_secrets')
       .select('is_enabled, verified_at')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
 
     return NextResponse.json({
       enabled: data?.is_enabled || false,
       verifiedAt: data?.verified_at || null,
     });
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  } catch (err) {
+    logger.warn('2FA setup GET: auth failed —', err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: 'Your session has expired. Please sign in again.' }, { status: 401 });
   }
 }

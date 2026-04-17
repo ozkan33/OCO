@@ -51,7 +51,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unable to verify code. Please contact support.' }, { status: 500 });
     }
 
-    const result = await verifyTOTP({ token: code, secret });
+    // otplib v13 defaults epochTolerance to 0 (no clock-skew window), which makes
+    // verification fail whenever the code crosses a 30-second period boundary between
+    // the phone generating it and the server checking it. Allow ±30s (one period) —
+    // the standard window used by most 2FA implementations.
+    const result = await verifyTOTP({ token: code, secret, epochTolerance: 30 });
 
     if (!result.valid) {
       return NextResponse.json({ error: 'Invalid code. Please try again.' }, { status: 400 });
