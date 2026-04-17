@@ -147,11 +147,33 @@ export async function POST(request: Request) {
 
           for (const sc of matchedScorecards) {
             const rows = sc.data?.rows || [];
-            // Find a row whose name matches the store name (case-insensitive, normalized partial match)
-            const matchedRow = rows.find((r: any) => {
-              const rowName = normalize(String(r.name || ''));
-              return rowName === normalizedStore || rowName.includes(normalizedStore) || normalizedStore.includes(rowName);
-            });
+
+            // 1) Prefer a subgrid-row match (specific store like "CUB SHOREWOOD" → its parent chain "CUB FOODS")
+            let matchedRow: any = null;
+            let matchedSubRow: any = null;
+            for (const r of rows) {
+              const subRows = r?.subgrid?.rows;
+              if (!Array.isArray(subRows)) continue;
+              const sub = subRows.find((sr: any) => {
+                const subName = normalize(String(sr.store_name || ''));
+                if (!subName) return false;
+                return subName === normalizedStore || subName.includes(normalizedStore) || normalizedStore.includes(subName);
+              });
+              if (sub) {
+                matchedRow = r;
+                matchedSubRow = sub;
+                break;
+              }
+            }
+
+            // 2) Fall back to matching against top-level chain row names (e.g., user typed "CUB FOODS")
+            if (!matchedRow) {
+              matchedRow = rows.find((r: any) => {
+                const rowName = normalize(String(r.name || ''));
+                if (!rowName) return false;
+                return rowName === normalizedStore || rowName.includes(normalizedStore) || normalizedStore.includes(rowName);
+              });
+            }
 
             if (matchedRow) {
               // Insert comment on the matched row
@@ -175,27 +197,34 @@ export async function POST(request: Request) {
                 continue;
               }
 
-              // ── Auto-fill subgrid comment: match store_name in subgrid → insert comment record ──
-              if (matchedRow.subgrid && matchedRow.subgrid.rows) {
-                for (const subRow of matchedRow.subgrid.rows) {
-                  const subStoreName = normalize(String(subRow.store_name || ''));
-                  if (subStoreName && (subStoreName === normalizedStore || subStoreName.includes(normalizedStore) || normalizedStore.includes(subStoreName))) {
-                    // Insert a proper comment record with parent_row_id
-                    const { error: subCommentErr } = await supabaseAdmin
-                      .from('comments')
-                      .insert({
-                        scorecard_id: sc.id,
-                        user_id: user.id,
-                        user_email: user.email || '',
-                        row_id: subRow.store_name, // store name as row_id for subgrid
-                        parent_row_id: String(matchedRow.id), // link to parent row
-                        text: commentText,
-                        created_at: timestamp,
-                        updated_at: timestamp,
-                      });
-                    if (subCommentErr) logger.error('Subgrid comment insert failed:', subCommentErr);
-                  }
-                }
+              // ── Auto-fill subgrid comment ──
+              // If we matched a specific subgrid row, comment only on that store.
+              // Otherwise (chain-level match), comment on every subgrid row that matches the typed name.
+              const subRowsToComment: any[] = matchedSubRow
+                ? [matchedSubRow]
+                : (matchedRow.subgrid?.rows || []).filter((subRow: any) => {
+                    const subStoreName = normalize(String(subRow.store_name || ''));
+                    return subStoreName && (
+                      subStoreName === normalizedStore ||
+                      subStoreName.includes(normalizedStore) ||
+                      normalizedStore.includes(subStoreName)
+                    );
+                  });
+
+              for (const subRow of subRowsToComment) {
+                const { error: subCommentErr } = await supabaseAdmin
+                  .from('comments')
+                  .insert({
+                    scorecard_id: sc.id,
+                    user_id: user.id,
+                    user_email: user.email || '',
+                    row_id: subRow.store_name, // store name as row_id for subgrid
+                    parent_row_id: String(matchedRow.id), // link to parent row
+                    text: commentText,
+                    created_at: timestamp,
+                    updated_at: timestamp,
+                  });
+                if (subCommentErr) logger.error('Subgrid comment insert failed:', subCommentErr);
               }
 
               // Notify brand users assigned to this scorecard
