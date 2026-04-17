@@ -14,6 +14,7 @@ interface UseCommentHandlersParams {
   setScorecards: React.Dispatch<React.SetStateAction<any[]>>;
   setEditingScoreCard: React.Dispatch<React.SetStateAction<any>>;
   setSelectedCategory: (v: string) => void;
+  scorecardsRef?: React.MutableRefObject<any[]>;
 }
 
 export function useCommentHandlers({
@@ -21,6 +22,7 @@ export function useCommentHandlers({
   openCommentRowId, setOpenCommentRowId,
   selectedCategory, user, editingScoreCard, isScorecard,
   setScorecards, setEditingScoreCard, setSelectedCategory,
+  scorecardsRef,
 }: UseCommentHandlersParams) {
 
   async function loadScorecardComments(scorecardId: string) {
@@ -37,11 +39,50 @@ export function useCommentHandlers({
       }
 
       const commentsData = await response.json();
+
+      // Look up the scorecard's rows so we can repair stale parent_row_ids on
+      // subgrid comments (e.g. a comment on "L&B CHANHASSEN" previously stored
+      // with parent_row_id pointing at the "L&B" retailer when the store
+      // actually lives under "Lunds&Byerlys"). Without this repair the comment
+      // would end up keyed under the wrong parent and the drawer wouldn't find it.
+      const scorecardRows: any[] = scorecardsRef?.current?.find((sc: any) => sc.id === scorecardId)?.rows || [];
+      const normalize = (s: string) =>
+        s.trim().toLowerCase().replace(/\s*&\s*/g, '&').replace(/\s+/g, ' ');
+      const findSubgridParentId = (storeName: string): string | null => {
+        const n = normalize(storeName);
+        if (!n) return null;
+        for (const r of scorecardRows) {
+          const subRows = r?.subgrid?.rows;
+          if (!Array.isArray(subRows)) continue;
+          const hit = subRows.find((sr: any) => {
+            const sn = normalize(String(sr.store_name || ''));
+            return sn && (sn === n || sn.includes(n) || n.includes(sn));
+          });
+          if (hit) return String(r.id);
+        }
+        return null;
+      };
+
       const groupedComments: Record<string, any[]> = {};
       commentsData.forEach((comment: any) => {
         // Subgrid comments use composite key: "sub:{parentRowId}:{storeName}"
-        const key = comment.parent_row_id
-          ? `sub:${comment.parent_row_id}:${comment.row_id}`
+        let parentId = comment.parent_row_id ? String(comment.parent_row_id) : null;
+        if (parentId && scorecardRows.length > 0) {
+          const storedParent = scorecardRows.find((r: any) => String(r.id) === parentId);
+          const subRows: any[] = storedParent?.subgrid?.rows || [];
+          const storeName = String(comment.row_id || '');
+          const n = normalize(storeName);
+          const parentHasStore = subRows.some((sr: any) => {
+            const sn = normalize(String(sr.store_name || ''));
+            return sn && (sn === n || sn.includes(n) || n.includes(sn));
+          });
+          if (!parentHasStore) {
+            const fixed = findSubgridParentId(storeName);
+            if (fixed) parentId = fixed;
+          }
+        }
+        const key = parentId
+          ? `sub:${parentId}:${comment.row_id}`
           : String(comment.row_id);
         if (!groupedComments[key]) groupedComments[key] = [];
         groupedComments[key].push(comment);

@@ -83,9 +83,14 @@ export async function POST(request: Request) {
       });
 
     if (profileError) {
-      // Cleanup: delete auth user if profile creation fails
-      await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
-      return NextResponse.json({ error: 'Failed to create profile' }, { status: 500 });
+      // Rollback: delete the auth user we just created. If this fails we
+      // leave an orphaned auth row — surface that so the admin knows to
+      // retry or contact support rather than silently 500'ing.
+      const { error: rollbackErr } = await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
+      const msg = rollbackErr
+        ? `Failed to create profile; rollback of auth user also failed (${rollbackErr.message}). Email may remain registered.`
+        : 'Failed to create profile';
+      return NextResponse.json({ error: msg }, { status: 500 });
     }
 
     // Create scorecard assignments with validated IDs

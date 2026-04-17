@@ -66,16 +66,18 @@ interface ScoreCard {
 export interface NavigateToPayload {
   scorecardId: string;
   rowId?: string;
+  storeName?: string | null;
 }
 
 interface AdminDataGridProps {
   userRole: string;
   navigateToRef?: React.MutableRefObject<((payload: NavigateToPayload) => void) | null>;
+  refreshCommentsRef?: React.MutableRefObject<((scorecardId: string) => void) | null>;
 }
 
 
 
-export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGridProps) {
+export default function AdminDataGrid({ userRole, navigateToRef, refreshCommentsRef }: AdminDataGridProps) {
   const router = useRouter();
 
   // Remove/hide Retailers from dataCategories
@@ -110,6 +112,8 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
       return dedup(next);
     });
   };
+  const scorecardsRef = useRef<ScoreCard[]>(scorecards);
+  scorecardsRef.current = scorecards;
   const [showCreateScoreCardModal, setShowCreateScoreCardModal] = useState(false);
   const [newScoreCardName, setNewScoreCardName] = useState('');
   const [editingScoreCard, setEditingScoreCard] = useState<ScoreCard | null>(null);
@@ -229,11 +233,37 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   // Only one expanded row at a time
   const [expandedRowId, setExpandedRowId] = useState<string | number | null>(null);
   const [subgridExpanded, setSubgridExpanded] = useState(false);
-  // Reset expandedRowId when switching scorecards
+
+  // ─── Auto-expand subgrid when a comment drawer opens on top of it ─────────
+  // UX: at the default 36rem width a comment drawer visually covers the subgrid.
+  // When the user opens a comment while viewing a subgrid, widen the subgrid so
+  // both can coexist, and restore the previous width when the comment closes.
+  // Manual chevron toggles during the overlay take precedence (no fighting).
+  const prevSubgridExpandedRef = useRef<boolean | null>(null);
+  const userOverrodeSubgridWidthRef = useRef<boolean>(false);
   useEffect(() => {
-    setExpandedRowId(null);
-    setSubgridExpanded(false);
-  }, [selectedCategory]);
+    const commentOpen = openSubgridCommentKey !== null || openRetailerDrawer !== null;
+    const subgridVisible = expandedRowId !== null;
+    // Only manage width when the subgrid is actually on screen.
+    if (!subgridVisible) {
+      prevSubgridExpandedRef.current = null;
+      userOverrodeSubgridWidthRef.current = false;
+      return;
+    }
+    if (commentOpen && prevSubgridExpandedRef.current === null) {
+      // Comment just opened — remember current width and auto-widen.
+      prevSubgridExpandedRef.current = subgridExpanded;
+      userOverrodeSubgridWidthRef.current = false;
+      if (!subgridExpanded) setSubgridExpanded(true);
+    } else if (!commentOpen && prevSubgridExpandedRef.current !== null) {
+      // Comment just closed — restore prior width unless the user took over.
+      if (!userOverrodeSubgridWidthRef.current) {
+        setSubgridExpanded(prevSubgridExpandedRef.current);
+      }
+      prevSubgridExpandedRef.current = null;
+      userOverrodeSubgridWidthRef.current = false;
+    }
+  }, [openSubgridCommentKey, openRetailerDrawer, expandedRowId, subgridExpanded]);
 
   // Add state for custom delete confirmation modal
   const [confirmDelete, setConfirmDelete] = useState<null | { type: 'row' | 'column' | 'scorecard' | 'template', id: string | number, name?: string }>(null);
@@ -269,6 +299,7 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     openCommentRowId, setOpenCommentRowId,
     selectedCategory, user, editingScoreCard, isScorecard,
     setScorecards, setEditingScoreCard, setSelectedCategory,
+    scorecardsRef,
   });
 
   // Delta tracker for granular cell-level saves
@@ -282,10 +313,12 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     handleImportSubgridExcel, handleExportSubgridExcel,
     syncSubgridsWithColumns,
     refreshStoresForSubgrid,
+    backfillMarketVisitComments,
   } = useSubGridHandlers({
     subGrids, setSubGrids, expandedRowId, setExpandedRowId,
     editingScoreCard, getCurrentData, updateCurrentData,
     selectedCategory, isScorecard, deltaTracker,
+    reloadComments: loadScorecardComments,
   });
 
   // Auto-save uses resetKey (editingScoreCard?.id) to cleanly reset on switch
@@ -747,6 +780,14 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
   const switchingRef = useRef(false);
 
   async function handleCategoryChange(category: string) {
+    // Only reset the subgrid when we're actually switching to a different
+    // scorecard. Callers that need to pre-set expanded state (e.g. notification
+    // navigation) rely on this not clobbering their writes when the category
+    // stays the same.
+    if (category !== selectedCategory) {
+      setExpandedRowId(null);
+      setSubgridExpanded(false);
+    }
     // Prevent overlapping switches — if we're already mid-switch, just update the target
     if (switchingRef.current) {
       setSelectedCategory(category);
@@ -786,31 +827,130 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
     }
   }
 
-  // Expose navigation function for notification clicks
+  // Rebuild market-visit auto-comments whenever the selected scorecard
+  // changes, including the initial mount (which sets selectedCategory directly
+  // without going through handleCategoryChange). Idempotent server-side, and
+  // reloads comments only when rows were actually created.
   useEffect(() => {
-    if (navigateToRef) {
-      navigateToRef.current = async (payload: NavigateToPayload) => {
-        const { scorecardId, rowId } = payload;
-        // Switch to the scorecard and wait for it to finish
-        await handleCategoryChange(scorecardId);
-        // Open the retailer drawer for the row so admin sees full context + comments
-        if (rowId) {
-          // Small delay to ensure state has settled after scorecard switch
-          setTimeout(() => {
-            // Support both numeric and string row IDs
-            const numericRowId = Number(rowId);
-            const resolvedRowId = !isNaN(numericRowId) ? numericRowId : rowId;
-            setOpenRetailerDrawer(resolvedRowId);
-            loadScorecardComments(scorecardId);
-          }, 500);
+    if (!selectedCategory || !isScorecard(selectedCategory)) return;
+    void backfillMarketVisitComments(selectedCategory);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- backfill is stable; isScorecard depends on scorecards array which changes on every save
+  }, [selectedCategory]);
+
+  // Expose a hook for external polls (e.g., NotificationBell) to refresh
+  // comments for a given scorecard — used so the subgrid badge count updates
+  // shortly after a brand user posts a comment.
+  useEffect(() => {
+    if (!refreshCommentsRef) return;
+    refreshCommentsRef.current = (scorecardId: string) => {
+      if (!scorecardId) return;
+      if (scorecardId === selectedCategory) {
+        loadScorecardComments(scorecardId);
+      }
+    };
+    return () => {
+      if (refreshCommentsRef) refreshCommentsRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- loadScorecardComments is stable
+  }, [refreshCommentsRef, selectedCategory]);
+
+  // Expose navigation function for notification clicks.
+  // Two cases to support:
+  //   1. Chain-level (retailer) note → open the retailer drawer with its comments.
+  //   2. Store-level (subgrid) note → expand the parent retailer's subgrid and open
+  //      the store's comment drawer.
+  // The handler re-resolves the row_id against the freshly loaded scorecard so
+  // that a stringly-typed notification row_id still matches a numeric row.id,
+  // and falls back to store-name matching when the stored row_id can't be
+  // located (e.g. portal couldn't resolve a parent when the note was created).
+  useEffect(() => {
+    if (!navigateToRef) return;
+    navigateToRef.current = async (payload: NavigateToPayload) => {
+      const { scorecardId, rowId, storeName } = payload;
+      await handleCategoryChange(scorecardId);
+      if (!rowId) return;
+
+      // Wait for the scorecard's rows to be available in state. The handler may
+      // fire before /api/scorecards has resolved on a fresh page load.
+      const waitForRows = async (maxMs = 3000): Promise<any[]> => {
+        const start = Date.now();
+        while (Date.now() - start < maxMs) {
+          const sc = scorecardsRef.current.find((s: ScoreCard) => s.id === scorecardId);
+          if (sc && Array.isArray(sc.rows) && sc.rows.length > 0) return sc.rows;
+          await new Promise(r => setTimeout(r, 100));
         }
+        return scorecardsRef.current.find((s: ScoreCard) => s.id === scorecardId)?.rows || [];
       };
-    }
+      const rows = await waitForRows();
+
+      // Resolve the notification's row_id to a real row.id in the scorecard.
+      // For store-level notifications we *prefer* the retailer whose subgrid
+      // actually contains the referenced store — the stored row_id may point at
+      // the wrong chain when the notification was created before parent
+      // resolution understood subgrids (e.g. "L&B CHANHASSEN" was mis-attached
+      // to the "L&B" retailer instead of its real parent "Lunds&Byerlys").
+      const normalize = (s: string) =>
+        s.trim().toLowerCase().replace(/\s*&\s*/g, '&').replace(/\s+/g, ' ');
+      let resolvedRowId: string | number = rowId;
+
+      if (storeName) {
+        const nStore = normalize(storeName);
+        let subgridParent: any = null;
+        for (const r of rows as any[]) {
+          const subRows = r?.subgrid?.rows;
+          if (!Array.isArray(subRows)) continue;
+          const sub = subRows.find((sr: any) => {
+            const sn = normalize(String(sr.store_name || ''));
+            return sn && (sn === nStore || sn.includes(nStore) || nStore.includes(sn));
+          });
+          if (sub) { subgridParent = r; break; }
+        }
+        if (subgridParent) {
+          resolvedRowId = subgridParent.id;
+        } else {
+          const direct = rows.find((r: any) => String(r.id) === String(rowId));
+          if (direct) {
+            resolvedRowId = direct.id;
+          } else {
+            const byName = rows.find((r: any) => {
+              const n = normalize(String(r.name || ''));
+              return n && (nStore === n || nStore.includes(n) || n.includes(nStore));
+            });
+            if (byName) resolvedRowId = byName.id;
+          }
+        }
+      } else {
+        const direct = rows.find((r: any) => String(r.id) === String(rowId));
+        if (direct) {
+          resolvedRowId = direct.id;
+        } else {
+          const num = Number(rowId);
+          if (!Number.isNaN(num) && String(num) === String(rowId)) resolvedRowId = num;
+        }
+      }
+
+      loadScorecardComments(scorecardId);
+
+      // Reset any drawer state left over from a prior notification click so the
+      // new target is the only thing on screen (retailer drawers and subgrid
+      // comment drawers are tracked independently and otherwise stack).
+      if (storeName) {
+        setOpenRetailerDrawer(null);
+        setExpandedRowId(resolvedRowId);
+        setSubgridExpanded(true);
+        setOpenSubgridCommentKey(`sub:${resolvedRowId}:${storeName}`);
+      } else {
+        setOpenSubgridCommentKey(null);
+        setExpandedRowId(null);
+        setSubgridExpanded(false);
+        setOpenRetailerDrawer(resolvedRowId);
+      }
+    };
     return () => {
       if (navigateToRef) navigateToRef.current = null;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- handleCategoryChange is stable; only re-register when scorecards change
-  }, [navigateToRef, scorecards]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- scorecardsRef gives fresh reads; handler only needs re-registering when nav target changes
+  }, [navigateToRef]);
 
   // Update current scorecard
   const updateCurrentScorecard = useCallback((updates: Partial<ScoreCard>) => {
@@ -2226,7 +2366,15 @@ export default function AdminDataGrid({ userRole, navigateToRef }: AdminDataGrid
               >
                 {/* Expand/Collapse tab on left edge */}
                 <button
-                  onClick={() => setSubgridExpanded(!subgridExpanded)}
+                  onClick={() => {
+                    // If a comment drawer is currently driving the width, flag
+                    // that the user has taken manual control so we don't snap
+                    // back when it closes.
+                    if (prevSubgridExpandedRef.current !== null) {
+                      userOverrodeSubgridWidthRef.current = true;
+                    }
+                    setSubgridExpanded(!subgridExpanded);
+                  }}
                   className="absolute -left-7 top-1/2 -translate-y-1/2 z-10 w-7 h-14 bg-white border border-r-0 border-slate-200 rounded-l-lg shadow-md flex items-center justify-center hover:bg-slate-50 transition-colors group"
                   title={subgridExpanded ? 'Collapse panel' : 'Expand panel'}
                 >

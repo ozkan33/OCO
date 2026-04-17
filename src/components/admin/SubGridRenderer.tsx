@@ -5,6 +5,8 @@ import { useAdminGrid } from './AdminDataGridContext';
 import { AUTHORIZATION_OPTIONS } from './useSubGridHandlers';
 import { FaRegCommentDots } from 'react-icons/fa';
 import { toast } from 'sonner';
+import { parseCommentMeta } from './commentMeta';
+import { useClientLogos, findLogo } from './useClientLogos';
 
 const AUTH_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   'Authorized': { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
@@ -102,6 +104,7 @@ function SubgridCommentDrawer() {
     comments, selectedCategory, user,
     editCommentIdx, editCommentText, setEditCommentIdx, setEditCommentText,
     updateComment, setConfirmDeleteComment,
+    editingScoreCard, getCurrentData,
   } = ctx;
 
   if (!openSubgridCommentKey) return null;
@@ -109,20 +112,76 @@ function SubgridCommentDrawer() {
   // Parse "sub:{parentRowId}:{storeName}"
   const parts = openSubgridCommentKey.match(/^sub:(.+?):(.+)$/);
   if (!parts) return null;
+  const parentRowId = parts[1];
   const storeName = parts[2];
+
+  // Resolve breadcrumb context: scorecard → retailer (parent row) → store
+  const scorecardName = editingScoreCard?.name || '';
+  const parentRow = getCurrentData()?.rows.find((r: any) => String(r.id) === parentRowId);
+  const retailerName = parentRow?.name || '';
+  const clientLogos = useClientLogos();
+  const brandLogoUrl = findLogo(clientLogos, scorecardName);
+  const retailerLogoUrl = findLogo(clientLogos, retailerName);
 
   const rowComments = comments[selectedCategory]?.[openSubgridCommentKey] || [];
 
   return (
-    <div className="fixed inset-0 z-[60] flex">
-      <div className="fixed inset-0 bg-black bg-opacity-40 transition-opacity" onClick={() => { setOpenSubgridCommentKey(null); setSubgridCommentInput(''); }} />
+    // Drawer sits below the sticky AdminHeader (~56px tall, z-50) so the
+    // breadcrumb/title aren't clipped by the main nav.
+    <div className="fixed left-0 right-0 bottom-0 top-14 z-40 flex">
+      <div className="absolute inset-0 bg-black bg-opacity-40 transition-opacity" onClick={() => { setOpenSubgridCommentKey(null); setSubgridCommentInput(''); }} />
       <div className="relative ml-auto w-full max-w-md h-full bg-white shadow-2xl flex flex-col animate-slideInRight rounded-l-2xl border-l border-slate-200">
-        <div className="flex items-center justify-between border-b px-6 py-4 bg-slate-50 rounded-t-2xl">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">{storeName}</h2>
-            <p className="text-xs text-slate-400">Store Comments</p>
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 bg-slate-50 rounded-t-2xl">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            {/* Scope badge: chain logo for the store's parent retailer; fallback to generic store icon */}
+            {retailerLogoUrl ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={retailerLogoUrl}
+                alt={retailerName ? `${retailerName} logo` : ''}
+                className="flex-shrink-0 w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 p-0.5 mt-0.5"
+              />
+            ) : (
+              <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center mt-0.5" aria-hidden="true">
+                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 .75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349M3.75 21V9.349m0 0a3.001 3.001 0 0 0 3.75-.615A2.993 2.993 0 0 0 9.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 0 0 2.25 1.016c.896 0 1.7-.393 2.25-1.015a3.001 3.001 0 0 0 3.75.614m-16.5 0a3.004 3.004 0 0 1-.621-4.72l1.189-1.19A1.5 1.5 0 0 1 5.378 3h13.243a1.5 1.5 0 0 1 1.06.44l1.19 1.189a3 3 0 0 1-.621 4.72" />
+                </svg>
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              {/* Breadcrumb: scorecard › retailer (with logos when available) */}
+              {(scorecardName || retailerName) && (
+                <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[11px] text-slate-500 mb-0.5 min-w-0">
+                  {scorecardName && (
+                    <span className="inline-flex items-center gap-1 min-w-0">
+                      {brandLogoUrl && (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={brandLogoUrl} alt="" className="w-4 h-4 rounded object-contain bg-white border border-slate-200 flex-shrink-0" />
+                      )}
+                      <span className="truncate" title={scorecardName}>{scorecardName}</span>
+                    </span>
+                  )}
+                  {scorecardName && retailerName && (
+                    <svg className="w-3 h-3 text-slate-300 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                  )}
+                  {retailerName && (
+                    <span className="inline-flex items-center gap-1 min-w-0">
+                      <span className="truncate font-medium text-slate-600" title={retailerName}>{retailerName}</span>
+                    </span>
+                  )}
+                </nav>
+              )}
+              <h2 className="text-base font-bold text-slate-900 leading-tight truncate" title={storeName}>{storeName}</h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">Store comment</p>
+            </div>
           </div>
-          <button onClick={() => { setOpenSubgridCommentKey(null); setSubgridCommentInput(''); }} className="text-slate-400 hover:text-slate-700 text-2xl font-bold">x</button>
+          <button
+            onClick={() => { setOpenSubgridCommentKey(null); setSubgridCommentInput(''); }}
+            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            aria-label="Close comments"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+          </button>
         </div>
         <div className="flex-1 flex flex-col px-6 py-4 overflow-y-auto">
           <h3 className="text-sm font-semibold text-slate-700 mb-3">Comments</h3>
@@ -134,21 +193,59 @@ function SubgridCommentDrawer() {
                 {rowComments.map((c: any, i: number) => {
                   const isAuthor = user?.id === c.user_id;
                   const rawName = c.user_email?.split('@')[0] || 'Unknown';
-                  const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+                  const displayName = (c.author_name && String(c.author_name).trim())
+                    || (rawName.charAt(0).toUpperCase() + rawName.slice(1));
                   const createdAt = new Date(c.created_at).toLocaleString();
                   const isEdited = c.updated_at && c.created_at && new Date(c.updated_at).getTime() - new Date(c.created_at).getTime() > 1000;
+                  const meta = parseCommentMeta(c.text);
+                  const authorBrand: string | null = c.author_brand_name || null;
+                  const authorBrandLogo = authorBrand ? findLogo(clientLogos, authorBrand) : null;
                   return (
                     <li key={c.id || i} className="flex items-start gap-3 bg-white rounded-xl shadow-sm border border-slate-200 p-3">
                       <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">
                         {displayName[0]?.toUpperCase() || 'A'}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex justify-between items-center mb-0.5">
-                          <span className="font-semibold text-slate-800 text-sm">{displayName}</span>
-                          <span className="text-[10px] text-slate-400 ml-2 whitespace-nowrap">
+                        <div className="flex justify-between items-center mb-0.5 gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-semibold text-slate-800 text-sm truncate">{displayName}</span>
+                            {authorBrand && (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 max-w-[130px]"
+                                title={`Brand user: ${authorBrand}`}
+                              >
+                                {authorBrandLogo ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img src={authorBrandLogo} alt="" className="w-3 h-3 rounded-sm object-contain flex-shrink-0" />
+                                ) : (
+                                  <svg className="w-2.5 h-2.5 flex-shrink-0 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+                                  </svg>
+                                )}
+                                <span className="truncate">{authorBrand}</span>
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 whitespace-nowrap">
                             {createdAt}{isEdited && <span className="italic text-slate-300 ml-1">(edited)</span>}
                           </span>
                         </div>
+                        {meta.isMarketVisit && !(editCommentIdx === i && openSubgridCommentKey) && (
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5 mb-1">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+                              <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" /></svg>
+                              Market Visit
+                            </span>
+                            {meta.storeName && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200 max-w-full truncate" title={meta.storeName}>
+                                {meta.storeName}
+                              </span>
+                            )}
+                            {meta.visitDate && (
+                              <span className="text-[10px] text-slate-500 tabular-nums">{meta.visitDate}</span>
+                            )}
+                          </div>
+                        )}
                         {editCommentIdx === i && openSubgridCommentKey ? (
                           <div className="flex flex-col gap-1.5 mt-1">
                             <textarea
@@ -177,7 +274,9 @@ function SubgridCommentDrawer() {
                             </div>
                           </div>
                         ) : (
-                          <div className="text-slate-700 text-sm whitespace-pre-line">{c.text}</div>
+                          <div className="text-slate-700 text-sm whitespace-pre-line">
+                            {meta.body || <span className="text-slate-400 italic">(no details)</span>}
+                          </div>
                         )}
                         {isAuthor && editCommentIdx !== i && (
                           <div className="flex gap-2 mt-1">
@@ -229,6 +328,7 @@ export default function SubGridRenderer({ parentId }: { parentId: string | numbe
     handleDeleteSubGrid, handleImportSubgridExcel, handleExportSubgridExcel,
     getCurrentData,
     comments, selectedCategory, setOpenSubgridCommentKey,
+    setOpenRetailerDrawer,
   } = ctx;
 
   const [subgridSortColumns, setSubgridSortColumns] = useState<SortColumn[]>([]);
@@ -400,25 +500,86 @@ export default function SubGridRenderer({ parentId }: { parentId: string | numbe
           <button onClick={() => setExpandedRowId(null)} className="text-slate-400 hover:text-slate-600 text-xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors" aria-label="Close">&times;</button>
         </div>
       </div>
-      {parentRowComments.length > 0 && (
-        <div className="px-4 py-2 bg-amber-50 border-b border-amber-100 shrink-0">
-          <div className="flex items-center gap-1.5 mb-1">
-            <FaRegCommentDots size={10} className="text-amber-500" />
-            <span className="text-[11px] font-semibold text-amber-700">Customer Notes ({parentRowComments.length})</span>
-          </div>
-          <div className="space-y-1 max-h-20 overflow-y-auto">
-            {parentRowComments.slice(-3).map((c: any) => {
-              const author = (c.user_email || '').split('@')[0] || 'Unknown';
-              const name = author.charAt(0).toUpperCase() + author.slice(1);
-              return (
-                <p key={c.id} className="text-[11px] text-amber-900 truncate">
-                  <span className="font-medium">{name}:</span> {c.text}
-                </p>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {parentRowComments.length > 0 && (() => {
+        const relTime = (iso?: string) => {
+          if (!iso) return '';
+          const then = new Date(iso).getTime();
+          if (Number.isNaN(then)) return '';
+          const diff = Math.max(0, Date.now() - then);
+          const m = Math.floor(diff / 60000);
+          if (m < 1) return 'just now';
+          if (m < 60) return `${m}m ago`;
+          const h = Math.floor(m / 60);
+          if (h < 24) return `${h}h ago`;
+          const d = Math.floor(h / 24);
+          if (d === 1) return 'yesterday';
+          if (d < 7) return `${d}d ago`;
+          return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        };
+        const recent = parentRowComments.slice(-3).reverse();
+        const hasMore = parentRowComments.length > 3;
+        return (
+          <section
+            aria-label={`Recent notes on ${parentName}`}
+            className="px-4 py-2 bg-slate-50 border-b border-slate-200 shrink-0"
+          >
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <h4 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <FaRegCommentDots size={10} className="text-slate-400" />
+                <span>Recent notes on</span>
+                <span className="text-slate-700 normal-case tracking-normal truncate max-w-[260px]" title={parentName}>{parentName}</span>
+                <span className="text-slate-400 font-normal normal-case tracking-normal">· {parentRowComments.length}</span>
+              </h4>
+              {hasMore && (
+                <button
+                  type="button"
+                  onClick={() => setOpenRetailerDrawer(parentId as any)}
+                  className="text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:underline transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-1"
+                >
+                  View all ({parentRowComments.length})
+                </button>
+              )}
+            </div>
+            <ul className="space-y-1 max-h-[56px] overflow-y-auto pr-1">
+              {recent.map((c: any) => {
+                const author = (c.user_email || '').split('@')[0] || 'Unknown';
+                const fallback = author.charAt(0).toUpperCase() + author.slice(1);
+                const name = (c.author_name && String(c.author_name).trim()) || fallback;
+                const meta = parseCommentMeta(c.text);
+                const when = relTime(c.created_at);
+                return (
+                  <li key={c.id} className="flex items-center gap-2 min-w-0">
+                    <span
+                      aria-hidden="true"
+                      className="shrink-0 w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-semibold flex items-center justify-center"
+                    >
+                      {name[0]?.toUpperCase() || 'A'}
+                    </span>
+                    <span className="text-[11px] font-medium text-slate-700 shrink-0">{name}</span>
+                    {meta.isMarketVisit && (
+                      <span
+                        className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-100 max-w-[220px]"
+                        title={[meta.visitDate && `Market Visit — ${meta.visitDate}`, meta.storeName].filter(Boolean).join(' · ')}
+                      >
+                        <svg className="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" /></svg>
+                        <span className="truncate">{meta.storeName || 'Market Visit'}</span>
+                      </span>
+                    )}
+                    <span className="text-[11px] text-slate-700 truncate min-w-0 flex-1" title={meta.body}>
+                      {meta.body || <span className="text-slate-400">(no text)</span>}
+                    </span>
+                    {when && (
+                      <span className="shrink-0 text-[10px] text-slate-400 tabular-nums" title={new Date(c.created_at).toLocaleString()}>
+                        {when}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })()}
       <div className="flex items-center gap-1 px-4 py-2 border-b border-slate-100 shrink-0 flex-wrap">
         <button onClick={() => handleSubGridAddColumn(parentId)} className="grid-toolbar-btn sm primary">
           <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>Column

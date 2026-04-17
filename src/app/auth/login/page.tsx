@@ -21,6 +21,11 @@ export default function LoginPage() {
   const [trustDevice, setTrustDevice] = useState(true);
   const [pendingRedirect, setPendingRedirect] = useState('/admin/dashboard');
 
+  // Recovery flow when the stored TOTP secret can't be decrypted on this server
+  // (key rotation / corruption). See /api/auth/2fa/reset.
+  const [totpUnreadable, setTotpUnreadable] = useState(false);
+  const [resetPassword, setResetPassword] = useState('');
+
   // Detect Safari on mount
   useEffect(() => {
     const mobileInfo = getMobileBrowserInfo();
@@ -138,11 +143,45 @@ export default function LoginPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ code: totpCode, trustDevice }),
       });
-      if (!res.ok) { const d = await res.json(); setError(d.error || 'Invalid code.'); setLoading(false); return; }
-      // Log session
+      if (!res.ok) {
+        const d = await res.json();
+        // Specific recovery path: stored secret can't be decrypted on this server.
+        // Offer the password-gated reset flow instead of leaving the user stuck.
+        if (d.code === 'TOTP_UNREADABLE') {
+          setTotpUnreadable(true);
+          setError(null);
+          setLoading(false);
+          return;
+        }
+        setError(d.error || 'Invalid code.');
+        setLoading(false);
+        return;
+      }
       await fetch('/api/auth/log-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'login' }) }).catch(() => {});
       window.location.href = pendingRedirect;
     } catch { setError('Verification failed.'); setLoading(false); }
+  };
+
+  const handleReset2FA = async () => {
+    setError(null);
+    if (!resetPassword) { setError('Enter your password to confirm.'); return; }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/2fa/reset', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ password: resetPassword }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || 'Could not reset 2FA.');
+        setLoading(false);
+        return;
+      }
+      // 2FA is now cleared server-side. Send the user through normally — no second factor,
+      // and they can re-enrol from admin settings once signed in.
+      await fetch('/api/auth/log-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'login', twofa_reset: true }) }).catch(() => {});
+      window.location.href = pendingRedirect;
+    } catch { setError('Reset failed. Please try again.'); setLoading(false); }
   };
 
   const handleBackClick = () => {
@@ -204,10 +243,12 @@ export default function LoginPage() {
             className="text-2xl sm:text-3xl text-slate-900 mb-1.5 text-center"
             style={{ fontFamily: 'var(--font-display)' }}
           >
-            {needs2FA ? 'Verification' : 'Welcome Back'}
+            {totpUnreadable ? 'Reset 2FA' : needs2FA ? 'Verification' : 'Welcome Back'}
           </h1>
           <p className="text-sm text-slate-500 mb-7 text-center max-w-[280px]">
-            {needs2FA
+            {totpUnreadable
+              ? 'Your authenticator enrollment could not be read. Confirm your password to reset 2FA — you can re-enroll from settings after signing in.'
+              : needs2FA
               ? 'Enter the 6-digit code from your authenticator app.'
               : 'Sign in to access your dashboard.'}
           </p>
@@ -226,8 +267,51 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* 2FA Verification */}
-          {needs2FA ? (
+          {/* 2FA unreadable — self-service reset flow */}
+          {totpUnreadable ? (
+            <div className="w-full space-y-4">
+              <div>
+                <label htmlFor="reset-password" className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
+                  Password
+                </label>
+                <input
+                  id="reset-password"
+                  type="password"
+                  value={resetPassword}
+                  onChange={e => setResetPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  autoFocus
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3.5 text-slate-900 placeholder-slate-300 bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleReset2FA}
+                disabled={loading || !resetPassword}
+                className="w-full py-3.5 bg-blue-500 text-white font-semibold rounded-xl hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 flex items-center justify-center gap-2"
+              >
+                {loading && (
+                  <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                )}
+                {loading ? 'Resetting...' : 'Reset 2FA and continue'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setTotpUnreadable(false); setResetPassword(''); setError(null); }}
+                className="w-full py-2.5 text-sm text-slate-500 hover:text-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg flex items-center justify-center gap-1.5"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                </svg>
+                Back
+              </button>
+            </div>
+          ) : needs2FA ? (
             <div className="w-full space-y-4">
               {/* TOTP code input */}
               <div>

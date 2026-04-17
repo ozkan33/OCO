@@ -10,13 +10,19 @@ interface Notification {
   scorecard_name: string;
   row_id: string;
   row_name: string;
+  store_name?: string | null;
   message: string;
   is_read: boolean;
   created_at: string;
 }
 
 interface PortalNotificationBellProps {
-  onNotificationClick?: (payload: { scorecardId: string; rowId: string }) => void;
+  onNotificationClick?: (payload: {
+    scorecardId: string;
+    rowId: string;
+    storeName?: string | null;
+    actionType: string;
+  }) => void;
 }
 
 function timeAgo(dateStr: string): string {
@@ -56,9 +62,14 @@ export default function PortalNotificationBell({ onNotificationClick }: PortalNo
 
   useEffect(() => {
     fetchNotifications();
-    intervalRef.current = setInterval(fetchNotifications, 30000);
+    intervalRef.current = setInterval(fetchNotifications, 15000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') fetchNotifications();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [fetchNotifications]);
 
@@ -116,6 +127,8 @@ export default function PortalNotificationBell({ onNotificationClick }: PortalNo
     onNotificationClick?.({
       scorecardId: notif.scorecard_id,
       rowId: notif.row_id,
+      storeName: notif.store_name || null,
+      actionType: notif.action_type,
     });
   };
 
@@ -190,8 +203,16 @@ export default function PortalNotificationBell({ onNotificationClick }: PortalNo
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-slate-700 leading-snug">
                       <span className="font-semibold text-slate-900">{notif.actor_name}</span>
-                      {' '}added a note on{' '}
-                      <span className="font-medium text-slate-800">{notif.row_name}</span>
+                      {notif.action_type === 'market_visit_comment_added'
+                        ? <> added a market-visit note on </>
+                        : notif.action_type === 'comment_updated'
+                          ? <> edited a note on </>
+                          : <> added a note on </>}
+                      <span className="font-medium text-slate-800">
+                        {notif.action_type === 'market_visit_comment_added' && notif.store_name
+                          ? notif.store_name
+                          : notif.row_name}
+                      </span>
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5 truncate">
                       {notif.scorecard_name}

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
 import { logger } from '../../../../lib/logger';
+import { bestMatch } from '../../../../lib/marketVisitMatcher';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 
@@ -139,55 +140,44 @@ export async function POST(request: Request) {
           .in('title', brands);
 
         if (matchedScorecards && matchedScorecards.length > 0) {
-          // Normalize for matching: lowercase, unify punctuation (em/en-dash, hyphen,
-          // slash → space), normalize ampersands & apostrophes, collapse whitespace.
-          // This lets "L&B 50TH-EDINA" match user-typed "L&B 50th Edina" or
-          // "Cub Foods — Eagan" match "CUB FOODS EAGAN".
-          const normalize = (s: string) => s
-            .trim()
-            .toLowerCase()
-            .replace(/[\u2013\u2014]/g, '-')
-            .replace(/[-_/]+/g, ' ')
-            .replace(/\s*&\s*/g, '&')
-            .replace(/[\u2018\u2019\u2032`]/g, "'")
-            .replace(/\s+/g, ' ');
-          const normalizedStore = normalize(storeName);
           const adminName = user.user_metadata?.name || user.email?.split('@')[0] || 'Admin';
           const timestamp = new Date().toISOString();
 
           for (const sc of matchedScorecards) {
             const rows = sc.data?.rows || [];
 
-            // 1) Prefer a subgrid-row match (specific store like "CUB SHOREWOOD" → its parent chain "CUB FOODS")
+            // Pick the overall best match across BOTH top-level chain names and
+            // every chain's subgrid. Critical ordering: a weak cross-chain
+            // subgrid hit (e.g. "Woodbury" in L&B's subgrid for a typed
+            // "Kowalski's Woodbury") must not pre-empt an exact chain-row name
+            // match on the correct chain.
             let matchedRow: any = null;
             let matchedSubRow: any = null;
+            let bestScore = 0;
+
+            const chainHit = bestMatch(rows as any[], (r: any) => r?.name, storeName);
+            if (chainHit && chainHit.score > bestScore) {
+              bestScore = chainHit.score;
+              matchedRow = chainHit.item;
+              matchedSubRow = null;
+            }
+
             for (const r of rows) {
               const subRows = r?.subgrid?.rows;
               if (!Array.isArray(subRows)) continue;
-              const sub = subRows.find((sr: any) => {
-                const subName = normalize(String(sr.store_name || ''));
-                if (!subName) return false;
-                return subName === normalizedStore || subName.includes(normalizedStore) || normalizedStore.includes(subName);
-              });
-              if (sub) {
+              const hit = bestMatch(subRows as any[], (sr: any) => sr?.store_name, storeName);
+              if (hit && hit.score > bestScore) {
+                bestScore = hit.score;
                 matchedRow = r;
-                matchedSubRow = sub;
-                break;
+                matchedSubRow = hit.item;
               }
             }
 
-            // 2) Fall back to matching against top-level chain row names (e.g., user typed "CUB FOODS")
-            if (!matchedRow) {
-              matchedRow = rows.find((r: any) => {
-                const rowName = normalize(String(r.name || ''));
-                if (!rowName) return false;
-                return rowName === normalizedStore || rowName.includes(normalizedStore) || normalizedStore.includes(rowName);
-              });
-            }
-
             if (matchedRow) {
-              // Insert comment on the matched row
-              const commentText = `[Market Visit — ${visitDate}] ${note}`;
+              // Insert comment on the matched row. Embed the visited store name
+              // so downstream UI can show *which* market visit each note came
+              // from (older comments without this suffix render gracefully).
+              const commentText = `[Market Visit — ${visitDate} · ${storeName}] ${note}`;
               const { data: comment, error: commentErr } = await supabaseAdmin
                 .from('comments')
                 .insert({
@@ -209,17 +199,19 @@ export async function POST(request: Request) {
 
               // ── Auto-fill subgrid comment ──
               // If we matched a specific subgrid row, comment only on that store.
-              // Otherwise (chain-level match), comment on every subgrid row that matches the typed name.
+              // Otherwise (chain-level match), comment on every subgrid row whose
+              // name scores against the typed visit — but only one row with
+              // the best score, to avoid fanning out across multiple stores.
               const subRowsToComment: any[] = matchedSubRow
                 ? [matchedSubRow]
-                : (matchedRow.subgrid?.rows || []).filter((subRow: any) => {
-                    const subStoreName = normalize(String(subRow.store_name || ''));
-                    return subStoreName && (
-                      subStoreName === normalizedStore ||
-                      subStoreName.includes(normalizedStore) ||
-                      normalizedStore.includes(subStoreName)
+                : (() => {
+                    const fanoutHit = bestMatch(
+                      (matchedRow.subgrid?.rows || []) as any[],
+                      (sr: any) => sr?.store_name,
+                      storeName,
                     );
-                  });
+                    return fanoutHit ? [fanoutHit.item] : [];
+                  })();
 
               for (const subRow of subRowsToComment) {
                 const { error: subCommentErr } = await supabaseAdmin
@@ -251,11 +243,12 @@ export async function POST(request: Request) {
                   recipient_user_id: a.user_id,
                   actor_user_id: user.id,
                   actor_name: adminName,
-                  action_type: 'comment_added',
+                  action_type: 'market_visit_comment_added',
                   scorecard_id: sc.id,
                   scorecard_name: sc.title,
                   row_id: String(matchedRow.id),
                   row_name: rowName,
+                  store_name: storeName,
                   comment_id: comment.id,
                   message,
                   is_read: false,

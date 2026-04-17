@@ -10,13 +10,16 @@ interface Notification {
   scorecard_name: string;
   row_id: string;
   row_name: string;
+  parent_row_id?: string | null;
+  store_name?: string | null;
   message: string;
   is_read: boolean;
   created_at: string;
 }
 
 interface NotificationBellProps {
-  onNotificationClick?: (payload: { scorecardId: string; rowId: string }) => void;
+  onNotificationClick?: (payload: { scorecardId: string; rowId: string; storeName?: string | null }) => void;
+  onNewActivity?: (scorecardIds: string[]) => void;
 }
 
 function timeAgo(dateStr: string): string {
@@ -34,20 +37,49 @@ function timeAgo(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export default function NotificationBell({ onNotificationClick }: NotificationBellProps) {
+export default function NotificationBell({ onNotificationClick, onNewActivity }: NotificationBellProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const knownIdsRef = useRef<Set<string>>(new Set());
+  const isInitialFetchRef = useRef(true);
+  const onNewActivityRef = useRef(onNewActivity);
+  onNewActivityRef.current = onNewActivity;
 
   const fetchNotifications = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/notifications', { credentials: 'include' });
       if (!res.ok) return;
       const data = await res.json();
-      setNotifications(data.notifications || []);
+      const incoming: Notification[] = data.notifications || [];
+      // Detect new notifications since last poll (skip initial fetch to avoid
+      // re-refreshing on mount). Add + edit both trigger a scorecard refetch
+      // so stale bubbles pick up fresh text.
+      if (!isInitialFetchRef.current) {
+        const newScorecardIds = new Set<string>();
+        const commentActionTypes = new Set([
+          'comment_added',
+          'comment_updated',
+        ]);
+        for (const n of incoming) {
+          if (
+            !knownIdsRef.current.has(n.id) &&
+            commentActionTypes.has(n.action_type) &&
+            n.scorecard_id
+          ) {
+            newScorecardIds.add(n.scorecard_id);
+          }
+        }
+        if (newScorecardIds.size > 0) {
+          onNewActivityRef.current?.(Array.from(newScorecardIds));
+        }
+      }
+      knownIdsRef.current = new Set(incoming.map(n => n.id));
+      isInitialFetchRef.current = false;
+      setNotifications(incoming);
       setUnreadCount(data.unreadCount ?? 0);
     } catch {
       // Silently fail polling
@@ -57,9 +89,14 @@ export default function NotificationBell({ onNotificationClick }: NotificationBe
   // Initial fetch and polling
   useEffect(() => {
     fetchNotifications();
-    intervalRef.current = setInterval(fetchNotifications, 30000);
+    intervalRef.current = setInterval(fetchNotifications, 15000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') fetchNotifications();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [fetchNotifications]);
 
@@ -118,6 +155,7 @@ export default function NotificationBell({ onNotificationClick }: NotificationBe
     onNotificationClick?.({
       scorecardId: notif.scorecard_id,
       rowId: notif.row_id,
+      storeName: notif.store_name || null,
     });
   };
 
@@ -201,7 +239,9 @@ export default function NotificationBell({ onNotificationClick }: NotificationBe
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-slate-700 leading-snug">
                       <span className="font-semibold text-slate-900">{notif.actor_name}</span>
-                      {' '}added a note on{' '}
+                      {notif.action_type === 'comment_updated'
+                        ? ' edited a note on '
+                        : ' added a note on '}
                       <span className="font-medium text-slate-800">{notif.row_name}</span>
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5 truncate">

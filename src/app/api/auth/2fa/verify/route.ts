@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../../lib/apiAuth';
 import { features } from '../../../../../../lib/features';
-import { decryptSecret, signDeviceToken } from '../../../../../../lib/crypto';
+import { decryptSecretDetailed, encryptSecret, signDeviceToken, TotpDecryptError } from '../../../../../../lib/crypto';
 import { logger } from '../../../../../../lib/logger';
 
 // POST /api/auth/2fa/verify - Verify TOTP code (during setup or login)
@@ -44,11 +44,22 @@ export async function POST(request: Request) {
 
     // ── Step 4: Decrypt and verify ───────────────────────────────────────────
     let secret: string;
+    let needsRewrap = false;
     try {
-      secret = decryptSecret(totpData.encrypted_secret);
+      ({ secret, needsRewrap } = decryptSecretDetailed(totpData.encrypted_secret));
     } catch (decryptErr) {
-      logger.error('2FA verify: decryption failed for user', user.id, decryptErr);
-      return NextResponse.json({ error: 'Unable to verify code. Please contact support.' }, { status: 500 });
+      if (decryptErr instanceof TotpDecryptError) {
+        logger.error('2FA verify: secret unreadable under all known keys for user', user.id);
+        return NextResponse.json(
+          {
+            error: 'Your 2FA enrollment is unreadable on this server. Reset 2FA and re-enroll.',
+            code: 'TOTP_UNREADABLE',
+          },
+          { status: 409 },
+        );
+      }
+      logger.error('2FA verify: unexpected decryption error for user', user.id, decryptErr);
+      return NextResponse.json({ error: 'Unable to verify code. Please try again.' }, { status: 500 });
     }
 
     // otplib v13 defaults epochTolerance to 0 (no clock-skew window), which makes
@@ -59,6 +70,16 @@ export async function POST(request: Request) {
 
     if (!result.valid) {
       return NextResponse.json({ error: 'Invalid code. Please try again.' }, { status: 400 });
+    }
+
+    // Re-encrypt under the current primary key when the stored ciphertext was legacy /
+    // encrypted under a deprecated key. Completes the migration transparently on the
+    // next successful verify, so users don't have to re-enroll after key rotation.
+    if (needsRewrap) {
+      await supabaseAdmin
+        .from('user_totp_secrets')
+        .update({ encrypted_secret: encryptSecret(secret) })
+        .eq('user_id', user.id);
     }
 
     // ── Step 5: If first verification (setup), enable 2FA ────────────────────

@@ -113,13 +113,25 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     try { const body = await request.json(); permanent = body?.permanent === true; } catch { /* no body = soft delete */ }
 
     if (permanent) {
-      // Permanent delete — remove from all tables and Supabase Auth
+      // Permanent delete — remove from all tables and Supabase Auth.
+      // comments.user_id FK to auth.users is NOT cascading, so we must
+      // remove them here or auth.admin.deleteUser fails with
+      // "Database error deleting user" and leaves an orphan auth row
+      // that still blocks the email from being reused.
       await supabaseAdmin.from('brand_user_assignments').delete().eq('user_id', id);
       await supabaseAdmin.from('login_sessions').delete().eq('user_id', id);
       await supabaseAdmin.from('trusted_devices').delete().eq('user_id', id);
       await supabaseAdmin.from('user_totp_secrets').delete().eq('user_id', id);
+      await supabaseAdmin.from('comments').delete().eq('user_id', id);
       await supabaseAdmin.from('brand_user_profiles').delete().eq('id', id);
-      await supabaseAdmin.auth.admin.deleteUser(id);
+
+      const { error: authErr } = await supabaseAdmin.auth.admin.deleteUser(id);
+      if (authErr) {
+        return NextResponse.json(
+          { error: `Failed to delete auth user: ${authErr.message}` },
+          { status: 500 },
+        );
+      }
     } else {
       // Soft delete — deactivate and ban
       await supabaseAdmin.from('brand_user_profiles').update({ is_active: false }).eq('id', id);

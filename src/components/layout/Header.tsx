@@ -32,6 +32,10 @@ export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps)
   const isHomepage = pathname === '/';
   const useLight = isHomepage && !scrolled;
 
+  // Off-homepage, the hash-only nav links don't resolve to any section on the current page.
+  // Rewrite them to point back at the homepage sections so clicks actually navigate.
+  const resolveNavHref = (hash: string) => (isHomepage ? hash : `/${hash}`);
+
   useEffect(() => {
     const info = getMobileBrowserInfo();
     if (info?.isSafari) setIsSafari(true);
@@ -85,7 +89,7 @@ export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps)
           {navLinks.map(l => (
             <a
               key={l.href}
-              href={l.href}
+              href={resolveNavHref(l.href)}
               className={`text-sm font-medium transition-colors duration-300 ${
                 useLight
                   ? 'text-white/80 hover:text-white'
@@ -132,7 +136,7 @@ export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps)
           {navLinks.map(l => (
             <a
               key={l.href}
-              href={l.href}
+              href={resolveNavHref(l.href)}
               onClick={() => setMenuOpen(false)}
               className="text-slate-700 hover:text-[#0f172a] font-medium text-sm py-2.5 border-b border-slate-50 last:border-0"
             >

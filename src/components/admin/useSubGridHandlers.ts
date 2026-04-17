@@ -17,6 +17,7 @@ interface UseSubGridHandlersParams {
   selectedCategory: string;
   isScorecard: (id: string) => boolean;
   deltaTracker?: DeltaTracker;
+  reloadComments?: (scorecardId: string) => Promise<void> | void;
 }
 
 // Default column keys that are NOT product columns
@@ -41,8 +42,33 @@ export const AUTHORIZATION_OPTIONS = ['Authorized', 'Discontinued', 'Not Authori
 export function useSubGridHandlers({
   subGrids, setSubGrids, expandedRowId, setExpandedRowId,
   editingScoreCard, getCurrentData, updateCurrentData,
-  selectedCategory, isScorecard, deltaTracker,
+  selectedCategory, isScorecard, deltaTracker, reloadComments,
 }: UseSubGridHandlersParams) {
+
+  // Back-fills subgrid/parent comments from market_visits that predate the
+  // scorecard rows, then reloads comments so the UI picks them up. Idempotent
+  // server-side, so safe to call opportunistically whenever subgrid stores
+  // change — and also on scorecard selection, so a cleanup DELETE of
+  // mis-attributed rows gets repaired the next time the user opens that
+  // scorecard.
+  //
+  // Exported so AdminDataGrid can re-run it on every category switch.
+  async function backfillMarketVisitComments(scorecardId: string | null | undefined) {
+    if (!scorecardId || typeof scorecardId !== 'string' || scorecardId.startsWith('scorecard_')) return;
+    try {
+      const res = await fetch('/api/market-visits/backfill-comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ scorecard_id: scorecardId }),
+      });
+      if (!res.ok) return;
+      const json = await res.json().catch(() => ({ created: 0 }));
+      if (json?.created > 0 && reloadComments) await reloadComments(scorecardId);
+    } catch (err) {
+      console.warn('Failed to backfill market visit comments:', err);
+    }
+  }
 
   // Subgrid template state
   const [subgridTemplateModal, setSubgridTemplateModal] = useState<null | { parentId: string | number; mode: 'save' | 'import' }>(null);
@@ -160,15 +186,19 @@ export function useSubGridHandlers({
       const result = await fetchStoreRows(chainName);
       if (!result) return;
 
+      let didPopulate = false;
       setSubGrids((prev: any) => {
         const existing = prev[parentId];
         // Only auto-populate if subgrid has no rows yet (don't overwrite user data)
         if (existing && existing.rows && existing.rows.length > 0) return prev;
 
+        didPopulate = true;
         const updated = { ...prev, [parentId]: result };
         updateParentRowSubgrid(parentId, updated[parentId]);
         return updated;
       });
+
+      if (didPopulate) void backfillMarketVisitComments(editingScoreCard?.id);
     } catch (err) {
       console.warn('Failed to fetch chain stores:', err);
     }
@@ -211,6 +241,8 @@ export function useSubGridHandlers({
         updateParentRowSubgrid(parentId, updated[parentId]);
         return updated;
       });
+
+      void backfillMarketVisitComments(editingScoreCard?.id);
     } catch (err) {
       console.warn('Failed to refresh stores:', err);
     }
@@ -320,16 +352,18 @@ export function useSubGridHandlers({
   function handleSubGridRowsChange(parentId: string | number | undefined, newRows: any[]) {
     if (parentId === undefined) return;
     // Diff subgrid rows to record cell-level deltas
-    if (deltaTracker) {
-      const oldRows = subGrids[parentId]?.rows || [];
-      for (const newRow of newRows) {
-        if (newRow.isAddRow) continue;
-        const oldRow = oldRows.find((r: any) => r.id === newRow.id);
-        if (!oldRow) continue;
-        for (const key of Object.keys(newRow)) {
-          if (key === 'id' || key === 'isAddRow') continue;
-          if (newRow[key] !== oldRow[key]) {
-            deltaTracker.recordCellDelta({ parentRowId: parentId, subRowId: newRow.id, columnKey: key, value: newRow[key] });
+    let storeNameChanged = false;
+    const oldRows = subGrids[parentId]?.rows || [];
+    for (const newRow of newRows) {
+      if (newRow.isAddRow) continue;
+      const oldRow = oldRows.find((r: any) => r.id === newRow.id);
+      if (!oldRow) continue;
+      for (const key of Object.keys(newRow)) {
+        if (key === 'id' || key === 'isAddRow') continue;
+        if (newRow[key] !== oldRow[key]) {
+          deltaTracker?.recordCellDelta({ parentRowId: parentId, subRowId: newRow.id, columnKey: key, value: newRow[key] });
+          if (key === 'store_name' && typeof newRow[key] === 'string' && newRow[key].trim()) {
+            storeNameChanged = true;
           }
         }
       }
@@ -339,6 +373,8 @@ export function useSubGridHandlers({
       updateParentRowSubgrid(parentId, updated[parentId]);
       return updated;
     });
+
+    if (storeNameChanged) void backfillMarketVisitComments(editingScoreCard?.id);
   }
 
   function handleSubGridColumnNameChange(parentId: string | number | undefined, idx: number, newName: string) {
@@ -509,5 +545,6 @@ export function useSubGridHandlers({
     subgridTemplateError, setSubgridTemplateError,
     subgridTemplates, setSubgridTemplates,
     fetchAndPopulateStores, refreshStoresForSubgrid, buildSubgridColumns, getProductColumns, syncSubgridsWithColumns,
+    backfillMarketVisitComments,
   };
 }
