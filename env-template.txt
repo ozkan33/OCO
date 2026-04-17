@@ -12,8 +12,16 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 # Your Supabase service role key (found in Supabase dashboard > Settings > API)
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
 
-# JWT Secret for authentication (can be any secure random string)
+# JWT Secret for authentication (any secure random string)
+# Used to: (a) HMAC-sign trusted-device cookies, (b) derive the TOTP encryption key when
+# TOTP_ENCRYPTION_KEY is not set. REQUIRED in production — the app will throw on 2FA verify if missing.
 JWT_SECRET=your_jwt_secret_here
+
+# 2FA TOTP secret encryption key (32-byte hex string = 64 hex chars)
+# Generate with: openssl rand -hex 32
+# REQUIRED in production. Without this, getEncryptionKey falls back to deriving from JWT_SECRET.
+# Rotating this value will invalidate all existing 2FA enrollments — users must re-enroll.
+TOTP_ENCRYPTION_KEY=your_64_char_hex_key_here
 
 # Database URL (PostgreSQL connection string from Supabase dashboard > Settings > Database)
 DATABASE_URL=your_database_url_here 

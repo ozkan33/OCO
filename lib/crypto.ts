@@ -67,7 +67,14 @@ export function verifyDeviceToken(signedToken: string): boolean {
   const token = signedToken.substring(0, dotIndex);
   const sig = signedToken.substring(dotIndex + 1);
 
-  const expected = crypto.createHmac('sha256', getSigningKey()).update(token).digest('hex');
+  // Fail-soft: a missing JWT_SECRET in prod must not 500 the request — return false so the user
+  // re-runs the 2FA prompt instead of seeing an internal error.
+  let expected: string;
+  try {
+    expected = crypto.createHmac('sha256', getSigningKey()).update(token).digest('hex');
+  } catch {
+    return false;
+  }
 
   if (sig.length !== expected.length) return false;
   try {
