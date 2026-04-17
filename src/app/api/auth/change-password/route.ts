@@ -3,10 +3,18 @@ import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../lib/apiAuth';
 import { changePasswordSchema } from '../../../../../lib/schemas';
+import { logger } from '../../../../../lib/logger';
 
 export async function POST(request: Request) {
+  let user;
   try {
-    const user = await getUserFromToken(request);
+    user = await getUserFromToken(request);
+  } catch (authErr) {
+    logger.warn('change-password: auth failed —', authErr instanceof Error ? authErr.message : authErr);
+    return NextResponse.json({ error: 'Your session has expired. Please sign in again.' }, { status: 401 });
+  }
+
+  try {
     const body = await request.json();
     const parsed = changePasswordSchema.safeParse(body);
 
@@ -17,7 +25,7 @@ export async function POST(request: Request) {
     const { newPassword } = parsed.data;
 
     // Update password in Supabase Auth
-    const { error } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
       password: newPassword,
       user_metadata: {
         ...user.user_metadata,
@@ -25,7 +33,8 @@ export async function POST(request: Request) {
       },
     });
 
-    if (error) {
+    if (updateError) {
+      logger.error('change-password: updateUserById failed —', updateError.message);
       return NextResponse.json({ error: 'Failed to change password' }, { status: 500 });
     }
 
@@ -35,8 +44,8 @@ export async function POST(request: Request) {
       .update({ must_change_password: false })
       .eq('id', user.id);
 
-    // Re-authenticate with the new password to get a fresh session
-    // (changing password via admin API invalidates the old session token)
+    // Re-authenticate with the new password to get a fresh session.
+    // (Changing password via admin API may invalidate the old refresh token.)
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -49,8 +58,18 @@ export async function POST(request: Request) {
     });
 
     if (loginError || !session.session) {
-      // Password was changed but re-auth failed — user will need to log in again
-      return NextResponse.json({ success: true, reauth: false });
+      // Re-auth failed. Surface the real reason so the UI can react.
+      logger.error(
+        'change-password: reauth with new password failed —',
+        loginError?.message ?? 'no session returned',
+      );
+      return NextResponse.json(
+        {
+          error: 'Password updated, but we could not refresh your session. Please sign in again with your new password.',
+          reauth: false,
+        },
+        { status: 500 },
+      );
     }
 
     // Set fresh session cookies
@@ -73,7 +92,8 @@ export async function POST(request: Request) {
     }), cookieOpts);
 
     return response;
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  } catch (err) {
+    logger.error('change-password: unexpected error —', err);
+    return NextResponse.json({ error: 'An unexpected error occurred.' }, { status: 500 });
   }
 }
