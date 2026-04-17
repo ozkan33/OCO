@@ -22,9 +22,30 @@ export async function POST(request: Request) {
     );
   }
 
+  // Encrypt the secret up-front so we can distinguish a server-config failure
+  // (TOTP_ENCRYPTION_KEY missing/invalid in prod) from a transient DB failure.
+  // The original catch-all returned a generic 500 that the UI rendered as
+  // "Failed to set up 2FA", which left admins with nothing to act on.
+  let secret: string;
+  let ciphertext: string;
   try {
-    // Generate secret
-    const secret = generateSecret();
+    secret = generateSecret();
+    ciphertext = encryptSecret(secret);
+  } catch (cryptoErr) {
+    logger.error(
+      '2FA setup POST: encryptSecret failed — TOTP_ENCRYPTION_KEY is missing or not 64 hex chars in this environment. Fix env vars and redeploy.',
+      cryptoErr instanceof Error ? cryptoErr.message : cryptoErr,
+    );
+    return NextResponse.json(
+      {
+        error: '2FA is not configured on this server. Please contact support — the administrator needs to set TOTP_ENCRYPTION_KEY.',
+        code: 'TOTP_KEY_MISSING',
+      },
+      { status: 503 },
+    );
+  }
+
+  try {
     const email = user.email || 'user';
     const otpauth = generateURI({ issuer: '3Brothers Marketing', label: email, secret });
 
@@ -36,14 +57,14 @@ export async function POST(request: Request) {
       .from('user_totp_secrets')
       .upsert({
         user_id: user.id,
-        encrypted_secret: encryptSecret(secret),
+        encrypted_secret: ciphertext,
         is_enabled: false,
         created_at: new Date().toISOString(),
       }, { onConflict: 'user_id' });
 
     if (upsertError) {
       logger.error('2FA setup POST: upsert failed —', upsertError.message);
-      return NextResponse.json({ error: 'Failed to save 2FA secret.' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to save 2FA secret. Please try again.' }, { status: 500 });
     }
 
     return NextResponse.json({

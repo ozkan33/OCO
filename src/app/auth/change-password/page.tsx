@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { LogoMark } from '@/components/layout/Logo';
 
-type Step = 'password' | '2fa-setup' | '2fa-verify' | 'done';
+type Step = 'password' | '2fa-retry' | '2fa-setup' | '2fa-verify' | 'done';
 
 export default function ChangePasswordPage() {
   const [step, setStep] = useState<Step>('password');
@@ -11,6 +11,10 @@ export default function ChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // True once the password-change POST succeeded. If 2FA setup then fails we
+  // want the user to retry enrollment, NOT re-enter a new password (which would
+  // fail or re-trigger reauth). Middleware still blocks /portal until enroll.
+  const [passwordChanged, setPasswordChanged] = useState(false);
 
   // 2FA state
   const [qrCode, setQrCode] = useState<string | null>(null);
@@ -31,7 +35,15 @@ export default function ChangePasswordPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ newPassword }),
       });
-      if (!res.ok) { const d = await res.json(); setError(d.error || 'Failed.'); return; }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || 'Failed to update password.');
+        setLoading(false);
+        return;
+      }
+
+      // Password change committed.
+      setPasswordChanged(true);
 
       // Password changed — check if 2FA is enabled, otherwise skip to done
       const tfaCheck = await fetch('/api/auth/2fa/setup', { credentials: 'include' });
@@ -41,8 +53,16 @@ export default function ChangePasswordPage() {
         window.location.href = '/portal';
         return;
       }
+      // NOTE: if 2FA setup POST fails inside setup2FA, the user stays on this page
+      // with an actionable error message. Middleware's must_enroll_2fa guard keeps
+      // them here across refreshes — they cannot accidentally reach /portal without
+      // completing enrollment. See src/middleware.ts and the must_enroll_2fa flag
+      // set in src/app/api/admin/brand-users/route.ts.
       await setup2FA();
-    } catch { setError('An unexpected error occurred.'); } finally { setLoading(false); }
+    } catch {
+      setError('An unexpected error occurred.');
+      setLoading(false);
+    }
   };
 
   const setup2FA = async () => {
@@ -52,12 +72,28 @@ export default function ChangePasswordPage() {
       const res = await fetch('/api/auth/2fa/setup', {
         method: 'POST', credentials: 'include',
       });
-      if (!res.ok) { setError('Failed to set up 2FA.'); return; }
+      if (!res.ok) {
+        // Surface the server's real error. A 503 with TOTP_KEY_MISSING means the
+        // server is misconfigured (TOTP_ENCRYPTION_KEY not set) and the admin has
+        // to fix env vars — nothing the user can do. Older code just said "Failed
+        // to create 2FA" which was uselessly generic.
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || 'Failed to set up 2FA. Please try again or contact support.');
+        // Drop into the retry step so the user has an explicit retry button and
+        // understands the password already committed. Without this they'd be
+        // looking at the (now-irrelevant) password form.
+        if (passwordChanged) setStep('2fa-retry');
+        return;
+      }
       const data = await res.json();
       setQrCode(data.qrCode);
       setManualSecret(data.secret);
       setStep('2fa-setup');
-    } catch { setError('Failed to set up 2FA.'); } finally { setLoading(false); }
+    } catch {
+      setError('Failed to set up 2FA. Please check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleVerify2FA = async () => {
@@ -75,7 +111,7 @@ export default function ChangePasswordPage() {
     } catch { setError('Verification failed.'); } finally { setLoading(false); }
   };
 
-  const stepNumber = step === 'password' ? 1 : step === '2fa-setup' ? 2 : step === '2fa-verify' ? 3 : 3;
+  const stepNumber = step === 'password' ? 1 : step === '2fa-retry' ? 2 : step === '2fa-setup' ? 2 : step === '2fa-verify' ? 3 : 3;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
@@ -83,10 +119,11 @@ export default function ChangePasswordPage() {
         <div className="text-center mb-6">
           <div className="flex justify-center mb-4"><LogoMark size={48} /></div>
           <h1 className="text-2xl font-bold text-slate-900">
-            {step === 'password' ? 'Set Your Password' : step === 'done' ? 'All Set!' : 'Set Up 2FA'}
+            {step === 'password' ? 'Set Your Password' : step === 'done' ? 'All Set!' : step === '2fa-retry' ? '2FA Setup Failed' : 'Set Up 2FA'}
           </h1>
           <p className="text-sm text-slate-500 mt-2">
             {step === 'password' && 'Create a strong password for your account.'}
+            {step === '2fa-retry' && 'Your password was saved, but two-factor setup failed. You must complete 2FA before accessing the portal.'}
             {step === '2fa-setup' && 'Scan the QR code with an authenticator app.'}
             {step === '2fa-verify' && 'Enter the code from your authenticator app.'}
             {step === 'done' && 'Your account is secured. You can now access your portal.'}
@@ -124,6 +161,29 @@ export default function ChangePasswordPage() {
                 {loading ? 'Updating...' : 'Set Password & Continue'}
               </button>
             </form>
+          )}
+
+          {/* Step 2 (retry): 2FA setup POST failed after password commit.
+              Give the user an explicit retry button instead of leaving them
+              staring at the password form with a confusing error. */}
+          {step === '2fa-retry' && (
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+                <p className="font-semibold mb-1">Password saved.</p>
+                <p className="text-amber-700">
+                  We could not start two-factor enrollment. This usually means the
+                  server is missing a required configuration value
+                  (<code className="font-mono text-xs">TOTP_ENCRYPTION_KEY</code>).
+                  Please try again in a moment, or contact support if the problem
+                  persists. You will not be able to reach the portal until 2FA is
+                  enrolled.
+                </p>
+              </div>
+              {error && <p className="text-sm text-red-600 font-medium">{error}</p>}
+              <button onClick={setup2FA} disabled={loading} className="w-full py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50">
+                {loading ? 'Retrying...' : 'Retry 2FA setup'}
+              </button>
+            </div>
           )}
 
           {/* Step 2: 2FA Setup — QR code */}

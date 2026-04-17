@@ -361,6 +361,26 @@ function formatDataForPrompt(data: BrandWeekData): string {
   return lines.join('\n');
 }
 
+// Retryable upstream Gemini errors (transient capacity / rate limit issues).
+function isTransientGeminiError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return /"code":\s*(429|500|503)|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|overloaded/i.test(msg);
+}
+
+function friendlyGeminiError(err: unknown): Error {
+  const raw = err instanceof Error ? err.message : String(err || '');
+  if (/"code":\s*503|UNAVAILABLE|high demand|overloaded/i.test(raw)) {
+    return new Error('The AI model is temporarily overloaded. Please try again in a minute.');
+  }
+  if (/"code":\s*429|RESOURCE_EXHAUSTED/i.test(raw)) {
+    return new Error('Rate limit hit on the AI model. Please wait a moment and try again.');
+  }
+  if (/"code":\s*401|PERMISSION_DENIED|API key/i.test(raw)) {
+    return new Error('AI model authentication failed. Check GEMINI_API_KEY.');
+  }
+  return err instanceof Error ? err : new Error(raw || 'AI model request failed');
+}
+
 export async function generateWeeklySummary(data: BrandWeekData): Promise<{ summary: string; model: string }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
@@ -368,19 +388,35 @@ export async function generateWeeklySummary(data: BrandWeekData): Promise<{ summ
   const client = new GoogleGenAI({ apiKey });
   const userContent = formatDataForPrompt(data);
 
-  const response = await client.models.generateContent({
-    model: MODEL,
-    contents: userContent,
-    config: {
-      systemInstruction: SYSTEM_PROMPT,
-      maxOutputTokens: 2000,
-      temperature: 0.7,
-    },
-  });
+  const maxAttempts = 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await client.models.generateContent({
+        model: MODEL,
+        contents: userContent,
+        config: {
+          systemInstruction: SYSTEM_PROMPT,
+          maxOutputTokens: 2000,
+          temperature: 0.7,
+        },
+      });
 
-  const text = (response.text || '').trim();
-  if (!text) throw new Error('Gemini returned empty summary');
-  return { summary: normalizeMarkdown(text), model: MODEL };
+      const text = (response.text || '').trim();
+      if (!text) throw new Error('Gemini returned empty summary');
+      return { summary: normalizeMarkdown(text), model: MODEL };
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts && isTransientGeminiError(err)) {
+        const backoffMs = 800 * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 400);
+        logger.warn(`[weekly-summary] Gemini transient error (attempt ${attempt}/${maxAttempts}), retrying in ${backoffMs}ms`);
+        await new Promise((r) => setTimeout(r, backoffMs));
+        continue;
+      }
+      throw friendlyGeminiError(err);
+    }
+  }
+  throw friendlyGeminiError(lastErr);
 }
 
 // Gemini occasionally collapses bullet lists onto one line with inline " - "

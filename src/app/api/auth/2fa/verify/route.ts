@@ -89,15 +89,22 @@ export async function POST(request: Request) {
         .update({ is_enabled: true, verified_at: new Date().toISOString() })
         .eq('user_id', user.id);
 
-      // Update profile
+      // Update profile — clear must_enroll_2fa now that the user has a working
+      // authenticator. Until this point middleware keeps forcing /auth/change-password.
       await supabaseAdmin
         .from('brand_user_profiles')
-        .update({ totp_enabled: true })
+        .update({ totp_enabled: true, must_enroll_2fa: false })
         .eq('id', user.id);
 
-      // Update user metadata
+      // Update user metadata — both flags in one write. must_enroll_2fa is the
+      // middleware-side gate; totp_enabled is what the login page uses to decide
+      // whether to prompt for the 6-digit code on subsequent sign-ins.
       await supabaseAdmin.auth.admin.updateUserById(user.id, {
-        user_metadata: { ...user.user_metadata, totp_enabled: true },
+        user_metadata: {
+          ...user.user_metadata,
+          totp_enabled: true,
+          must_enroll_2fa: false,
+        },
       });
     }
 
