@@ -139,8 +139,18 @@ export async function POST(request: Request) {
           .in('title', brands);
 
         if (matchedScorecards && matchedScorecards.length > 0) {
-          // Normalize: lowercase, collapse whitespace, remove spaces around & and special chars
-          const normalize = (s: string) => s.trim().toLowerCase().replace(/\s*&\s*/g, '&').replace(/\s+/g, ' ');
+          // Normalize for matching: lowercase, unify punctuation (em/en-dash, hyphen,
+          // slash → space), normalize ampersands & apostrophes, collapse whitespace.
+          // This lets "L&B 50TH-EDINA" match user-typed "L&B 50th Edina" or
+          // "Cub Foods — Eagan" match "CUB FOODS EAGAN".
+          const normalize = (s: string) => s
+            .trim()
+            .toLowerCase()
+            .replace(/[\u2013\u2014]/g, '-')
+            .replace(/[-_/]+/g, ' ')
+            .replace(/\s*&\s*/g, '&')
+            .replace(/[\u2018\u2019\u2032`]/g, "'")
+            .replace(/\s+/g, ' ');
           const normalizedStore = normalize(storeName);
           const adminName = user.user_metadata?.name || user.email?.split('@')[0] || 'Admin';
           const timestamp = new Date().toISOString();

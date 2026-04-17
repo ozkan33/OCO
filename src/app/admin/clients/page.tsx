@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useBrands } from '@/hooks/useBrands';
 import AdminHeader from '@/components/admin/AdminHeader';
-import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiCheck, FiEye, FiEyeOff, FiClock } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiCheck, FiEye, FiEyeOff, FiClock, FiUserX, FiUserCheck } from 'react-icons/fi';
 import { Fragment } from 'react';
 
 interface Assignment { scorecardId: string; productColumns: string[]; }
@@ -322,13 +322,14 @@ export default function ClientsPage() {
                     <td className="px-4 py-3 text-xs text-slate-400">{bu.last_login ? new Date(bu.last_login).toLocaleDateString() : 'Never'}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => viewSessions(bu.id)} className={`transition-colors p-1 ${selectedUserSessions === bu.id ? 'text-blue-600' : 'text-slate-400 hover:text-blue-600'}`} title="Login History"><FiClock className="w-4 h-4" /></button>
-                        <button onClick={() => openEditModal(bu)} className="text-slate-400 hover:text-blue-600 transition-colors p-1" title="Edit"><FiEdit2 className="w-4 h-4" /></button>
+                        <button onClick={() => viewSessions(bu.id)} className={`transition-colors p-1.5 rounded-md ${selectedUserSessions === bu.id ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-blue-600 hover:bg-slate-100'}`} title="Login History"><FiClock className="w-4 h-4" /></button>
+                        <button onClick={() => openEditModal(bu)} className="text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition-colors p-1.5 rounded-md" title="Edit"><FiEdit2 className="w-4 h-4" /></button>
+                        <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden="true" />
                         {bu.is_active
-                          ? <button onClick={() => handleDelete(bu.id)} className="text-slate-400 hover:text-amber-500 transition-colors p-1" title="Deactivate"><FiTrash2 className="w-4 h-4" /></button>
-                          : <button onClick={() => handleReactivate(bu.id)} className="text-slate-400 hover:text-green-600 transition-colors p-1" title="Reactivate"><FiCheck className="w-4 h-4" /></button>
+                          ? <button onClick={() => handleDelete(bu.id)} className="text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors p-1.5 rounded-md" title="Deactivate (user can't log in)"><FiUserX className="w-4 h-4" /></button>
+                          : <button onClick={() => handleReactivate(bu.id)} className="text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors p-1.5 rounded-md" title="Reactivate user"><FiUserCheck className="w-4 h-4" /></button>
                         }
-                        <button onClick={() => handlePermanentDelete(bu)} className="text-slate-300 hover:text-red-600 transition-colors p-1" title="Delete permanently"><svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
+                        <button onClick={() => handlePermanentDelete(bu)} className="text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors p-1.5 rounded-md" title="Delete permanently"><FiTrash2 className="w-4 h-4" /></button>
                       </div>
                     </td>
                   </tr>

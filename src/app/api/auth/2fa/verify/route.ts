@@ -97,6 +97,21 @@ export async function POST(request: Request) {
       else if (ua.includes('iPad')) deviceName = 'iPad';
       else if (ua.includes('Linux')) deviceName = 'Linux PC';
 
+      // Sign the token BEFORE inserting — if signing fails (missing JWT_SECRET), the row would be
+      // an orphan that check-trusted can never validate. Fail fast instead.
+      let signedToken: string;
+      try {
+        signedToken = signDeviceToken(deviceToken);
+      } catch (signErr) {
+        logger.error('2FA verify: signDeviceToken failed —', signErr);
+        const res = NextResponse.json({ ...response, trustDeviceError: 'Could not save trusted device; you may need to re-verify next time.' });
+        res.cookies.set('2fa_verified', 'true', {
+          httpOnly: true, secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 7,
+        });
+        return res;
+      }
+
       const { error: insertErr } = await supabaseAdmin.from('trusted_devices').insert({
         user_id: user.id,
         device_token: deviceToken,
@@ -106,7 +121,6 @@ export async function POST(request: Request) {
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days
       });
 
-      // If DB insert fails, don't set trusted_device cookie (next login would fail check-trusted anyway)
       if (insertErr) {
         logger.error('2FA verify: trusted_devices insert failed —', insertErr.message);
         const res = NextResponse.json({ ...response, trustDeviceError: 'Could not save trusted device; you may need to re-verify next time.' });
@@ -117,8 +131,6 @@ export async function POST(request: Request) {
         return res;
       }
 
-      // Set trusted device cookie (signed to prevent forgery) + 2FA verified session cookie
-      const signedToken = signDeviceToken(deviceToken);
       const res = NextResponse.json(response);
       const cookieOpts = { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, path: '/' };
       res.cookies.set('trusted_device', signedToken, { ...cookieOpts, maxAge: 30 * 24 * 60 * 60 });

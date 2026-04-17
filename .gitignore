@@ -130,3 +130,9 @@ Icon?
 
 # Linux system files
 .Trash-*
+
+# Playwright / E2E tests (local only)
+e2e/
+test-results/
+playwright-report/
+playwright.config.ts

@@ -101,11 +101,11 @@ export async function DELETE(request: Request) {
       user_metadata: { ...user.user_metadata, totp_enabled: false },
     });
 
-    // Update brand_user_profiles if exists
+    // Update brand_user_profiles if exists (PK is `id`, referencing auth.users.id)
     await supabaseAdmin
       .from('brand_user_profiles')
       .update({ totp_enabled: false })
-      .eq('user_id', user.id);
+      .eq('id', user.id);
 
     return NextResponse.json({ success: true, enabled: false });
   } catch {
