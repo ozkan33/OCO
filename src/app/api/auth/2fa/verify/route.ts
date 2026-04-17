@@ -83,7 +83,7 @@ export async function POST(request: Request) {
     const response: any = { success: true, verified: true };
 
     // ── Step 6: Trust this device if requested ───────────────────────────────
-    if (trustDevice) {
+    if (trustDevice && features.ENABLE_TRUSTED_DEVICES) {
       const deviceToken = crypto.randomBytes(32).toString('hex');
       const ua = request.headers.get('user-agent') || 'Unknown';
       const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown';
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       else if (ua.includes('iPad')) deviceName = 'iPad';
       else if (ua.includes('Linux')) deviceName = 'Linux PC';
 
-      await supabaseAdmin.from('trusted_devices').insert({
+      const { error: insertErr } = await supabaseAdmin.from('trusted_devices').insert({
         user_id: user.id,
         device_token: deviceToken,
         device_name: deviceName,
@@ -105,6 +105,17 @@ export async function POST(request: Request) {
         ip_address: ip,
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days
       });
+
+      // If DB insert fails, don't set trusted_device cookie (next login would fail check-trusted anyway)
+      if (insertErr) {
+        logger.error('2FA verify: trusted_devices insert failed —', insertErr.message);
+        const res = NextResponse.json({ ...response, trustDeviceError: 'Could not save trusted device; you may need to re-verify next time.' });
+        res.cookies.set('2fa_verified', 'true', {
+          httpOnly: true, secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 7,
+        });
+        return res;
+      }
 
       // Set trusted device cookie (signed to prevent forgery) + 2FA verified session cookie
       const signedToken = signDeviceToken(deviceToken);
