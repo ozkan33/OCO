@@ -8,6 +8,65 @@ const SYSTEM_COLUMNS = new Set([
   'cmg', 'brand_lead', 'comments', '_delete_row',
 ]);
 
+interface ProductDetail { name: string; status: string }
+interface StoreDetail {
+  name: string;
+  location?: string;
+  products: ProductDetail[];
+  authorized: number;
+  total: number;
+  percentage: number;
+}
+
+function isAuthorized(status: unknown): boolean {
+  return typeof status === 'string' && status.toLowerCase() === 'authorized';
+}
+
+function summarizeStores(parentRow: any, productCols: any[]) {
+  const subRows: any[] = parentRow?.subgrid?.rows || [];
+  const stores: StoreDetail[] = [];
+  let storeAuthorized = 0;
+  let storeTotal = 0;
+  for (const sr of subRows) {
+    const name = String(sr.store_name || sr.name || '').trim();
+    if (!name) continue;
+    const products: ProductDetail[] = [];
+    // Per-store badge counts every displayed product (explicit + inherited);
+    // aggregate cell counts only include explicit per-store values so the
+    // chain-level badge doesn't inflate when stores simply inherit the parent.
+    let displayAuth = 0;
+    let displayTot = 0;
+    let explicitAuth = 0;
+    let explicitTot = 0;
+    for (const pc of productCols) {
+      const raw = sr[`product_${pc.key}`] ?? sr[pc.key];
+      const hasExplicit = raw !== undefined && raw !== null && raw !== '';
+      const status = hasExplicit ? raw : parentRow?.[pc.key];
+      if (status === undefined || status === null || status === '') continue;
+      products.push({ name: pc.name, status: String(status) });
+      displayTot++;
+      if (isAuthorized(status)) displayAuth++;
+      if (hasExplicit) {
+        explicitTot++;
+        if (isAuthorized(status)) explicitAuth++;
+      }
+    }
+    if (displayTot === 0) continue;
+    const locParts = [sr.city, sr.state].filter(Boolean).map(String);
+    stores.push({
+      name,
+      location: locParts.length ? locParts.join(', ') : undefined,
+      products,
+      authorized: displayAuth,
+      total: displayTot,
+      percentage: Math.round((displayAuth / displayTot) * 100),
+    });
+    storeAuthorized += explicitAuth;
+    storeTotal += explicitTot;
+  }
+  return { stores, storeAuthorized, storeTotal };
+}
+
 // GET /api/portal/master-scorecard — Brand user's filtered master scorecard
 export async function GET(request: Request) {
   try {
@@ -48,7 +107,7 @@ export async function GET(request: Request) {
 
     // Build pivot: brands as columns, retailers as rows
     const brandNames: string[] = [];
-    const pivotMap = new Map<string, Record<string, { authorized: number; total: number; products: { name: string; status: string }[] }>>();
+    const pivotMap = new Map<string, Record<string, any>>();
 
     for (const sc of scorecards) {
       const assignment = assignments.find((a: any) => a.scorecard_id === sc.id);
@@ -76,39 +135,42 @@ export async function GET(request: Request) {
         const retailer = String(row[retailerCol.key] || '').trim();
         if (!retailer) continue;
 
-        let authorized = 0;
-        let total = 0;
-        const products: { name: string; status: string }[] = [];
+        const products: ProductDetail[] = [];
+        const activeProductCols: any[] = [];
+        let productAuthorized = 0;
+        let productTotal = 0;
         for (const pc of productCols) {
           const status = row[pc.key];
-          if (status !== undefined && status !== null && status !== '') {
-            total++;
-            products.push({ name: pc.name, status: String(status) });
-            if (typeof status === 'string' && status.toLowerCase() === 'authorized') {
-              authorized++;
-            }
-          }
+          if (status === undefined || status === null || status === '') continue;
+          productTotal++;
+          products.push({ name: pc.name, status: String(status) });
+          activeProductCols.push(pc);
+          if (isAuthorized(status)) productAuthorized++;
         }
 
-        if (total === 0) continue;
+        if (productTotal === 0) continue;
+
+        const { stores, storeAuthorized, storeTotal } = summarizeStores(row, activeProductCols);
+        const authorized = productAuthorized + storeAuthorized;
+        const total = productTotal + storeTotal;
 
         if (!pivotMap.has(retailer)) pivotMap.set(retailer, {});
-        pivotMap.get(retailer)![brandName] = { authorized, total, products };
-      }
-    }
-
-    const pivotRows = Array.from(pivotMap.entries()).map(([retailer, brands]) => {
-      const brandCells: Record<string, any> = {};
-      for (const [brand, { authorized, total, products }] of Object.entries(brands)) {
-        brandCells[brand] = {
+        pivotMap.get(retailer)![brandName] = {
           authorized,
           total,
           percentage: Math.round((authorized / total) * 100),
           products,
+          stores,
+          storeAuthorized,
+          storeTotal,
         };
       }
-      return { retailer, brands: brandCells };
-    });
+    }
+
+    const pivotRows = Array.from(pivotMap.entries()).map(([retailer, brands]) => ({
+      retailer,
+      brands,
+    }));
 
     pivotRows.sort((a, b) => a.retailer.localeCompare(b.retailer));
 

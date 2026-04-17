@@ -11,6 +11,7 @@ export default function AdminDashboard() {
   const [loadingUser, setLoadingUser] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigateToRef = useRef<((payload: NavigateToPayload) => void) | null>(null);
+  const refreshCommentsRef = useRef<((scorecardId: string) => void) | null>(null);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -89,13 +90,21 @@ export default function AdminDashboard() {
             onNotificationClick={(payload) => {
               navigateToRef.current?.(payload);
             }}
+            onNewActivity={(scorecardIds) => {
+              scorecardIds.forEach(id => refreshCommentsRef.current?.(id));
+            }}
           />
         }
       />
       <main className="w-full max-w-none px-0 py-0 flex justify-center">
         <div className="w-full">
           <SafariErrorBoundary>
-            <AdminDataGrid userRole={user.role} key={user.role} navigateToRef={navigateToRef} />
+            <AdminDataGrid
+              userRole={user.role}
+              key={user.role}
+              navigateToRef={navigateToRef}
+              refreshCommentsRef={refreshCommentsRef}
+            />
           </SafariErrorBoundary>
         </div>
       </main>

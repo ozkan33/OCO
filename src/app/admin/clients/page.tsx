@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useBrands } from '@/hooks/useBrands';
 import AdminHeader from '@/components/admin/AdminHeader';
-import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiCheck, FiEye, FiEyeOff, FiClock, FiUserX, FiUserCheck } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiCheck, FiEye, FiEyeOff, FiClock, FiUserX, FiUserCheck, FiRefreshCw, FiX } from 'react-icons/fi';
 import { Fragment } from 'react';
+import WeeklySummaryCard from '@/components/portal/WeeklySummaryCard';
 
 interface Assignment { scorecardId: string; productColumns: string[]; }
 interface BrandUser {
@@ -45,6 +46,66 @@ export default function ClientsPage() {
   const [selectedUserSessions, setSelectedUserSessions] = useState<string | null>(null);
   const [sessions, setSessions] = useState<any[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
+
+  // Weekly summary regeneration state
+  // Keyed on brand_name because the summary is brand-scoped — so sibling
+  // rows of the same brand can reflect the shared "updating" state in a
+  // subtle way (muted hint) while only the clicked anchor row spins.
+  const [regeneratingBrand, setRegeneratingBrand] = useState<string | null>(null);
+  const [regenPickerFor, setRegenPickerFor] = useState<string | null>(null);
+  const [regenResult, setRegenResult] = useState<{
+    brand: string;
+    weekOf: string;
+    stats: { visitCount?: number; storeCount?: number; statusChangeCount?: number; scorecardNoteCount?: number };
+    summary: string;
+  } | null>(null);
+  const [regenError, setRegenError] = useState<string | null>(null);
+
+  // Returns the Monday on or before the given date, as YYYY-MM-DD (UTC).
+  const mondayOfISO = (date: Date): string => {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const day = d.getUTCDay();
+    const diff = (day + 6) % 7;
+    d.setUTCDate(d.getUTCDate() - diff);
+    return d.toISOString().slice(0, 10);
+  };
+  const thisWeekMonday = mondayOfISO(new Date());
+  const lastWeekMonday = (() => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - 7);
+    return mondayOfISO(d);
+  })();
+
+  const runRegenerate = async (brandName: string, weekOf: string) => {
+    if (regeneratingBrand) return;
+    setRegeneratingBrand(brandName);
+    setRegenError(null);
+    setRegenPickerFor(null);
+    try {
+      const res = await fetch('/api/admin/weekly-summary/regenerate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ brand_name: brandName, week_of: weekOf }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error || 'Failed to regenerate');
+      setRegenResult({
+        brand: body.brand,
+        weekOf: body.week_of,
+        stats: body.stats || {},
+        summary: body.summary || '',
+      });
+    } catch (err) {
+      setRegenError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setRegeneratingBrand(null);
+    }
+  };
+
+  const handleRegenerateSummary = (brandName: string) => {
+    setRegenPickerFor(brandName);
+  };
 
   // Edit-specific state
   const [editResetPassword, setEditResetPassword] = useState(false);
@@ -305,7 +366,27 @@ export default function ClientsPage() {
             <tbody>
               {brandUsers.length === 0 ? (
                 <tr><td colSpan={7} className="px-4 py-12 text-center text-slate-400">No brand users yet. Click &ldquo;Add Client&rdquo; to create one.</td></tr>
-              ) : brandUsers.map(bu => (
+              ) : (() => {
+                // Sort so same-brand users are adjacent, then contact name.
+                // The first user of each brand is the "anchor" — it owns the
+                // Regenerate button. Other users of the same brand show a
+                // muted "shared" indicator instead, since the summary is
+                // brand-scoped in the DB and regenerating once updates it
+                // for everyone on that brand.
+                const sorted = [...brandUsers].sort((a, b) => {
+                  const brandCmp = a.brand_name.localeCompare(b.brand_name);
+                  return brandCmp !== 0 ? brandCmp : a.contact_name.localeCompare(b.contact_name);
+                });
+                const brandCounts = new Map<string, number>();
+                sorted.forEach(u => brandCounts.set(u.brand_name, (brandCounts.get(u.brand_name) || 0) + 1));
+                const seenBrands = new Set<string>();
+                return sorted.map(bu => {
+                  const isAnchor = !seenBrands.has(bu.brand_name);
+                  if (isAnchor) seenBrands.add(bu.brand_name);
+                  const brandUserCount = brandCounts.get(bu.brand_name) || 1;
+                  const isShared = brandUserCount > 1;
+                  const isThisBrandRegenerating = regeneratingBrand === bu.brand_name;
+                  return (
                 <Fragment key={bu.id}>
                   <tr className="border-b border-slate-50 hover:bg-slate-50/50">
                     <td className="px-4 py-3 font-semibold text-slate-900">{bu.brand_name}</td>
@@ -323,6 +404,32 @@ export default function ClientsPage() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => viewSessions(bu.id)} className={`transition-colors p-1.5 rounded-md ${selectedUserSessions === bu.id ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-blue-600 hover:bg-slate-100'}`} title="Login History"><FiClock className="w-4 h-4" /></button>
+                        {isAnchor ? (
+                          <button
+                            onClick={() => handleRegenerateSummary(bu.brand_name)}
+                            disabled={isThisBrandRegenerating}
+                            className="text-slate-400 hover:text-purple-600 hover:bg-purple-50 transition-colors p-1.5 rounded-md disabled:opacity-50"
+                            title={isShared
+                              ? `Regenerate this week's AI summary (shared across ${brandUserCount} ${bu.brand_name} users)`
+                              : "Regenerate this week's AI summary"}
+                          >
+                            <FiRefreshCw className={`w-4 h-4 ${isThisBrandRegenerating ? 'animate-spin' : ''}`} />
+                          </button>
+                        ) : (
+                          <span
+                            className="inline-flex items-center justify-center p-1.5 rounded-md text-slate-300"
+                            title={`Weekly summary is shared with ${bu.brand_name}. Regenerate it from the first row of this brand.`}
+                            aria-label={`Summary shared with ${bu.brand_name}`}
+                          >
+                            {isThisBrandRegenerating ? (
+                              <FiRefreshCw className="w-4 h-4 animate-spin text-purple-300" />
+                            ) : (
+                              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+                              </svg>
+                            )}
+                          </span>
+                        )}
                         <button onClick={() => openEditModal(bu)} className="text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition-colors p-1.5 rounded-md" title="Edit"><FiEdit2 className="w-4 h-4" /></button>
                         <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden="true" />
                         {bu.is_active
@@ -376,11 +483,103 @@ export default function ClientsPage() {
                     </tr>
                   )}
                 </Fragment>
-              ))}
+                  );
+                });
+              })()}
             </tbody>
           </table>
         </div>
       </main>
+
+      {/* Regenerate Summary — Week Picker */}
+      {regenPickerFor && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="px-6 py-4 border-b border-slate-200">
+              <h3 className="text-base font-semibold text-slate-900">Regenerate weekly summary</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Pick the week to summarize for <span className="font-medium text-slate-700">{regenPickerFor}</span>.</p>
+            </div>
+            <div className="p-4 space-y-2">
+              <button
+                onClick={() => runRegenerate(regenPickerFor, thisWeekMonday)}
+                className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50/40 transition-colors"
+              >
+                <div className="text-sm font-semibold text-slate-900">This week</div>
+                <div className="text-xs text-slate-500 mt-0.5">Monday {thisWeekMonday} onwards (in progress)</div>
+              </button>
+              <button
+                onClick={() => runRegenerate(regenPickerFor, lastWeekMonday)}
+                className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50/40 transition-colors"
+              >
+                <div className="text-sm font-semibold text-slate-900">Last completed week</div>
+                <div className="text-xs text-slate-500 mt-0.5">Monday {lastWeekMonday} — what the Monday cron would generate</div>
+              </button>
+            </div>
+            <div className="px-6 py-3 border-t border-slate-200 flex justify-end">
+              <button
+                onClick={() => setRegenPickerFor(null)}
+                className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-lg"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Regenerate Summary — Error Toast */}
+      {regenError && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-md bg-red-50 border border-red-200 rounded-xl shadow-lg p-4 flex items-start gap-3">
+          <div className="flex-1">
+            <h4 className="text-sm font-semibold text-red-900">Summary regeneration failed</h4>
+            <p className="text-xs text-red-700 mt-0.5">{regenError}</p>
+          </div>
+          <button onClick={() => setRegenError(null)} className="text-red-400 hover:text-red-600 p-1 rounded-md">
+            <FiX className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Regenerate Summary — Preview Modal */}
+      {regenResult && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">Summary regenerated</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {regenResult.brand} · week of {regenResult.weekOf} · this is what your client will see on their portal
+                </p>
+              </div>
+              <button
+                onClick={() => setRegenResult(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-md hover:bg-slate-100"
+                title="Close"
+              >
+                <FiX className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
+              <WeeklySummaryCard
+                summary={{
+                  weekOf: regenResult.weekOf,
+                  markdown: regenResult.summary,
+                  stats: regenResult.stats,
+                  generatedAt: new Date().toISOString(),
+                }}
+              />
+            </div>
+            <div className="px-6 py-3 border-t border-slate-200 flex justify-end">
+              <button
+                onClick={() => setRegenResult(null)}
+                className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Modal */}
       {showCreateModal && (

@@ -7,11 +7,23 @@ interface ProductDetail {
   status: string;
 }
 
+interface StoreDetail {
+  name: string;
+  location?: string;
+  products: ProductDetail[];
+  authorized: number;
+  total: number;
+  percentage: number;
+}
+
 interface BrandCell {
   authorized: number;
   total: number;
   percentage: number;
   products: ProductDetail[];
+  stores?: StoreDetail[];
+  storeAuthorized?: number;
+  storeTotal?: number;
 }
 
 interface PivotRow {
@@ -288,30 +300,81 @@ export default function MasterScorecard({ apiUrl = '/api/master-scorecard', onCu
                     })}
                   </tr>
 
-                  {/* Expanded detail row — product-level breakdown */}
+                  {/* Expanded detail row — product- and store-level breakdown */}
                   {isExpanded && (
                     <tr className="bg-slate-50/70">
                       <td className="border-r border-slate-200 px-4 py-2 sticky left-0 bg-slate-50/70 z-10" />
                       {brands.map(brand => {
                         const cell = row.brands[brand];
-                        if (!cell || !cell.products || cell.products.length === 0) {
+                        if (!cell || ((!cell.products || cell.products.length === 0) && (!cell.stores || cell.stores.length === 0))) {
                           return <td key={brand} className="border-r border-slate-100 px-3 py-2" />;
                         }
+                        const stores = cell.stores || [];
                         return (
                           <td key={brand} className="border-r border-slate-100 px-3 py-2 align-top">
-                            <div className="flex flex-col gap-1">
-                              {cell.products.map((p, i) => {
-                                const sc = STATUS_COLORS[p.status] || { bg: '#f3f4f6', text: '#374151', dot: '#6b7280' };
-                                return (
-                                  <div key={i} className="flex items-center gap-1.5 text-xs">
-                                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: sc.dot }} />
-                                    <span className="font-medium text-slate-700 truncate">{p.name}</span>
-                                    <span className="ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap" style={{ background: sc.bg, color: sc.text }}>
-                                      {p.status}
-                                    </span>
+                            <div className="flex flex-col gap-2">
+                              {cell.products && cell.products.length > 0 && (
+                                <div className="flex flex-col gap-1">
+                                  {cell.products.map((p, i) => {
+                                    const sc = STATUS_COLORS[p.status] || { bg: '#f3f4f6', text: '#374151', dot: '#6b7280' };
+                                    return (
+                                      <div key={i} className="flex items-center gap-1.5 text-xs">
+                                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: sc.dot }} />
+                                        <span className="font-medium text-slate-700 truncate">{p.name}</span>
+                                        <span className="ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap" style={{ background: sc.bg, color: sc.text }}>
+                                          {p.status}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              {stores.length > 0 && (
+                                <div className="border-t border-slate-200 pt-2 flex flex-col gap-1.5">
+                                  <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-slate-500">
+                                    <span>Stores ({stores.length})</span>
+                                    {typeof cell.storeAuthorized === 'number' && typeof cell.storeTotal === 'number' && cell.storeTotal > 0 && (
+                                      <span className="text-slate-400 normal-case tracking-normal">
+                                        {cell.storeAuthorized}/{cell.storeTotal} authorized
+                                      </span>
+                                    )}
                                   </div>
-                                );
-                              })}
+                                  <div className="flex flex-col gap-1">
+                                    {stores.map((s, i) => (
+                                      <div key={i} className="rounded border border-slate-200 bg-white px-2 py-1.5">
+                                        <div className="flex items-center justify-between gap-2 mb-0.5">
+                                          <div className="min-w-0 flex-1">
+                                            <div className="text-[11px] font-semibold text-slate-800 truncate" title={s.name}>{s.name}</div>
+                                            {s.location && (
+                                              <div className="text-[10px] text-slate-400 truncate">{s.location}</div>
+                                            )}
+                                          </div>
+                                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 ${getCellColor(s.percentage)}`}>
+                                            {s.percentage}%
+                                            <span className="ml-1 font-normal opacity-75">({s.authorized}/{s.total})</span>
+                                          </span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                          {s.products.map((p, j) => {
+                                            const sc = STATUS_COLORS[p.status] || { bg: '#f3f4f6', text: '#374151', dot: '#6b7280' };
+                                            return (
+                                              <span
+                                                key={j}
+                                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
+                                                style={{ background: sc.bg, color: sc.text }}
+                                                title={`${p.name}: ${p.status}`}
+                                              >
+                                                <span className="w-1 h-1 rounded-full" style={{ background: sc.dot }} />
+                                                {p.name}
+                                              </span>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </td>
                         );
@@ -351,8 +414,8 @@ export default function MasterScorecard({ apiUrl = '/api/master-scorecard', onCu
       <div className="mt-4 flex items-start gap-2 p-3 bg-blue-50 rounded-lg">
         <FaInfoCircle className="text-blue-500 mt-0.5 flex-shrink-0" />
         <div className="text-sm text-blue-700">
-          <strong>How to read:</strong> Columns = brands. Rows = customers. Cells show authorization % (authorized/total).
-          Click any row to expand and see individual product statuses. Click headers to sort. Drag column edges to resize.
+          <strong>How to read:</strong> Columns = brands. Rows = customers. Cells show authorization % (authorized/total), combining parent product statuses with per-store authorizations from the subgrid.
+          Click any row to expand and see individual product statuses plus the store-by-store breakdown. Click headers to sort. Drag column edges to resize.
         </div>
       </div>
     </div>

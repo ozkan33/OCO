@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
 import { logger } from '../../../../lib/logger';
 import { createCommentSchema } from '../../../../lib/schemas';
+import { resolveAuthorInfo } from '../../../../lib/commentAuthors';
 import { z } from 'zod';
 
 // Helper: verify or migrate a scorecard, returns { id, title }
@@ -78,6 +79,64 @@ export async function GET(request: Request) {
     if (error) {
       logger.error('Database error fetching comments:', error);
       return NextResponse.json({ error: 'Failed to fetch comments' }, { status: 500 });
+    }
+
+    // Enrich each comment with the author's display name + brand name.
+    // Brand users: `brand_user_profiles.contact_name` / `brand_name`.
+    // Admins: `auth.users.user_metadata.name` (falls back to capitalized email
+    // prefix for legacy rows). The UI uses `author_brand_name` to decide
+    // whether to render the brand badge.
+    const emailByUserId = new Map<string, string | null>();
+    for (const c of comments || []) {
+      if (c.user_id && !emailByUserId.has(c.user_id)) {
+        emailByUserId.set(c.user_id, c.user_email ?? null);
+      }
+    }
+    const authorInfo = await resolveAuthorInfo(
+      (comments || []).map((c: any) => c.user_id),
+      emailByUserId,
+    );
+    for (const c of comments || []) {
+      const info = c.user_id ? authorInfo.get(c.user_id) : undefined;
+      c.author_name = info?.name || null;
+      c.author_brand_name = info?.brandName || null;
+      c.author_role = info?.role || 'ADMIN';
+    }
+
+    // Enrich legacy market-visit comments ("[Market Visit — YYYY-MM-DD] note")
+    // with the store name so the UI can show *which* visit each note came from.
+    // Comments created after the store suffix was added already include it.
+    const LEGACY_RE = /^\[Market Visit\s+[—-]\s*(\d{4}-\d{2}-\d{2})\]\s*([\s\S]*)$/;
+    const legacyMatches = (comments || [])
+      .map((c: any) => ({ c, m: LEGACY_RE.exec(String(c.text || '')) }))
+      .filter(({ m }: { m: RegExpExecArray | null }) => m !== null);
+
+    if (legacyMatches.length > 0) {
+      const adminIds = Array.from(new Set(legacyMatches.map(({ c }: { c: any }) => c.user_id).filter(Boolean)));
+      const visitDates = Array.from(new Set(
+        legacyMatches.map(({ m }: { m: RegExpExecArray | null }) => m![1]).filter(Boolean)
+      ));
+      const { data: visits } = await supabaseAdmin
+        .from('market_visits')
+        .select('user_id, visit_date, store_name, note')
+        .in('user_id', adminIds)
+        .in('visit_date', visitDates);
+
+      const index = new Map<string, string>();
+      for (const v of visits || []) {
+        if (!v.store_name) continue;
+        const key = `${v.user_id}|${v.visit_date}|${v.note ?? ''}`;
+        if (!index.has(key)) index.set(key, v.store_name);
+      }
+
+      for (const { c, m } of legacyMatches) {
+        const [visitDate, body] = [m![1], (m![2] || '').trim()];
+        const key = `${c.user_id}|${visitDate}|${body}`;
+        const store = index.get(key);
+        if (store) {
+          c.text = `[Market Visit — ${visitDate} · ${store}] ${body}`;
+        }
+      }
     }
 
     return NextResponse.json(comments);

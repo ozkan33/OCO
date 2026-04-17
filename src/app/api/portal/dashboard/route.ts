@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../lib/apiAuth';
+import { resolveAuthorInfo } from '../../../../../lib/commentAuthors';
 
 // GET /api/portal/dashboard - Get brand user's filtered scorecard data
 export async function GET(request: Request) {
@@ -86,6 +87,19 @@ export async function GET(request: Request) {
       .in('scorecard_id', finalScorecardIds.length > 0 ? finalScorecardIds : ['__none__'])
       .order('created_at', { ascending: true });
 
+    // Resolve display names for every comment author up-front so the portal
+    // shows "Volkan Ozkanoglu" rather than an email-prefix fallback.
+    const emailByUserId = new Map<string, string | null>();
+    for (const c of allComments || []) {
+      if (c.user_id && !emailByUserId.has(c.user_id)) {
+        emailByUserId.set(c.user_id, c.user_email ?? null);
+      }
+    }
+    const authorInfo = await resolveAuthorInfo(
+      (allComments || []).map((c: any) => c.user_id),
+      emailByUserId,
+    );
+
     // Build filtered view for each scorecard
     const statusCounts = { authorized: 0, inProcess: 0, buyerPassed: 0, presented: 0, other: 0 };
     const defaultColumnKeys = ['name', 'priority', 'retail_price', 'buyer', 'store_count', 'hq_location', 'cmg', 'category_review_date', 'route_to_market'];
@@ -125,8 +139,9 @@ export async function GET(request: Request) {
           .filter((c: any) => c.scorecard_id === sc.id && String(c.row_id) === String(row.id))
           .map((c: any) => {
             const isAdmin = c.user_id === sc.user_id;
-            const emailName = (c.user_email || 'Unknown').split('@')[0];
-            const author = emailName.charAt(0).toUpperCase() + emailName.slice(1);
+            const info = c.user_id ? authorInfo.get(c.user_id) : undefined;
+            const fallbackPrefix = (c.user_email || 'Unknown').split('@')[0];
+            const author = info?.name || (fallbackPrefix.charAt(0).toUpperCase() + fallbackPrefix.slice(1));
             return { id: c.id, text: c.text, author, date: c.created_at, updated_at: c.updated_at, isOwn: c.user_id === user.id, isAdmin };
           });
 
