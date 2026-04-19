@@ -237,7 +237,7 @@ export default function MasterScorecard({ apiUrl = '/api/master-scorecard', onCu
               >
                 <div className="flex items-center gap-1.5">
                   <span className="w-4" /> {/* spacer for expand icon */}
-                  Customer
+                  Chain Name
                   <SortIcon col="__retailer" />
                 </div>
               </th>

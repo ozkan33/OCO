@@ -204,7 +204,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
+    <div className="min-h-screen min-h-[100dvh] flex items-center justify-center relative overflow-hidden">
       {/* Background — reuses the hero image from the landing page for brand continuity */}
       <div
         aria-hidden="true"

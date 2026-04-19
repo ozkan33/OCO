@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from 'react';
 import { useBrands } from '@/hooks/useBrands';
 import { extractExifFromFile } from '@/utils/extractExif';
 import { reverseGeocode } from '@/utils/reverseGeocode';
+import { findNearbyStore } from '@/utils/findNearbyStore';
 import AddressAutocomplete from './AddressAutocomplete';
 
 interface MarketVisitUploadProps {
@@ -106,9 +107,14 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
         setLongitude(exif.longitude);
         setAccuracyM(null);
         setLocationSource('exif');
-        const geo = await reverseGeocode(exif.latitude, exif.longitude);
+        const [geo, nearby] = await Promise.all([
+          reverseGeocode(exif.latitude, exif.longitude),
+          findNearbyStore(exif.latitude, exif.longitude),
+        ]);
         if (geo?.address) setAddress(geo.address);
-        if (geo?.storeName && !storeName) setStoreName(geo.storeName);
+        // Prior visits > Nominatim shop tag — admin's own data is authoritative.
+        const suggested = nearby?.storeName || geo?.storeName;
+        if (suggested && !storeName) setStoreName(suggested);
       } else {
         setNoGps(true);
       }
@@ -127,33 +133,61 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
       setError('Location is not supported on this device.');
       return;
     }
+    // iOS Safari silently rejects geolocation on non-HTTPS origins (incl. IP
+    // addresses). Surface this rather than appearing to hang.
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      setError('Location requires HTTPS. Open the site via its https:// URL and try again.');
+      return;
+    }
     setGeoLoading(true);
     setError(null);
-    try {
-      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+
+    const getPos = (highAccuracy: boolean) =>
+      new Promise<GeolocationPosition>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
+          enableHighAccuracy: highAccuracy,
+          timeout: highAccuracy ? 10000 : 15000,
           maximumAge: 60000,
         });
       });
+
+    try {
+      let pos: GeolocationPosition;
+      try {
+        pos = await getPos(true);
+      } catch (err: any) {
+        // iOS Safari Private Browsing often returns POSITION_UNAVAILABLE (2)
+        // or times out (3) with high-accuracy GPS. Fall back to coarse
+        // (wifi/cell) location before giving up.
+        if (err?.code === 2 || err?.code === 3) {
+          pos = await getPos(false);
+        } else {
+          throw err;
+        }
+      }
       const { latitude: lat, longitude: lng, accuracy } = pos.coords;
       setLatitude(lat);
       setLongitude(lng);
       setAccuracyM(typeof accuracy === 'number' ? accuracy : null);
       setLocationSource('geolocation');
       setNoGps(false);
-      const geo = await reverseGeocode(lat, lng);
+      const [geo, nearby] = await Promise.all([
+        reverseGeocode(lat, lng),
+        findNearbyStore(lat, lng),
+      ]);
       if (geo?.address) setAddress(geo.address);
-      if (geo?.storeName && !storeName) setStoreName(geo.storeName);
+      const suggested = nearby?.storeName || geo?.storeName;
+      if (suggested && !storeName) setStoreName(suggested);
     } catch (err: any) {
       const code = err?.code;
       if (code === 1) {
-        setError('Location permission denied. On iPhone: Settings → Safari → Location.');
+        setError('Location permission denied. On iPhone: Settings → Privacy & Security → Location Services → Safari → While Using.');
+      } else if (code === 2) {
+        setError('Location unavailable. Make sure Location Services are on (Settings → Privacy & Security → Location Services).');
       } else if (code === 3) {
-        setError('Location timed out. Try again or enter the address manually.');
+        setError('Location timed out. Try again outside or enter the address manually.');
       } else {
-        setError('Could not get your current location.');
+        setError('Could not get your current location. Enter the address manually.');
       }
     } finally {
       setGeoLoading(false);

@@ -17,10 +17,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 });
     }
 
-    // Update password and set must_change_password flag
+    // Supabase's admin API replaces user_metadata wholesale. Fetch the
+    // existing metadata and merge so we don't strip role/brand/totp_enabled
+    // and silently disable middleware's 2FA + role-based routing.
+    const { data: { user: target }, error: fetchError } = await supabaseAdmin.auth.admin.getUserById(id);
+    if (fetchError || !target) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
     const { error } = await supabaseAdmin.auth.admin.updateUserById(id, {
       password: newPassword,
-      user_metadata: { must_change_password: true },
+      user_metadata: {
+        ...(target.user_metadata ?? {}),
+        must_change_password: true,
+      },
     });
 
     if (error) {

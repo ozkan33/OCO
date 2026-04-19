@@ -114,7 +114,7 @@ export default function ChangePasswordPage() {
   const stepNumber = step === 'password' ? 1 : step === '2fa-retry' ? 2 : step === '2fa-setup' ? 2 : step === '2fa-verify' ? 3 : 3;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
           <div className="flex justify-center mb-4"><LogoMark size={48} /></div>

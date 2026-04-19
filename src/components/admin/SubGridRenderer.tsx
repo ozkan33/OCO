@@ -128,9 +128,15 @@ function SubgridCommentDrawer() {
   return (
     // Drawer sits below the sticky AdminHeader (~56px tall, z-50) so the
     // breadcrumb/title aren't clipped by the main nav.
-    <div className="fixed left-0 right-0 bottom-0 top-14 z-40 flex">
+    <div className="fixed left-0 right-0 bottom-0 top-14 z-40 flex flex-col sm:flex-row">
       <div className="absolute inset-0 bg-black bg-opacity-40 transition-opacity" onClick={() => { setOpenSubgridCommentKey(null); setSubgridCommentInput(''); }} />
-      <div className="relative ml-auto w-full max-w-md h-full bg-white shadow-2xl flex flex-col animate-slideInRight rounded-l-2xl border-l border-slate-200">
+      <div
+        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92vh] max-h-[92dvh] rounded-t-2xl sm:rounded-t-none sm:rounded-l-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="sm:hidden pt-2 pb-1 flex justify-center">
+          <span className="block w-10 h-1 rounded-full bg-slate-300" aria-hidden="true" />
+        </div>
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 bg-slate-50 rounded-t-2xl">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             {/* Scope badge: chain logo for the store's parent retailer; fallback to generic store icon */}
@@ -177,10 +183,10 @@ function SubgridCommentDrawer() {
           </div>
           <button
             onClick={() => { setOpenSubgridCommentKey(null); setSubgridCommentInput(''); }}
-            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="flex-shrink-0 w-11 h-11 sm:w-7 sm:h-7 -mr-2 sm:mr-0 flex items-center justify-center rounded-lg sm:rounded-md text-slate-400 [@media(hover:hover)]:hover:text-slate-700 [@media(hover:hover)]:hover:bg-slate-100 active:text-slate-700 active:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             aria-label="Close comments"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+            <svg className="w-5 h-5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
           </button>
         </div>
         <div className="flex-1 flex flex-col px-6 py-4 overflow-y-auto">

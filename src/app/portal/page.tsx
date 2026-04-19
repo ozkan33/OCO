@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback, Fragment } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, Fragment } from 'react';
 import { toast, Toaster } from 'sonner';
 import PortalNotificationBell from '@/components/portal/PortalNotificationBell';
 import { LogoMark } from '@/components/layout/Logo';
@@ -14,7 +14,7 @@ interface RetailerInfo { priority: string; buyer: string; storeCount: number; hq
 interface Comment { id?: string; text: string; author: string; date: string; isOwn?: boolean; }
 interface Retailer { rowId: string; retailerName: string; products: Product[]; retailerInfo: RetailerInfo; comments?: Comment[]; notes?: string; }
 interface Scorecard { id: string; scorecardName: string; retailers: Retailer[]; }
-interface Summary { totalRetailers: number; authorized: number; inProcess: number; buyerPassed: number; presented: number; other: number; }
+interface Summary { totalRetailers: number; authorized: number; inProcess: number; buyerPassed: number; presented: number; other: number; otherBreakdown?: Record<string, number>; }
 interface MarketVisit { id: string; photo_url: string; visit_date: string; store_name: string; address: string; note: string; brands?: string[]; comments?: Comment[]; }
 interface DashboardData { brand: string; contactName: string; scorecards: Scorecard[]; summary: Summary; }
 interface WeeklySummaryPayload { weekOf: string; markdown: string; stats: { visitCount?: number; storeCount?: number; statusChangeCount?: number; scorecardNoteCount?: number }; generatedAt: string; }
@@ -70,7 +70,38 @@ export default function PortalDashboard() {
     | { kind: 'visit'; visitId: string }
     | null
   >(null);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [visibleCountPerRow, setVisibleCountPerRow] = useState<Record<string, number>>({});
+  const [pulseThread, setPulseThread] = useState<string | null>(null);
+  const threadRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Auto-expand the Chain Discussion thread when a notification deep-links to a row.
+  // We leave the row expanded after the highlight clears — the user is reading.
+  useEffect(() => {
+    if (highlight?.kind !== 'row') return;
+    const key = `${highlight.scorecardId}:${highlight.rowId}`;
+    setExpandedRows(prev => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+    // Brief ring pulse on the indigo thread panel so the eye lands on the conversation.
+    setPulseThread(key);
+    const t = setTimeout(() => setPulseThread(curr => (curr === key ? null : curr)), 1500);
+    // After the thread renders expanded, scroll the inner container to the latest message.
+    const rafId = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = threadRefs.current[key];
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    });
+    return () => {
+      clearTimeout(t);
+      cancelAnimationFrame(rafId);
+    };
+  }, [highlight]);
 
   const refreshData = useCallback(async () => {
     const [dashData, visitData, summaryData] = await Promise.all([
@@ -438,7 +469,7 @@ export default function PortalDashboard() {
           <SummaryCard label="In Process" value={summary.inProcess} color="blue" />
           <SummaryCard label="Presented" value={summary.presented} color="purple" />
           <SummaryCard label="Buyer Passed" value={summary.buyerPassed} color="red" />
-          <SummaryCard label="Other" value={summary.other} color="gray" />
+          <OtherSummaryCard value={summary.other} breakdown={summary.otherBreakdown || {}} />
         </div>
 
         {/* Tab Nav */}
@@ -500,7 +531,7 @@ export default function PortalDashboard() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-slate-100">
-                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Customer</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Chain Name</th>
                         {sc.retailers[0]?.products.map(p => (
                           <th key={p.name} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">{p.name}</th>
                         ))}
@@ -615,8 +646,73 @@ export default function PortalDashboard() {
                               </td>
                             </tr>
                           )}
-                          {/* Notes and comments row - chat bubbles */}
-                          {((r.comments?.length ?? 0) > 0 || r.notes) && (
+                          {/* Notes and comments row - differentiated by type */}
+                          {((r.comments?.length ?? 0) > 0 || r.notes) && (() => {
+                            const mvRegex = /^\[Market Visit\s+[\u2014\u2013-]\s+(\d{4}-\d{2}-\d{2})(?:\s+[·\u00B7]\s+([^\]]+))?\]\s*([\s\S]*)$/;
+                            type ParsedComment = { c: Comment; mvStore: string | null; mvDate: string | null; displayText: string };
+                            const parsed: ParsedComment[] = (r.comments || []).map(c => {
+                              const m = c.text.match(mvRegex);
+                              return {
+                                c,
+                                mvStore: m?.[2]?.trim() || null,
+                                mvDate: m?.[1] || null,
+                                displayText: m ? (m[3] || '').trim() : c.text,
+                              };
+                            });
+                            const storeNotes = parsed.filter(p => p.mvStore);
+                            const chainNotes = parsed.filter(p => !p.mvStore);
+                            // Group store notes by store name for visual clustering
+                            const storeGroups = new Map<string, ParsedComment[]>();
+                            storeNotes.forEach(p => {
+                              const key = p.mvStore!;
+                              const arr = storeGroups.get(key) || [];
+                              arr.push(p);
+                              storeGroups.set(key, arr);
+                            });
+                            const expandKey = `${sc.id}:${r.rowId}`;
+                            const isExpanded = expandedRows.has(expandKey);
+                            // Decide whether to show section headers: only when more than one category is present
+                            const categoryCount = (r.notes ? 1 : 0) + (storeNotes.length > 0 ? 1 : 0) + (chainNotes.length > 0 ? 1 : 0);
+                            const showHeaders = categoryCount > 1;
+                            const toggleExpand = () => {
+                              setExpandedRows(prev => {
+                                const next = new Set(prev);
+                                if (next.has(expandKey)) next.delete(expandKey);
+                                else next.add(expandKey);
+                                return next;
+                              });
+                            };
+                            const SectionHeader = ({ label }: { label: string }) => (
+                              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1 first:mt-0">{label}</div>
+                            );
+                            // Chain Discussion header summary — always computed cheaply.
+                            const chainCount = chainNotes.length;
+                            const lastChain = chainCount > 0 ? chainNotes[chainNotes.length - 1] : null;
+                            const relativeTime = (iso: string) => {
+                              const then = new Date(iso).getTime();
+                              if (Number.isNaN(then)) return '';
+                              const diffMs = Date.now() - then;
+                              const sec = Math.max(0, Math.floor(diffMs / 1000));
+                              if (sec < 60) return 'just now';
+                              const min = Math.floor(sec / 60);
+                              if (min < 60) return `${min}m ago`;
+                              const hr = Math.floor(min / 60);
+                              if (hr < 24) return `${hr}h ago`;
+                              const day = Math.floor(hr / 24);
+                              if (day < 7) return `${day}d ago`;
+                              const wk = Math.floor(day / 7);
+                              if (wk < 5) return `${wk}w ago`;
+                              const mo = Math.floor(day / 30);
+                              if (mo < 12) return `${mo}mo ago`;
+                              return `${Math.floor(day / 365)}y ago`;
+                            };
+                            const truncate = (s: string, n = 60) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
+                            const PER_PAGE = 30;
+                            const visibleCount = visibleCountPerRow[expandKey] ?? PER_PAGE;
+                            const loadOlder = () => {
+                              setVisibleCountPerRow(prev => ({ ...prev, [expandKey]: (prev[expandKey] ?? PER_PAGE) + PER_PAGE }));
+                            };
+                            return (
                             <tr
                               className={`transition-colors duration-500 ${
                                 highlight?.kind === 'row' && highlight.scorecardId === sc.id && highlight.rowId === String(r.rowId)
@@ -625,106 +721,315 @@ export default function PortalDashboard() {
                               }`}
                             >
                               <td colSpan={r.products.length + 3} className="px-4 py-3">
-                                <div className="flex flex-col gap-2 max-w-2xl">
-                                  {/* Broker note (from admin) */}
-                                  {r.notes && (
-                                    <div className="flex items-start gap-2">
-                                      <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center shrink-0 mt-0.5">
-                                        <svg className="w-3 h-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
-                                      </div>
-                                      <div className="bg-amber-50 border border-amber-100 rounded-xl rounded-tl-sm px-3 py-2">
-                                        <p className="text-xs font-semibold text-amber-700 mb-0.5">Broker Note</p>
-                                        <p className="text-sm text-slate-700">{r.notes}</p>
-                                      </div>
-                                    </div>
-                                  )}
-                                  {/* Comment bubbles */}
-                                  {r.comments?.map((c, ci) => {
-                                    const isEditing = editingComment?.id === c.id;
-                                    const initial = (c.author || '?')[0].toUpperCase();
-                                    const mv = c.text.match(/^\[Market Visit\s+[\u2014\u2013-]\s+(\d{4}-\d{2}-\d{2})(?:\s+[·\u00B7]\s+([^\]]+))?\]\s*([\s\S]*)$/);
-                                    const mvStore = mv?.[2]?.trim() || null;
-                                    const displayText = mv ? (mv[3] || '').trim() : c.text;
-                                    return (
-                                    <div key={c.id || ci} className={`flex items-start gap-2 group/comment ${c.isOwn ? 'flex-row-reverse' : ''}`}>
-                                      {/* Avatar */}
-                                      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold ${c.isOwn ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                                        {initial}
-                                      </div>
-                                      {/* Bubble */}
-                                      <div className={`max-w-sm ${c.isOwn ? 'items-end' : 'items-start'}`}>
-                                        <div className={`rounded-xl px-3 py-2 ${c.isOwn ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-white border border-slate-200 rounded-tl-sm'}`}>
-                                          {/* Author & date header */}
-                                          <div className={`flex items-center gap-1.5 mb-0.5 ${c.isOwn ? 'justify-end' : ''}`}>
-                                            <span className={`text-[11px] font-semibold ${c.isOwn ? 'text-blue-100' : 'text-slate-700'}`}>{c.author}</span>
-                                            <span className={`text-[10px] ${c.isOwn ? 'text-blue-200' : 'text-slate-400'}`}>
-                                              {new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                              {' '}
-                                              {new Date(c.date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                                            </span>
-                                          </div>
-                                          {/* Market-visit store pill */}
-                                          {mvStore && !isEditing && (
-                                            <div className={`flex items-center gap-1 mb-1 ${c.isOwn ? 'justify-end' : ''}`}>
-                                              <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${c.isOwn ? 'bg-blue-500/40 text-blue-50' : 'bg-slate-100 text-slate-600 border border-slate-200'}`} title={`Market visit at ${mvStore}`}>
-                                                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
-                                                </svg>
-                                                {mvStore}
+                                <div className="flex flex-col gap-2.5 max-w-2xl">
+                                  {/* 1. Chain Discussion — TOP priority, collapsed by default */}
+                                  {chainCount > 0 && (
+                                    <>
+                                      {showHeaders && <SectionHeader label="Chain Discussion" />}
+                                      {!isExpanded ? (
+                                        // Collapsed state: one-line header only. Do NOT render any bubbles.
+                                        <button
+                                          type="button"
+                                          onClick={toggleExpand}
+                                          aria-expanded={false}
+                                          className="group/chhdr w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-br from-indigo-50/70 via-slate-50 to-slate-50 border border-indigo-100/70 hover:border-indigo-300 hover:from-indigo-50 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                                        >
+                                          <svg className="w-3.5 h-3.5 text-indigo-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+                                          </svg>
+                                          <span className="text-[11px] font-semibold text-indigo-700 uppercase tracking-wider shrink-0">Chain Discussion</span>
+                                          <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-100/80 border border-indigo-200 px-1.5 py-0.5 rounded-md shrink-0">
+                                            {chainCount}
+                                          </span>
+                                          {lastChain && (
+                                            <>
+                                              <span className="hidden sm:inline text-[10px] text-slate-400 shrink-0">Last reply: {relativeTime(lastChain.c.date)}</span>
+                                              <span className="text-xs text-slate-500 truncate min-w-0 flex-1 italic">
+                                                &ldquo;{truncate(lastChain.displayText || lastChain.c.text, 60)}&rdquo;
                                               </span>
-                                            </div>
+                                            </>
                                           )}
-                                          {/* Message text or edit form */}
-                                          {isEditing ? (
-                                            <div className="flex flex-col gap-1.5 mt-1">
-                                              <input
-                                                type="text"
-                                                value={editText}
-                                                onChange={e => setEditText(e.target.value)}
-                                                className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white"
-                                                autoFocus
-                                                onKeyDown={e => {
-                                                  if (e.key === 'Enter') handleEditComment(c.id!, sc.id, r.rowId);
-                                                  if (e.key === 'Escape') { setEditingComment(null); setEditText(''); }
-                                                }}
-                                              />
-                                              <div className="flex items-center gap-1.5">
-                                                <button onClick={() => handleEditComment(c.id!, sc.id, r.rowId)} className="text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded transition-colors">Save</button>
-                                                <button onClick={() => { setEditingComment(null); setEditText(''); }} className="text-xs font-medium text-slate-400 hover:text-slate-600 px-2 py-0.5 rounded transition-colors">Cancel</button>
+                                          <svg className="w-3.5 h-3.5 text-slate-400 group-hover/chhdr:text-indigo-500 transition-colors shrink-0 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                          </svg>
+                                        </button>
+                                      ) : (
+                                        // Expanded: full thread with date grouping, max-height scroll, load-older.
+                                        (() => {
+                                          // Slice to the most-recent `visibleCount` messages (chronological tail).
+                                          const start = Math.max(0, chainCount - visibleCount);
+                                          const slice = chainNotes.slice(start);
+                                          const hasOlder = start > 0;
+                                          // Bucket a date into a relative group label.
+                                          const bucketFor = (iso: string) => {
+                                            const d = new Date(iso);
+                                            if (Number.isNaN(d.getTime())) return 'Earlier';
+                                            const now = new Date();
+                                            const toKey = (x: Date) => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;
+                                            if (toKey(d) === toKey(now)) return 'Today';
+                                            const y = new Date(now);
+                                            y.setDate(y.getDate() - 1);
+                                            if (toKey(d) === toKey(y)) return 'Yesterday';
+                                            const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+                                            if (diffDays < 7) return 'This week';
+                                            return 'Earlier';
+                                          };
+                                          const pulse = pulseThread === expandKey;
+                                          return (
+                                            <div className={`relative rounded-xl bg-gradient-to-br from-indigo-50/60 via-slate-50 to-slate-50 border px-3 py-2.5 transition-all ${pulse ? 'border-indigo-400 ring-2 ring-indigo-400/60 shadow-md' : 'border-indigo-100/70'}`}>
+                                              {/* Thread header (expanded) */}
+                                              <div className="flex items-center gap-1.5 mb-2">
+                                                <svg className="w-3.5 h-3.5 text-indigo-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+                                                </svg>
+                                                <span className="text-[10px] font-semibold text-indigo-700 uppercase tracking-wider">Chain Discussion</span>
+                                                <span className="text-[10px] font-medium text-indigo-400/80">{chainCount} {chainCount === 1 ? 'message' : 'messages'}</span>
+                                                <button
+                                                  type="button"
+                                                  onClick={toggleExpand}
+                                                  aria-expanded={true}
+                                                  className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100/70 px-1.5 py-0.5 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                                                  title="Collapse thread"
+                                                >
+                                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                                  </svg>
+                                                  Collapse
+                                                </button>
+                                              </div>
+                                              {/* Scroll container with fade masks */}
+                                              <div className="relative">
+                                                <div
+                                                  ref={(el) => { threadRefs.current[expandKey] = el; }}
+                                                  className="relative flex flex-col gap-2 max-h-[28rem] overflow-y-auto pr-1"
+                                                  style={{ maskImage: 'linear-gradient(to bottom, transparent 0, black 18px, black calc(100% - 18px), transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, black 18px, black calc(100% - 18px), transparent 100%)' }}
+                                                >
+                                                  {hasOlder && (
+                                                    <div className="sticky top-0 z-10 flex justify-center pt-1 pb-1.5 bg-gradient-to-b from-indigo-50/95 via-indigo-50/70 to-transparent">
+                                                      <button
+                                                        type="button"
+                                                        onClick={loadOlder}
+                                                        className="inline-flex items-center gap-1 text-[10px] font-medium text-indigo-700 hover:text-indigo-900 bg-white border border-indigo-200 hover:border-indigo-300 hover:bg-indigo-50 px-2 py-0.5 rounded-full shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                                                      >
+                                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                                                        </svg>
+                                                        Load {Math.min(PER_PAGE, start)} older {Math.min(PER_PAGE, start) === 1 ? 'message' : 'messages'}
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                                  {slice.map(({ c, displayText }, ci) => {
+                                                    const isEditing = editingComment?.id === c.id;
+                                                    const initial = (c.author || '?')[0].toUpperCase();
+                                                    const isLast = ci === slice.length - 1;
+                                                    const thisBucket = bucketFor(c.date);
+                                                    const prevBucket = ci > 0 ? bucketFor(slice[ci - 1].c.date) : null;
+                                                    const showBucket = ci === 0 || thisBucket !== prevBucket;
+                                                    return (
+                                                      <Fragment key={c.id || ci}>
+                                                        {showBucket && (
+                                                          <div className="flex items-center gap-2 py-1 select-none">
+                                                            <div className="flex-1 h-px bg-indigo-200/50" aria-hidden="true" />
+                                                            <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-400/90 bg-white/70 backdrop-blur-sm border border-indigo-100 px-2 py-0.5 rounded-full shadow-sm">
+                                                              {thisBucket}
+                                                            </span>
+                                                            <div className="flex-1 h-px bg-indigo-200/50" aria-hidden="true" />
+                                                          </div>
+                                                        )}
+                                                        <div className={`relative flex items-start gap-2 group/comment ${c.isOwn ? 'flex-row-reverse' : ''}`}>
+                                                          {/* Timeline rail connector (not on last item) */}
+                                                          {!isLast && (
+                                                            <span
+                                                              aria-hidden="true"
+                                                              className={`absolute top-7 h-[calc(100%-0.75rem)] w-px ${c.isOwn ? 'right-[11px] bg-blue-200/70' : 'left-[11px] bg-indigo-200/70'}`}
+                                                            />
+                                                          )}
+                                                          {/* Avatar */}
+                                                          <div className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold ring-2 ring-white ${c.isOwn ? 'bg-blue-600 text-white' : 'bg-indigo-100 text-indigo-700 border border-indigo-200'}`}>
+                                                            {initial}
+                                                          </div>
+                                                          {/* Bubble */}
+                                                          <div className={`max-w-sm flex flex-col ${c.isOwn ? 'items-end' : 'items-start'}`}>
+                                                            <div
+                                                              className={`relative rounded-2xl px-3 py-2 shadow-sm ${
+                                                                c.isOwn
+                                                                  ? 'bg-blue-600 text-white rounded-tr-sm before:content-[""] before:absolute before:top-2 before:-right-1.5 before:w-0 before:h-0 before:border-y-[6px] before:border-y-transparent before:border-l-[7px] before:border-l-blue-600'
+                                                                  : 'bg-white border border-slate-200 rounded-tl-sm before:content-[""] before:absolute before:top-2 before:-left-[7px] before:w-0 before:h-0 before:border-y-[6px] before:border-y-transparent before:border-r-[7px] before:border-r-slate-200 after:content-[""] after:absolute after:top-2 after:-left-[6px] after:w-0 after:h-0 after:border-y-[6px] after:border-y-transparent after:border-r-[7px] after:border-r-white'
+                                                              }`}
+                                                            >
+                                                              <div className={`flex items-center gap-1.5 mb-0.5 ${c.isOwn ? 'justify-end' : ''}`}>
+                                                                <span className={`text-[11px] font-semibold ${c.isOwn ? 'text-blue-100' : 'text-slate-700'}`}>{c.author}</span>
+                                                                <span className={`text-[10px] ${c.isOwn ? 'text-blue-200' : 'text-slate-400'}`}>
+                                                                  {new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                                                  {' '}
+                                                                  {new Date(c.date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                                                                </span>
+                                                              </div>
+                                                              {isEditing ? (
+                                                                <div className="flex flex-col gap-1.5 mt-1">
+                                                                  <input
+                                                                    type="text"
+                                                                    value={editText}
+                                                                    onChange={e => setEditText(e.target.value)}
+                                                                    className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white"
+                                                                    autoFocus
+                                                                    onKeyDown={e => {
+                                                                      if (e.key === 'Enter') handleEditComment(c.id!, sc.id, r.rowId);
+                                                                      if (e.key === 'Escape') { setEditingComment(null); setEditText(''); }
+                                                                    }}
+                                                                  />
+                                                                  <div className="flex items-center gap-1.5">
+                                                                    <button onClick={() => handleEditComment(c.id!, sc.id, r.rowId)} className="text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded transition-colors">Save</button>
+                                                                    <button onClick={() => { setEditingComment(null); setEditText(''); }} className="text-xs font-medium text-slate-400 hover:text-slate-600 px-2 py-0.5 rounded transition-colors">Cancel</button>
+                                                                  </div>
+                                                                </div>
+                                                              ) : (
+                                                                <p className={`text-sm leading-relaxed ${c.isOwn ? 'text-white' : 'text-slate-700'}`}>{displayText}</p>
+                                                              )}
+                                                            </div>
+                                                            {c.isOwn && c.id && !isEditing && (
+                                                              <div className={`flex gap-1 mt-0.5 opacity-0 group-hover/comment:opacity-100 transition-opacity ${c.isOwn ? 'justify-end' : 'justify-start'}`}>
+                                                                <button
+                                                                  onClick={() => { setEditingComment({ id: c.id!, scorecardId: sc.id, rowId: r.rowId }); setEditText(c.text); }}
+                                                                  className="text-slate-400 hover:text-blue-600 transition-colors p-0.5 rounded"
+                                                                  title="Edit note"
+                                                                >
+                                                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
+                                                                </button>
+                                                                <button
+                                                                  onClick={() => handleDeleteComment(c.id!, sc.id, r.rowId)}
+                                                                  className="text-slate-400 hover:text-red-600 transition-colors p-0.5 rounded"
+                                                                  title="Delete note"
+                                                                >
+                                                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+                                                                </button>
+                                                              </div>
+                                                            )}
+                                                          </div>
+                                                        </div>
+                                                      </Fragment>
+                                                    );
+                                                  })}
+                                                </div>
                                               </div>
                                             </div>
-                                          ) : (
-                                            <p className={`text-sm leading-relaxed ${c.isOwn ? 'text-white' : 'text-slate-700'}`}>{displayText}</p>
-                                          )}
-                                        </div>
-                                        {/* Edit/Delete actions on hover */}
-                                        {c.isOwn && c.id && !isEditing && (
-                                          <div className={`flex gap-1 mt-0.5 opacity-0 group-hover/comment:opacity-100 transition-opacity ${c.isOwn ? 'justify-end' : 'justify-start'}`}>
-                                            <button
-                                              onClick={() => { setEditingComment({ id: c.id!, scorecardId: sc.id, rowId: r.rowId }); setEditText(c.text); }}
-                                              className="text-slate-400 hover:text-blue-600 transition-colors p-0.5 rounded"
-                                              title="Edit note"
-                                            >
-                                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
-                                            </button>
-                                            <button
-                                              onClick={() => handleDeleteComment(c.id!, sc.id, r.rowId)}
-                                              className="text-slate-400 hover:text-red-600 transition-colors p-0.5 rounded"
-                                              title="Delete note"
-                                            >
-                                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
-                                            </button>
+                                          );
+                                        })()
+                                      )}
+                                    </>
+                                  )}
+
+                                  {/* 2. Store Visits — grouped by store, location-card style */}
+                                  {storeNotes.length > 0 && (
+                                    <>
+                                      {showHeaders && <SectionHeader label="Store Visits" />}
+                                      <div className="flex flex-col gap-2">
+                                        {Array.from(storeGroups.entries()).map(([storeName, items]) => (
+                                          <div key={storeName} className="relative bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                                            {/* Teal accent bar */}
+                                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-teal-500" aria-hidden="true" />
+                                            {/* Store header */}
+                                            <div className="flex items-center gap-2 pl-4 pr-3 py-2 bg-teal-50/50 border-b border-slate-100">
+                                              <svg className="w-3.5 h-3.5 text-teal-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                              </svg>
+                                              <span className="text-xs font-semibold text-slate-800 uppercase tracking-wide truncate" title={storeName}>{storeName}</span>
+                                              <span className="text-[10px] font-medium text-teal-700 bg-teal-100/70 border border-teal-200 px-1.5 py-0.5 rounded-md ml-auto shrink-0">
+                                                {items.length} {items.length === 1 ? 'visit note' : 'visit notes'}
+                                              </span>
+                                            </div>
+                                            {/* Store visit entries */}
+                                            <div className="divide-y divide-slate-100">
+                                              {items.map(({ c, mvDate, displayText }, idx) => {
+                                                const isEditing = editingComment?.id === c.id;
+                                                return (
+                                                  <div key={c.id || `${storeName}-${idx}`} className="group/storenote pl-4 pr-3 py-2.5">
+                                                    <div className="flex items-start justify-between gap-2 mb-1">
+                                                      <div className="flex items-center gap-1.5 min-w-0">
+                                                        <span className="text-[11px] font-semibold text-slate-700 truncate">{c.author}</span>
+                                                        <span className="text-[10px] text-slate-400 shrink-0">
+                                                          {mvDate
+                                                            ? new Date(mvDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+                                                            : `${new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${new Date(c.date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+                                                          }
+                                                        </span>
+                                                      </div>
+                                                      {c.isOwn && c.id && !isEditing && (
+                                                        <div className="flex gap-0.5 opacity-0 group-hover/storenote:opacity-100 transition-opacity shrink-0">
+                                                          <button
+                                                            onClick={() => { setEditingComment({ id: c.id!, scorecardId: sc.id, rowId: r.rowId }); setEditText(c.text); }}
+                                                            className="text-slate-400 hover:text-blue-600 transition-colors p-0.5 rounded"
+                                                            title="Edit note"
+                                                          >
+                                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
+                                                          </button>
+                                                          <button
+                                                            onClick={() => handleDeleteComment(c.id!, sc.id, r.rowId)}
+                                                            className="text-slate-400 hover:text-red-600 transition-colors p-0.5 rounded"
+                                                            title="Delete note"
+                                                          >
+                                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+                                                          </button>
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                    {isEditing ? (
+                                                      <div className="flex flex-col gap-1.5 mt-1">
+                                                        <input
+                                                          type="text"
+                                                          value={editText}
+                                                          onChange={e => setEditText(e.target.value)}
+                                                          className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white"
+                                                          autoFocus
+                                                          onKeyDown={e => {
+                                                            if (e.key === 'Enter') handleEditComment(c.id!, sc.id, r.rowId);
+                                                            if (e.key === 'Escape') { setEditingComment(null); setEditText(''); }
+                                                          }}
+                                                        />
+                                                        <div className="flex items-center gap-1.5">
+                                                          <button onClick={() => handleEditComment(c.id!, sc.id, r.rowId)} className="text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded transition-colors">Save</button>
+                                                          <button onClick={() => { setEditingComment(null); setEditText(''); }} className="text-xs font-medium text-slate-400 hover:text-slate-600 px-2 py-0.5 rounded transition-colors">Cancel</button>
+                                                        </div>
+                                                      </div>
+                                                    ) : (
+                                                      <p className="text-sm text-slate-700 leading-relaxed">{displayText}</p>
+                                                    )}
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
                                           </div>
-                                        )}
+                                        ))}
                                       </div>
-                                    </div>
-                                    );
-                                  })}
+                                    </>
+                                  )}
+
+                                  {/* 3. Broker Note — persistent summary, reference at the bottom */}
+                                  {r.notes && (
+                                    <>
+                                      {showHeaders && <SectionHeader label="Broker Summary" />}
+                                      <div className="flex items-start gap-2">
+                                        <div className="w-7 h-7 rounded-lg bg-amber-100 border border-amber-200 flex items-center justify-center shrink-0 mt-0.5">
+                                          <svg className="w-3.5 h-3.5 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+                                          </svg>
+                                        </div>
+                                        <div className="flex-1 bg-gradient-to-br from-amber-50 to-amber-50/40 border border-amber-200 rounded-xl px-3.5 py-2.5 shadow-sm">
+                                          <div className="flex items-center gap-1.5 mb-1">
+                                            <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wide">Broker Note</span>
+                                            <span className="text-[10px] text-amber-600/80">Chain summary</span>
+                                          </div>
+                                          <p className="text-sm text-slate-700 leading-relaxed">{r.notes}</p>
+                                        </div>
+                                      </div>
+                                    </>
+                                  )}
                                 </div>
                               </td>
                             </tr>
-                          )}
+                            );
+                          })()}
                         </Fragment>
                         );
                       })}
@@ -994,6 +1299,93 @@ function SummaryCard({ label, value, color }: { label: string; value: number; co
           </svg>
         </div>
       </div>
+    </div>
+  );
+}
+
+function OtherSummaryCard({ value, breakdown }: { value: number; breakdown: Record<string, number> }) {
+  const [open, setOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        popoverRef.current && !popoverRef.current.contains(e.target as Node) &&
+        buttonRef.current && !buttonRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    function handleKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false); }
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [open]);
+
+  const entries = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
+  const hasBreakdown = entries.length > 0;
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => hasBreakdown && setOpen(v => !v)}
+        disabled={!hasBreakdown}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className={`w-full text-left rounded-xl bg-white border border-slate-200 px-4 py-3 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${hasBreakdown ? 'hover:border-slate-300 hover:shadow-sm cursor-pointer' : 'cursor-default'}`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wide truncate">Other</p>
+            <p className="text-2xl font-bold text-slate-900 tabular-nums mt-0.5">{value}</p>
+            {hasBreakdown && (
+              <p className="text-[10px] font-medium text-blue-600 mt-0.5 flex items-center gap-0.5">
+                {entries.length} {entries.length === 1 ? 'status' : 'statuses'}
+                <svg className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                </svg>
+              </p>
+            )}
+          </div>
+          <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center shrink-0">
+            <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
+            </svg>
+          </div>
+        </div>
+      </button>
+
+      {open && hasBreakdown && (
+        <div
+          ref={popoverRef}
+          role="dialog"
+          aria-label="Other status breakdown"
+          className="absolute z-20 mt-2 left-0 right-0 sm:right-auto sm:min-w-[240px] rounded-xl bg-white border border-slate-200 shadow-lg p-2"
+        >
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide px-2 pt-1 pb-1.5">Status breakdown</p>
+          <ul className="space-y-0.5">
+            {entries.map(([status, count]) => {
+              const s = statusStyles[status] || { bg: '#f3f4f6', color: '#374151', dot: '#6b7280' };
+              return (
+                <li key={status} className="flex items-center justify-between gap-3 px-2 py-1.5 rounded-lg hover:bg-slate-50">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium" style={{ color: s.color }}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.dot }} />
+                    {status}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-900 tabular-nums">{count}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
