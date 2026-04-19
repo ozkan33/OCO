@@ -9,6 +9,7 @@ import { FiLogOut } from 'react-icons/fi';
 const navItems = [
   { href: '/admin/dashboard', label: 'Dashboard' },
   { href: '/admin/market-visits', label: 'Market Visits' },
+  { href: '/admin/stores', label: 'Stores' },
   { href: '/admin/clients', label: 'Clients' },
   { href: '/admin/client-logos', label: 'Logos' },
   { href: '/admin/visitors', label: 'Visitors' },
