@@ -617,6 +617,15 @@ export default function SubGridRenderer({ parentId }: { parentId: string | numbe
             onRowsChange={(newRows: Row[]) => handleSubGridRowsChange(parentId, newRows)}
             sortColumns={subgridSortColumns}
             onSortColumnsChange={setSubgridSortColumns}
+            onCellClick={(args) => {
+              // Touch devices (iPad): open the editor on single tap since
+              // double-tap is unreliable (iOS treats it as zoom/selection).
+              if (typeof window === 'undefined') return;
+              if (!window.matchMedia('(pointer: coarse)').matches) return;
+              if (args.row.isAddRow || args.row.isDummy) return;
+              if (args.column.key === 'comments' || args.column.key === 'delete') return;
+              args.selectCell(true);
+            }}
             className="fill-grid subgrid-with-separators"
             enableVirtualization={false}
             style={{ fontSize: '12px', height: '100%' }}
