@@ -69,10 +69,11 @@ export default function ScorecardSidebar({
         <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Workspaces</h3>
         <button
           onClick={onCollapse}
-          className="p-1 text-slate-300 hover:text-slate-500 hover:bg-slate-100 rounded transition-colors"
+          className="w-11 h-11 md:w-7 md:h-7 -mr-2 md:mr-0 flex items-center justify-center text-slate-400 [@media(hover:hover)]:hover:text-slate-600 [@media(hover:hover)]:hover:bg-slate-100 active:text-slate-600 active:bg-slate-100 rounded-lg md:rounded transition-colors"
           title="Collapse sidebar"
+          aria-label="Collapse sidebar"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5" /></svg>
+          <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5" /></svg>
         </button>
       </div>
 

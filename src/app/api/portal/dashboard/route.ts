@@ -35,7 +35,7 @@ export async function GET(request: Request) {
         brand: profile?.brand_name || '',
         contactName: profile?.contact_name || '',
         scorecards: [],
-        summary: { totalRetailers: 0, authorized: 0, inProcess: 0, buyerPassed: 0, presented: 0, other: 0 },
+        summary: { totalRetailers: 0, authorized: 0, inProcess: 0, buyerPassed: 0, presented: 0, other: 0, otherBreakdown: {} },
         marketVisits: [],
       });
     }
@@ -102,6 +102,7 @@ export async function GET(request: Request) {
 
     // Build filtered view for each scorecard
     const statusCounts = { authorized: 0, inProcess: 0, buyerPassed: 0, presented: 0, other: 0 };
+    const otherBreakdown: Record<string, number> = {};
     const defaultColumnKeys = ['name', 'priority', 'retail_price', 'buyer', 'store_count', 'hq_location', 'cmg', 'category_review_date', 'route_to_market'];
 
     const filteredScorecards = (scorecards || []).map((sc: any) => {
@@ -130,7 +131,10 @@ export async function GET(request: Request) {
           else if (status === 'In Process') statusCounts.inProcess++;
           else if (status === 'Buyer Passed') statusCounts.buyerPassed++;
           else if (status === 'Presented') statusCounts.presented++;
-          else if (status) statusCounts.other++;
+          else if (status) {
+            statusCounts.other++;
+            otherBreakdown[status] = (otherBreakdown[status] || 0) + 1;
+          }
           return { name: col.name, status };
         });
 
@@ -181,6 +185,7 @@ export async function GET(request: Request) {
       summary: {
         totalRetailers: filteredScorecards.reduce((sum: number, sc: any) => sum + sc.retailers.length, 0),
         ...statusCounts,
+        otherBreakdown,
       },
     });
   } catch {

@@ -56,8 +56,8 @@ export default function ConfirmDialog({
   if (!open) return null;
 
   const confirmClasses = destructive
-    ? 'bg-red-600 hover:bg-red-700 focus-visible:ring-red-500'
-    : 'bg-blue-600 hover:bg-blue-700 focus-visible:ring-blue-500';
+    ? 'bg-red-600 [@media(hover:hover)]:hover:bg-red-700 active:bg-red-700 focus-visible:ring-red-500'
+    : 'bg-blue-600 [@media(hover:hover)]:hover:bg-blue-700 active:bg-blue-700 focus-visible:ring-blue-500';
 
   const iconWrapClasses = destructive
     ? 'bg-red-50 text-red-600'
@@ -65,9 +65,8 @@ export default function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm modal-backdrop p-4"
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-sm modal-backdrop sm:p-4"
       onMouseDown={(e) => {
-        // Click on the backdrop (not the card) cancels
         if (e.target === e.currentTarget) onCancel();
       }}
     >
@@ -76,9 +75,13 @@ export default function ConfirmDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
-        className="bg-white rounded-2xl shadow-xl w-full max-w-sm border border-slate-200 modal-content overflow-hidden"
+        className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-sm border-t sm:border border-slate-200 sheet-slide-up sm:modal-content overflow-hidden"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        <div className="px-6 pt-6 pb-4">
+        <div className="sm:hidden flex justify-center pt-2 pb-1">
+          <span className="block w-10 h-1 rounded-full bg-slate-300" aria-hidden="true" />
+        </div>
+        <div className="px-5 sm:px-6 pt-4 sm:pt-6 pb-4">
           <div className="flex items-start gap-3">
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${iconWrapClasses}`}
@@ -104,11 +107,11 @@ export default function ConfirmDialog({
             </div>
           </div>
         </div>
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+        <div className="px-5 sm:px-6 py-4 bg-slate-50 border-t border-slate-100 flex flex-col-reverse sm:flex-row justify-end gap-2">
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+            className="min-h-[44px] sm:min-h-0 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg [@media(hover:hover)]:hover:bg-slate-100 active:bg-slate-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
           >
             {cancelLabel}
           </button>
@@ -116,7 +119,7 @@ export default function ConfirmDialog({
             ref={confirmBtnRef}
             type="button"
             onClick={onConfirm}
-            className={`px-4 py-2 text-sm font-semibold text-white rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 ${confirmClasses}`}
+            className={`min-h-[44px] sm:min-h-0 px-4 py-2 text-sm font-semibold text-white rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 ${confirmClasses}`}
           >
             {confirmLabel}
           </button>
