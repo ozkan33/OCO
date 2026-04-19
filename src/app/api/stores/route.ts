@@ -2,12 +2,56 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
 
-// GET /api/stores?chain=CubFoods — get stores by chain name
+// GET /api/stores
+//   ?chain=CubFoods           — lookup stores by chain name (any authenticated user)
+//   ?all=1&q=...&page=1&pageSize=50
+//                             — admin-only paginated listing (used by /admin/stores)
 export async function GET(request: Request) {
   try {
-    await getUserFromToken(request);
+    const user = await getUserFromToken(request);
     const { searchParams } = new URL(request.url);
     const chain = searchParams.get('chain');
+    const all = searchParams.get('all');
+
+    if (all) {
+      const role = user.user_metadata?.role || '';
+      if (role !== 'ADMIN') {
+        return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+      }
+
+      const q = (searchParams.get('q') || '').trim();
+      const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
+      const pageSize = Math.min(500, Math.max(1, parseInt(searchParams.get('pageSize') || '100', 10) || 100));
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      let query = supabaseAdmin
+        .from('chain_stores')
+        .select('id, chain_name, store_name, address, city, state, zipcode', { count: 'exact' });
+
+      if (q) {
+        const safe = q.replace(/[%_]/g, (m) => `\\${m}`);
+        query = query.or(
+          `chain_name.ilike.%${safe}%,store_name.ilike.%${safe}%,city.ilike.%${safe}%,state.ilike.%${safe}%,zipcode.ilike.%${safe}%`
+        );
+      }
+
+      const { data, error, count } = await query
+        .order('chain_name', { ascending: true })
+        .order('store_name', { ascending: true })
+        .range(from, to);
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        stores: data || [],
+        total: count || 0,
+        page,
+        pageSize,
+      });
+    }
 
     if (!chain) {
       return NextResponse.json({ error: 'chain parameter is required' }, { status: 400 });
@@ -48,22 +92,49 @@ export async function GET(request: Request) {
   }
 }
 
-// POST /api/stores — import Excel data (admin only)
+// POST /api/stores
+//   body: { store: {...} }   — admin creates a single store
+//   body: { stores: [...] }  — admin bulk-inserts (used by programmatic flows)
 export async function POST(request: Request) {
   try {
     const user = await getUserFromToken(request);
 
-    // Check admin role
     const role = user.user_metadata?.role || '';
     if (role !== 'ADMIN') {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
     const body = await request.json();
-    const { stores } = body;
 
+    if (body.store && typeof body.store === 'object') {
+      const s = body.store;
+      const chain_name = String(s.chain_name || '').trim();
+      const store_name = String(s.store_name || '').trim();
+      if (!chain_name || !store_name) {
+        return NextResponse.json({ error: 'chain_name and store_name are required' }, { status: 400 });
+      }
+      const row = {
+        chain_name,
+        store_name,
+        address: String(s.address || '').trim() || null,
+        city: String(s.city || '').trim() || null,
+        state: String(s.state || '').trim() || null,
+        zipcode: String(s.zipcode || '').trim() || null,
+      };
+      const { data, error } = await supabaseAdmin
+        .from('chain_stores')
+        .insert(row)
+        .select('id, chain_name, store_name, address, city, state, zipcode')
+        .single();
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      return NextResponse.json({ store: data }, { status: 201 });
+    }
+
+    const stores = body.stores;
     if (!Array.isArray(stores) || stores.length === 0) {
-      return NextResponse.json({ error: 'stores array is required' }, { status: 400 });
+      return NextResponse.json({ error: 'stores array or store object is required' }, { status: 400 });
     }
 
     // Cap at 50,000 rows to prevent excessive database inserts
