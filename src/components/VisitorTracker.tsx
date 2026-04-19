@@ -18,6 +18,13 @@ export default function VisitorTracker() {
       return;
     }
 
+    // Skip dev/localhost traffic entirely — dev navigations polluted the
+    // referrer breakdown and made the real traffic signal hard to read.
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '[::1]') {
+      return;
+    }
+
     // Generate or reuse session ID
     let sessionId = sessionStorage.getItem('visitor_session');
     if (!sessionId) {

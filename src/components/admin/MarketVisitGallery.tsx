@@ -10,6 +10,9 @@ interface Visit {
   visit_date: string;
   latitude: number | null;
   longitude: number | null;
+  accuracy_m: number | null;
+  location_source: 'exif' | 'geolocation' | 'manual' | null;
+  photo_taken_at: string | null;
   address: string | null;
   store_name: string | null;
   note: string | null;
@@ -21,6 +24,28 @@ interface MarketVisitGalleryProps {
   refreshKey: number;
 }
 
+const SOURCE_LABEL: Record<NonNullable<Visit['location_source']>, string> = {
+  exif: 'from photo',
+  geolocation: 'from device',
+  manual: 'from address',
+};
+
+// Format a DATE string (YYYY-MM-DD) as UTC so the rendered day matches the
+// stored day regardless of the viewer's timezone.
+function formatVisitDate(d: string): string {
+  return new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  });
+}
+
+function formatPhotoTakenAt(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+}
+
 export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryProps) {
   const { brands } = useBrands();
   const [visits, setVisits] = useState<Visit[]>([]);
@@ -30,12 +55,22 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
   const [filterBrand, setFilterBrand] = useState('');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Visit | null>(null);
   const [editForm, setEditForm] = useState({ store_name: '', address: '', visit_date: '', note: '', brands: [] as string[] });
+  const [editError, setEditError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Debounce search input → searchQuery
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   const fetchVisits = useCallback(async (pageNum: number, append = false) => {
     setLoading(true);
@@ -45,6 +80,7 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
       if (filterBrand) params.set('brand', filterBrand);
       if (filterDateFrom) params.set('date_from', filterDateFrom);
       if (filterDateTo) params.set('date_to', filterDateTo);
+      if (searchQuery) params.set('search', searchQuery);
 
       const res = await fetch(`/api/market-visits?${params}`, { credentials: 'include' });
       if (!res.ok) throw new Error(`Failed to load visits (${res.status})`);
@@ -57,7 +93,7 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
     } finally {
       setLoading(false);
     }
-  }, [filterBrand, filterDateFrom, filterDateTo]);
+  }, [filterBrand, filterDateFrom, filterDateTo, searchQuery]);
 
   // Refetch on filter change or external refresh
   useEffect(() => {
@@ -74,6 +110,7 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this visit photo? This cannot be undone.')) return;
     setDeleting(id);
+    setActionError(null);
     try {
       const res = await fetch(`/api/market-visits/${id}`, {
         method: 'DELETE',
@@ -82,9 +119,12 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
       if (res.ok) {
         setVisits(prev => prev.filter(v => v.id !== id));
         setTotalCount(prev => prev - 1);
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setActionError(body?.error || `Failed to delete visit (${res.status})`);
       }
-    } catch {
-      // silent
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to delete visit');
     } finally {
       setDeleting(null);
     }
@@ -92,6 +132,7 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
 
   const openEdit = (visit: Visit) => {
     setEditing(visit);
+    setEditError(null);
     setEditForm({
       store_name: visit.store_name || '',
       address: visit.address || '',
@@ -103,6 +144,15 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
 
   const handleSaveEdit = async () => {
     if (!editing) return;
+    setEditError(null);
+    if (!editForm.visit_date || !/^\d{4}-\d{2}-\d{2}$/.test(editForm.visit_date)) {
+      setEditError('Visit date is required.');
+      return;
+    }
+    if (editForm.brands.length === 0) {
+      setEditError('Select at least one brand.');
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch(`/api/market-visits/${editing.id}`, {
@@ -115,9 +165,15 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
         const updated = await res.json();
         setVisits(prev => prev.map(v => v.id === editing.id ? { ...v, ...updated } : v));
         setEditing(null);
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setEditError(body?.error || `Failed to save (${res.status})`);
       }
-    } catch { /* silent */ }
-    setSaving(false);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleEditBrand = (brand: string) => {
@@ -133,9 +189,10 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
     setFilterBrand('');
     setFilterDateFrom('');
     setFilterDateTo('');
+    setSearchInput('');
   };
 
-  const hasFilters = filterBrand || filterDateFrom || filterDateTo;
+  const hasFilters = filterBrand || filterDateFrom || filterDateTo || searchQuery;
   const hasMore = visits.length < totalCount;
 
   return (
@@ -143,7 +200,17 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
       {/* Filter bar */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
         <div className="flex flex-wrap items-end gap-3">
-          <div className="flex-1 min-w-[160px]">
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+            <input
+              type="search"
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              placeholder="Store, note, or address…"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none"
+            />
+          </div>
+          <div className="min-w-[160px]">
             <label className="block text-xs font-medium text-gray-500 mb-1">Brand</label>
             <select
               value={filterBrand}
@@ -183,7 +250,7 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
         </div>
       </div>
 
-      {/* Error state */}
+      {/* Load error */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center justify-between">
           <p className="text-sm text-red-700">{error}</p>
@@ -192,6 +259,20 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
             className="text-sm font-medium text-red-600 hover:text-red-800 underline ml-4"
           >
             Retry
+          </button>
+        </div>
+      )}
+
+      {/* Action error (delete failures) */}
+      {actionError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center justify-between">
+          <p className="text-sm text-red-700">{actionError}</p>
+          <button
+            onClick={() => setActionError(null)}
+            className="text-sm text-red-600 hover:text-red-800 ml-4"
+            aria-label="Dismiss error"
+          >
+            ×
           </button>
         </div>
       )}
@@ -219,15 +300,24 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {visits.map(visit => (
+          {visits.map(visit => {
+            const src = visit.location_source;
+            const sourceLabel = src ? SOURCE_LABEL[src] : null;
+            const hasCoords = visit.latitude !== null && visit.longitude !== null;
+            const mapsUrl = hasCoords
+              ? `https://www.google.com/maps/search/?api=1&query=${visit.latitude},${visit.longitude}`
+              : null;
+            return (
             <div
               key={visit.id}
               className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden group hover:shadow-md transition-shadow"
             >
               {/* Photo */}
-              <div
-                className="relative aspect-[4/3] bg-gray-100 cursor-pointer overflow-hidden"
+              <button
+                type="button"
+                className="relative aspect-[4/3] w-full bg-gray-100 cursor-pointer overflow-hidden block focus:outline-none focus:ring-2 focus:ring-amber-400"
                 onClick={() => setLightbox({ src: visit.photo_url, alt: visit.store_name || 'Visit photo' })}
+                aria-label={`Enlarge photo${visit.store_name ? ` from ${visit.store_name}` : ''}`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -236,10 +326,10 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   loading="lazy"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-3">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-3 pointer-events-none">
                   <span className="text-white text-xs font-medium">Click to enlarge</span>
                 </div>
-              </div>
+              </button>
 
               {/* Info */}
               <div className="p-3 space-y-2">
@@ -249,11 +339,15 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
                     {visit.store_name && (
                       <p className="text-sm font-semibold text-gray-900 leading-tight">{visit.store_name}</p>
                     )}
-                    <p className="text-xs text-gray-500">
-                      {new Date(visit.visit_date + 'T00:00:00').toLocaleDateString('en-US', {
-                        month: 'short', day: 'numeric', year: 'numeric'
-                      })}
-                    </p>
+                    <p className="text-xs text-gray-500">{formatVisitDate(visit.visit_date)}</p>
+                    {visit.photo_taken_at && (
+                      <p
+                        className="text-[10px] text-gray-400 mt-0.5"
+                        title={`Photo captured at ${formatPhotoTakenAt(visit.photo_taken_at)}`}
+                      >
+                        Taken {formatPhotoTakenAt(visit.photo_taken_at)}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
@@ -285,6 +379,33 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
                   <p className="text-xs text-gray-400 leading-snug line-clamp-2">{visit.address}</p>
                 )}
 
+                {/* Location provenance + map link */}
+                {(mapsUrl || sourceLabel) && (
+                  <div className="flex items-center gap-2 text-[11px] text-gray-400">
+                    {mapsUrl && (
+                      <a
+                        href={mapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-amber-600 hover:text-amber-800 hover:underline"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+                        </svg>
+                        Map
+                      </a>
+                    )}
+                    {sourceLabel && (
+                      <span>
+                        · {sourceLabel}
+                        {src === 'geolocation' && visit.accuracy_m != null && ` (±${Math.round(visit.accuracy_m)}m)`}
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {/* Brands */}
                 <div className="flex flex-wrap gap-1">
                   {visit.brands.map(b => (
@@ -300,7 +421,8 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -327,7 +449,7 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
               <h2 className="text-lg font-bold text-gray-900">Edit Visit</h2>
-              <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+              <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close">&times;</button>
             </div>
             <div className="px-6 py-5 space-y-4">
               {/* Photo preview */}
@@ -342,8 +464,8 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
                   <input type="text" value={editForm.store_name} onChange={e => setEditForm(f => ({ ...f, store_name: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none" placeholder="Store name" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Visit Date</label>
-                  <input type="date" value={editForm.visit_date} onChange={e => setEditForm(f => ({ ...f, visit_date: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none" />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Visit Date *</label>
+                  <input type="date" required value={editForm.visit_date} onChange={e => setEditForm(f => ({ ...f, visit_date: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none" />
                 </div>
               </div>
 
@@ -358,7 +480,7 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Brands</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Brands *</label>
                 <div className="flex flex-wrap gap-1.5">
                   {brands.map(b => (
                     <button key={b} type="button" onClick={() => toggleEditBrand(b)}
@@ -368,6 +490,10 @@ export default function MarketVisitGallery({ refreshKey }: MarketVisitGalleryPro
                   ))}
                 </div>
               </div>
+
+              {editError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">{editError}</div>
+              )}
 
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setEditing(null)} className="flex-1 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">Cancel</button>

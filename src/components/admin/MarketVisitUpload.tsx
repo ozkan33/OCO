@@ -22,6 +22,10 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
   const [visitDate, setVisitDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
+  const [accuracyM, setAccuracyM] = useState<number | null>(null);
+  const [locationSource, setLocationSource] = useState<'exif' | 'geolocation' | 'manual' | null>(null);
+  const [photoTakenAt, setPhotoTakenAt] = useState<string | null>(null);
+  const [geoLoading, setGeoLoading] = useState(false);
   const [address, setAddress] = useState('');
   const [storeName, setStoreName] = useState('');
   const [note, setNote] = useState('');
@@ -35,6 +39,10 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
     setVisitDate(new Date().toISOString().split('T')[0]);
     setLatitude(null);
     setLongitude(null);
+    setAccuracyM(null);
+    setLocationSource(null);
+    setPhotoTakenAt(null);
+    setGeoLoading(false);
     setAddress('');
     setStoreName('');
     setNote('');
@@ -88,6 +96,7 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
       if (exif.dateTaken) {
         const d = new Date(exif.dateTaken);
         if (!isNaN(d.getTime())) {
+          setPhotoTakenAt(d.toISOString());
           setVisitDate(d.toISOString().split('T')[0]);
         }
       }
@@ -95,6 +104,8 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
       if (exif.latitude !== null && exif.longitude !== null) {
         setLatitude(exif.latitude);
         setLongitude(exif.longitude);
+        setAccuracyM(null);
+        setLocationSource('exif');
         const geo = await reverseGeocode(exif.latitude, exif.longitude);
         if (geo?.address) setAddress(geo.address);
         if (geo?.storeName && !storeName) setStoreName(geo.storeName);
@@ -107,6 +118,47 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
       setExtracting(false);
     }
   }, []);
+
+  // iOS Safari requires a user gesture to prompt for location; this runs
+  // from a button tap. Timeout protects against the documented iOS quirk
+  // where getCurrentPosition can hang indefinitely.
+  const useCurrentLocation = useCallback(async () => {
+    if (!('geolocation' in navigator)) {
+      setError('Location is not supported on this device.');
+      return;
+    }
+    setGeoLoading(true);
+    setError(null);
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 60000,
+        });
+      });
+      const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+      setLatitude(lat);
+      setLongitude(lng);
+      setAccuracyM(typeof accuracy === 'number' ? accuracy : null);
+      setLocationSource('geolocation');
+      setNoGps(false);
+      const geo = await reverseGeocode(lat, lng);
+      if (geo?.address) setAddress(geo.address);
+      if (geo?.storeName && !storeName) setStoreName(geo.storeName);
+    } catch (err: any) {
+      const code = err?.code;
+      if (code === 1) {
+        setError('Location permission denied. On iPhone: Settings → Safari → Location.');
+      } else if (code === 3) {
+        setError('Location timed out. Try again or enter the address manually.');
+      } else {
+        setError('Could not get your current location.');
+      }
+    } finally {
+      setGeoLoading(false);
+    }
+  }, [storeName]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -139,6 +191,9 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
       fd.append('brands', JSON.stringify(selectedBrands));
       if (latitude !== null) fd.append('latitude', String(latitude));
       if (longitude !== null) fd.append('longitude', String(longitude));
+      if (accuracyM !== null) fd.append('accuracy_m', String(accuracyM));
+      if (locationSource) fd.append('location_source', locationSource);
+      if (photoTakenAt) fd.append('photo_taken_at', photoTakenAt);
       if (address) fd.append('address', address);
       if (storeName) fd.append('store_name', storeName);
       if (note) fd.append('note', note);
@@ -240,24 +295,52 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
         />
       </div>
 
-      {/* No GPS warning */}
+      {/* No GPS warning + device-location fallback */}
       {noGps && file && (
-        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-          <svg className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
-          </svg>
-          <span>No location data found in this photo. You can enter the store address manually below.</span>
+        <div className="flex flex-col gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+          <div className="flex items-start gap-2">
+            <svg className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+            </svg>
+            <span>No location data found in this photo. Use your device's location, or enter the store address manually below.</span>
+          </div>
+          <button
+            type="button"
+            onClick={useCurrentLocation}
+            disabled={geoLoading}
+            className="self-start inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-amber-500 text-white rounded-md hover:bg-amber-600 disabled:opacity-50"
+          >
+            {geoLoading ? (
+              <>
+                <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white" />
+                Getting location...
+              </>
+            ) : (
+              <>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+                </svg>
+                Use my current location
+              </>
+            )}
+          </button>
         </div>
       )}
 
-      {/* Location info (shown when GPS detected) */}
+      {/* Location info (shown when coords are known) */}
       {latitude !== null && longitude !== null && (
         <div className="text-xs text-gray-400 flex items-center gap-1">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
             <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
           </svg>
-          GPS: {latitude.toFixed(5)}, {longitude.toFixed(5)}
+          <span>
+            {latitude.toFixed(5)}, {longitude.toFixed(5)}
+            {locationSource === 'exif' && ' · from photo'}
+            {locationSource === 'geolocation' && ` · from device${accuracyM ? ` (±${Math.round(accuracyM)}m)` : ''}`}
+            {locationSource === 'manual' && ' · from address'}
+          </span>
         </div>
       )}
 
@@ -294,6 +377,8 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
             setAddress(addr);
             setLatitude(lat);
             setLongitude(lng);
+            setAccuracyM(null);
+            setLocationSource('manual');
           }}
           placeholder={noGps ? 'Enter the store address' : 'Auto-filled from photo GPS'}
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none"

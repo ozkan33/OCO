@@ -13,6 +13,11 @@ export async function POST(request: Request) {
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown';
     const hasTrustedCookie = (request.headers.get('cookie') || '').includes('trusted_device=');
 
+    // Skip localhost/dev sessions so the admin Activity dashboard only reflects real user traffic.
+    if (ip === '::1' || ip === '127.0.0.1' || ip === 'unknown') {
+      return NextResponse.json({ success: true, skipped: true });
+    }
+
     if (action === 'login') {
       await supabaseAdmin.from('login_sessions').insert({
         user_id: user.id,

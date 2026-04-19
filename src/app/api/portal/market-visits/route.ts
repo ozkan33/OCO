@@ -2,17 +2,33 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../lib/apiAuth';
 import { resolveAuthorInfo } from '../../../../../lib/commentAuthors';
+import { logger } from '../../../../../lib/logger';
+
+const PHOTO_URL_TTL_SECONDS = 60 * 60;
+
+async function signPhoto(path: string | null | undefined): Promise<string | null> {
+  if (!path) return null;
+  const { data, error } = await supabaseAdmin.storage
+    .from('market-photos')
+    .createSignedUrl(path, PHOTO_URL_TTL_SECONDS);
+  if (error || !data) return null;
+  return data.signedUrl;
+}
 
 // GET /api/portal/market-visits - Get market visits for this brand
 export async function GET(request: Request) {
+  let user;
   try {
-    const user = await getUserFromToken(request);
-    const role = user.user_metadata?.role;
+    user = await getUserFromToken(request);
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const role = user.user_metadata?.role;
+  if (role !== 'BRAND' && role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
-    if (role !== 'BRAND' && role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
+  try {
     const brandName = user.user_metadata?.brand;
     if (!brandName) {
       return NextResponse.json([]);
@@ -21,7 +37,7 @@ export async function GET(request: Request) {
     // Fetch market visits tagged with this brand only
     const { data: visits, error } = await supabaseAdmin
       .from('market_visits')
-      .select('id, photo_url, visit_date, store_name, address, note, brands, created_at')
+      .select('id, photo_url, photo_storage_path, visit_date, store_name, address, note, brands, latitude, longitude, accuracy_m, location_source, photo_taken_at, created_at')
       .contains('brands', [brandName])
       .order('visit_date', { ascending: false })
       .limit(50);
@@ -79,13 +95,17 @@ export async function GET(request: Request) {
       }
     }
 
-    const enriched = (visits || []).map((v) => ({
-      ...v,
-      comments: v.store_name && commentsByStore[v.store_name] ? commentsByStore[v.store_name] : [],
-    }));
+    const enriched = await Promise.all(
+      (visits || []).map(async (v) => ({
+        ...v,
+        photo_url: (await signPhoto(v.photo_storage_path)) ?? v.photo_url,
+        comments: v.store_name && commentsByStore[v.store_name] ? commentsByStore[v.store_name] : [],
+      })),
+    );
 
     return NextResponse.json(enriched);
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  } catch (err) {
+    logger.error('Portal market-visits GET failed:', err);
+    return NextResponse.json({ error: 'Failed to load market visits' }, { status: 500 });
   }
 }
