@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
+import { logger } from '../../../../lib/logger';
 
 // Simple in-memory rate limiter for public visitor tracking endpoint
 const visitorRateLimit = new Map<string, { count: number; resetAt: number }>();
@@ -24,6 +26,71 @@ function isVisitorRateLimited(ip: string): boolean {
   return record.count > VISITOR_RATE_MAX;
 }
 
+// Hash visitor IP with a server-side salt so we can still enforce rate limits
+// and rough geo attribution without storing PII long-term (GDPR/CCPA).
+const IP_SALT = process.env.VISITOR_IP_SALT || process.env.SUPABASE_SERVICE_ROLE_KEY || 'oco-fallback-salt';
+function hashIp(ip: string): string {
+  return crypto.createHash('sha256').update(ip + IP_SALT).digest('hex').slice(0, 32);
+}
+
+function safeHostname(url: string | null | undefined): string {
+  if (!url) return 'Direct';
+  try {
+    return new URL(url).hostname || 'Direct';
+  } catch {
+    return 'Direct';
+  }
+}
+
+// Best-effort geo resolution. Edge hosts (Vercel, Cloudflare) set these
+// headers on every request for free — far more reliable than ipapi.co,
+// which rate-limits anonymous lookups and returns empty for VPN / IPv6 /
+// private IP ranges. We only fall back to ipapi.co when no edge header is
+// present and the IP is public.
+function geoFromHeaders(request: Request): { country: string; city: string; region: string } | null {
+  const h = request.headers;
+  const country =
+    h.get('x-vercel-ip-country') ||
+    h.get('cf-ipcountry') ||
+    h.get('x-country-code') ||
+    '';
+  const city =
+    decodeURIComponent(h.get('x-vercel-ip-city') || '') ||
+    h.get('cf-ipcity') ||
+    '';
+  const region =
+    h.get('x-vercel-ip-country-region') ||
+    h.get('cf-region') ||
+    '';
+  if (country || city || region) {
+    return { country, city, region };
+  }
+  return null;
+}
+
+function isLocalIp(ip: string): boolean {
+  if (!ip || ip === 'unknown') return false;
+  if (ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0') return true;
+  if (ip.startsWith('10.') || ip.startsWith('192.168.')) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return true;
+  return false;
+}
+
+// Returns the authenticated user's role (or null) without throwing. We use
+// this to drop tracking events from logged-in admins so the dashboard only
+// reflects real visitors, not staff page-loads.
+async function roleFromCookie(request: Request): Promise<string | null> {
+  const cookieHeader = request.headers.get('Cookie') ?? request.headers.get('cookie') ?? '';
+  const token = cookieHeader.match(/supabase-access-token=([^;]+)/)?.[1];
+  if (!token) return null;
+  try {
+    const { data } = await supabaseAdmin.auth.getUser(token);
+    return (data.user?.user_metadata?.role as string) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // POST /api/visitors — record a page visit (public, no auth required)
 export async function POST(request: Request) {
   try {
@@ -32,6 +99,20 @@ export async function POST(request: Request) {
     const clientIp = forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip') || 'unknown';
     if (isVisitorRateLimited(clientIp)) {
       return NextResponse.json({ ok: false, error: 'Rate limited' }, { status: 429 });
+    }
+
+    // Drop dev traffic server-side too, in case a client without the
+    // hostname guard (curl, a different deployment) hits this endpoint.
+    if (isLocalIp(clientIp)) {
+      return NextResponse.json({ ok: true, skipped: 'local' });
+    }
+
+    // Drop tracking events from logged-in admins — otherwise every time
+    // staff opens the live site to spot-check content, it bumps the
+    // visitor count and pollutes the referrer / location breakdowns.
+    const role = await roleFromCookie(request);
+    if (role === 'ADMIN') {
+      return NextResponse.json({ ok: true, skipped: 'admin' });
     }
 
     const body = await request.json();
@@ -43,21 +124,28 @@ export async function POST(request: Request) {
     const browser = parseBrowser(userAgent);
     const os = parseOS(userAgent);
 
-    // Get IP from headers (works behind most proxies/CDNs)
-    const ip = clientIp;
-
-    // Geo lookup via IP (best-effort, non-blocking)
+    // Geo: edge headers first (free, accurate, instant), then fall back to
+    // ipapi.co for local-dev / non-edge deployments.
     let country = '', city = '', region = '';
-    if (ip && ip !== '127.0.0.1' && ip !== '::1') {
+    const edgeGeo = geoFromHeaders(request);
+    if (edgeGeo) {
+      country = edgeGeo.country;
+      city = edgeGeo.city;
+      region = edgeGeo.region;
+    } else if (clientIp && clientIp !== 'unknown') {
       try {
-        const geoRes = await fetch(`https://ipapi.co/${ip}/json/`, { signal: AbortSignal.timeout(2000) });
+        const geoRes = await fetch(`https://ipapi.co/${clientIp}/json/`, { signal: AbortSignal.timeout(2000) });
         if (geoRes.ok) {
           const geo = await geoRes.json();
           country = geo.country_name || '';
           city = geo.city || '';
           region = geo.region || '';
+        } else {
+          logger.warn('ipapi.co lookup non-ok:', geoRes.status);
         }
-      } catch { /* geo lookup failed, continue without it */ }
+      } catch (err) {
+        logger.warn('ipapi.co lookup failed:', err);
+      }
     }
 
     // Check if this session already visited (for unique tracking)
@@ -73,7 +161,7 @@ export async function POST(request: Request) {
     const { error } = await supabaseAdmin.from('site_visitors').insert({
       page_url: pageUrl || '/',
       referrer: referrer || null,
-      ip_address: ip || null,
+      ip_address: clientIp && clientIp !== 'unknown' ? hashIp(clientIp) : null,
       country, city, region,
       user_agent: userAgent.substring(0, 500),
       device_type: deviceType,
@@ -86,7 +174,7 @@ export async function POST(request: Request) {
     });
 
     if (error) {
-      console.error('Visitor tracking error:', error.message);
+      logger.error('Visitor tracking error:', error.message);
       return NextResponse.json({ ok: false }, { status: 500 });
     }
 
@@ -98,95 +186,43 @@ export async function POST(request: Request) {
 
 // GET /api/visitors — admin-only: fetch visitor analytics
 export async function GET(request: Request) {
+  let user;
   try {
-    const user = await getUserFromToken(request);
-    if (user.user_metadata?.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    const days = parseInt(searchParams.get('days') || '30', 10);
-    const since = new Date(Date.now() - days * 86400000).toISOString();
-
-    // Fetch recent visitors
-    const { data: visitors, error } = await supabaseAdmin
-      .from('site_visitors')
-      .select('*')
-      .gte('visited_at', since)
-      .order('visited_at', { ascending: false })
-      .limit(500);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    // Compute summary stats
-    const records = visitors || [];
-    const totalVisits = records.length;
-    const uniqueVisits = records.filter(v => v.is_unique).length;
-
-    // Top referrers
-    const refCounts: Record<string, number> = {};
-    for (const v of records) {
-      const ref = v.referrer ? new URL(v.referrer).hostname : 'Direct';
-      refCounts[ref] = (refCounts[ref] || 0) + 1;
-    }
-    const topReferrers = Object.entries(refCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 10)
-      .map(([source, count]) => ({ source, count }));
-
-    // Top pages
-    const pageCounts: Record<string, number> = {};
-    for (const v of records) {
-      pageCounts[v.page_url] = (pageCounts[v.page_url] || 0) + 1;
-    }
-    const topPages = Object.entries(pageCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 10)
-      .map(([page, count]) => ({ page, count }));
-
-    // Device breakdown
-    const deviceCounts: Record<string, number> = { desktop: 0, mobile: 0, tablet: 0 };
-    for (const v of records) {
-      deviceCounts[v.device_type || 'desktop']++;
-    }
-
-    // Country breakdown
-    const countryCounts: Record<string, number> = {};
-    for (const v of records) {
-      const c = v.country || 'Unknown';
-      countryCounts[c] = (countryCounts[c] || 0) + 1;
-    }
-    const topCountries = Object.entries(countryCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 10)
-      .map(([country, count]) => ({ country, count }));
-
-    // Daily visits for chart
-    const dailyMap: Record<string, { total: number; unique: number }> = {};
-    for (const v of records) {
-      const day = v.visited_at.split('T')[0];
-      if (!dailyMap[day]) dailyMap[day] = { total: 0, unique: 0 };
-      dailyMap[day].total++;
-      if (v.is_unique) dailyMap[day].unique++;
-    }
-    const dailyVisits = Object.entries(dailyMap)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, counts]) => ({ date, ...counts }));
-
-    return NextResponse.json({
-      totalVisits,
-      uniqueVisits,
-      topReferrers,
-      topPages,
-      deviceCounts,
-      topCountries,
-      dailyVisits,
-      recentVisitors: records.slice(0, 50),
-    });
+    user = await getUserFromToken(request);
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (user.user_metadata?.role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const days = Math.max(1, Math.min(parseInt(searchParams.get('days') || '30', 10) || 30, 365));
+
+    // Aggregation happens entirely in Postgres — no 500-row JS undercount.
+    const { data, error } = await supabaseAdmin.rpc('get_visitor_analytics', { days_back: days });
+
+    if (error) {
+      logger.error('Visitor analytics RPC failed:', error);
+      return NextResponse.json({ error: 'Failed to load analytics' }, { status: 500 });
+    }
+
+    // The SQL-side regexp pulls hostname for referrers, but fall back to a
+    // JS hostname parse for any rows whose referrer regex didn't match a host
+    // (e.g. app-deeplink schemes). We also guard new URL() so a single
+    // malformed referrer can't 500 the whole dashboard.
+    const payload = (data || {}) as Record<string, any>;
+    const referrers = Array.isArray(payload.topReferrers) ? payload.topReferrers : [];
+    payload.topReferrers = referrers.map((r: any) => ({
+      source: r.source === r.referrer ? safeHostname(r.source) : (r.source || 'Direct'),
+      count: Number(r.count) || 0,
+    }));
+
+    return NextResponse.json(payload);
+  } catch (err) {
+    logger.error('Visitor analytics failed:', err);
+    return NextResponse.json({ error: 'Failed to load analytics' }, { status: 500 });
   }
 }
 

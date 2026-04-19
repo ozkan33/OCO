@@ -3,42 +3,58 @@ import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../lib/apiAuth';
 import { logger } from '../../../../../lib/logger';
 
+async function authorizeAdmin(request: Request) {
+  try {
+    const user = await getUserFromToken(request);
+    if (user.user_metadata?.role !== 'ADMIN') {
+      return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+    }
+    return { user };
+  } catch {
+    return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
+  }
+}
+
 // PUT /api/market-visits/[id] - Update visit metadata
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await authorizeAdmin(request);
+  if (auth.error) return auth.error;
+
   try {
-    const user = await getUserFromToken(request);
     const { id } = await params;
 
     const { data: visit } = await supabaseAdmin
       .from('market_visits')
-      .select('id, user_id')
+      .select('id')
       .eq('id', id)
       .single();
 
     if (!visit) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    if (visit.user_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await request.json();
     const updates: Record<string, any> = {};
     if (body.store_name !== undefined) updates.store_name = body.store_name;
     if (body.address !== undefined) updates.address = body.address;
-    if (body.visit_date !== undefined) updates.visit_date = body.visit_date;
+    if (body.visit_date !== undefined) {
+      if (typeof body.visit_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.visit_date)) {
+        return NextResponse.json({ error: 'Invalid visit_date (YYYY-MM-DD)' }, { status: 400 });
+      }
+      updates.visit_date = body.visit_date;
+    }
     if (body.note !== undefined) updates.note = body.note;
-    if (body.brands !== undefined) updates.brands = body.brands;
+    if (body.brands !== undefined) {
+      if (!Array.isArray(body.brands) || body.brands.length === 0) {
+        return NextResponse.json({ error: 'At least one brand is required' }, { status: 400 });
+      }
+      updates.brands = body.brands;
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
-
-    // Fetch current visit data before update (for comment sync)
-    const { data: currentVisit } = await supabaseAdmin
-      .from('market_visits')
-      .select('store_name, note, visit_date, brands')
-      .eq('id', id)
-      .single();
 
     const { data: updated, error } = await supabaseAdmin
       .from('market_visits')
@@ -47,20 +63,21 @@ export async function PUT(
       .select()
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      logger.error('Market visit update failed:', error);
+      return NextResponse.json({ error: 'Failed to update visit' }, { status: 500 });
+    }
 
-    // Sync note changes to auto-generated comments
-    if (body.note !== undefined && currentVisit) {
+    // Sync note changes to auto-generated comments linked by market_visit_id.
+    // Using the id avoids the same-day prefix-match bug where two visits on
+    // the same date clobbered each other's auto-comment text.
+    if (body.note !== undefined) {
       try {
-        const oldPrefix = `[Market Visit — ${currentVisit.visit_date}]`;
-        const newText = `${oldPrefix} ${body.note}`;
-
-        // Update both main-row and subgrid comments that match this market visit
+        const newText = `[Market Visit — ${updated.visit_date} · ${updated.store_name || ''}] ${body.note}`;
         const { error: syncErr } = await supabaseAdmin
           .from('comments')
           .update({ text: newText, updated_at: new Date().toISOString() })
-          .eq('user_id', user.id)
-          .ilike('text', `${oldPrefix}%`);
+          .eq('market_visit_id', id);
 
         if (syncErr) logger.error('Comment sync failed:', syncErr);
       } catch (syncErr) {
@@ -69,8 +86,9 @@ export async function PUT(
     }
 
     return NextResponse.json(updated);
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  } catch (err) {
+    logger.error('Market visit PUT failed:', err);
+    return NextResponse.json({ error: 'Failed to update visit' }, { status: 500 });
   }
 }
 
@@ -79,22 +97,21 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await authorizeAdmin(request);
+  if (auth.error) return auth.error;
+
   try {
-    const user = await getUserFromToken(request);
     const { id } = await params;
 
-    // Fetch the visit (verify ownership)
+    // Fetch the visit
     const { data: visit, error: fetchError } = await supabaseAdmin
       .from('market_visits')
-      .select('id, user_id, photo_storage_path')
+      .select('id, photo_storage_path')
       .eq('id', id)
       .single();
 
     if (fetchError || !visit) {
       return NextResponse.json({ error: 'Visit not found' }, { status: 404 });
-    }
-    if (visit.user_id !== user.id) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Delete from storage
@@ -109,11 +126,13 @@ export async function DELETE(
       .eq('id', id);
 
     if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+      logger.error('Market visit delete failed:', deleteError);
+      return NextResponse.json({ error: 'Failed to delete visit' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  } catch (err) {
+    logger.error('Market visit DELETE failed:', err);
+    return NextResponse.json({ error: 'Failed to delete visit' }, { status: 500 });
   }
 }

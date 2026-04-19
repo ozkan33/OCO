@@ -17,7 +17,7 @@ export default function MarketVisitsPage() {
           <p className="text-sm text-slate-500 mt-1">Upload shelf photos from store visits. GPS location and date are read automatically from the photo.</p>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-8 items-start">
-          <div className="lg:sticky lg:top-24">
+          <div className="lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:pr-2 lg:-mr-2">
             <MarketVisitUpload onUploaded={() => setRefreshKey(k => k + 1)} />
           </div>
           <MarketVisitGallery refreshKey={refreshKey} />

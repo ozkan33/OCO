@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, Fragment } from 'react';
+import { useEffect, useState, useMemo, Fragment, useCallback } from 'react';
 import AdminHeader from '@/components/admin/AdminHeader';
 import { FiClock, FiUser, FiShield, FiUsers, FiRefreshCw } from 'react-icons/fi';
 
@@ -18,13 +18,34 @@ interface Session {
   two_factor_used: boolean;
   user_role: string;
   user_name: string;
+  is_active: boolean;
 }
 
-type RoleFilter = 'ALL' | 'ADMIN' | 'BRAND' | 'VENDOR';
+type RoleFilter = 'ALL' | 'ADMIN' | 'BRAND';
+
+interface AnalyticsPayload {
+  activeNow: number;
+  todayLogins: number;
+  uniqueTodayUsers: number;
+  avgSessionMin: number;
+  totalLogins: number;
+  roleCounts: Record<RoleFilter, number>;
+  sessions: Session[];
+}
+
+const EMPTY_PAYLOAD: AnalyticsPayload = {
+  activeNow: 0,
+  todayLogins: 0,
+  uniqueTodayUsers: 0,
+  avgSessionMin: 0,
+  totalLogins: 0,
+  roleCounts: { ALL: 0, ADMIN: 0, BRAND: 0 },
+  sessions: [],
+};
 
 export default function ActivityPage() {
   const [user, setUser] = useState<any>(null);
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [data, setData] = useState<AnalyticsPayload>(EMPTY_PAYLOAD);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('ALL');
@@ -32,17 +53,26 @@ export default function ActivityPage() {
   const [limit, setLimit] = useState(100);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchSessions = async () => {
+  const fetchAnalytics = useCallback(async () => {
+    const params = new URLSearchParams({ limit: String(limit), days: '30' });
+    if (roleFilter !== 'ALL') params.set('role', roleFilter);
     try {
-      const res = await fetch(`/api/admin/login-sessions?enriched=true&limit=${limit}`, { credentials: 'include' });
-      if (res.ok) setSessions(await res.json());
-    } catch { /* silent */ }
-  };
+      const res = await fetch(`/api/admin/activity?${params.toString()}`, { credentials: 'include' });
+      if (!res.ok) {
+        setError('Failed to load activity');
+        return;
+      }
+      const payload = (await res.json()) as Partial<AnalyticsPayload>;
+      setData({ ...EMPTY_PAYLOAD, ...payload, roleCounts: { ...EMPTY_PAYLOAD.roleCounts, ...(payload.roleCounts || {}) } });
+      setError(null);
+    } catch {
+      setError('Failed to load activity');
+    }
+  }, [limit, roleFilter]);
 
   useEffect(() => {
     const init = async () => {
       setLoading(true);
-      setError(null);
       try {
         const res = await fetch('/api/auth/me', { credentials: 'include' });
         if (!res.ok) {
@@ -51,9 +81,9 @@ export default function ActivityPage() {
           setLoading(false);
           return;
         }
-        const data = await res.json();
-        setUser(data.user);
-        await fetchSessions();
+        const body = await res.json();
+        setUser(body.user);
+        await fetchAnalytics();
       } catch {
         setUser(null);
         setError('Failed to load user data');
@@ -61,78 +91,31 @@ export default function ActivityPage() {
       setLoading(false);
     };
     init();
-  }, [limit]);
+  }, [fetchAnalytics]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchSessions();
+    await fetchAnalytics();
     setRefreshing(false);
   };
 
+  // Search stays client-side — it's interactive and only filters the already-
+  // loaded page. Role filter lives on the server so the stat cards and the
+  // session list stay consistent with each other.
   const filtered = useMemo(() => {
-    let result = sessions;
-    if (roleFilter !== 'ALL') {
-      result = result.filter(s => s.user_role === roleFilter);
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(s =>
-        s.email.toLowerCase().includes(q) ||
-        s.user_name.toLowerCase().includes(q) ||
-        (s.brand_name && s.brand_name.toLowerCase().includes(q))
-      );
-    }
-    return result;
-  }, [sessions, roleFilter, searchQuery]);
-
-  // For each user, only their single most recent session (if no logout and started < 30 min ago)
-  // can be considered truly "active". All other null-logout sessions are expired.
-  const activeSessionIds = useMemo(() => {
-    const ids = new Set<string>();
-    const now = Date.now();
-    const thirtyMin = 30 * 60 * 1000;
-    const seen = new Set<string>(); // track first (most recent) session per user
-    // sessions are already sorted by login_at DESC from the API
-    for (const s of sessions) {
-      if (seen.has(s.user_id)) continue;
-      seen.add(s.user_id);
-      if (!s.logout_at && (now - new Date(s.login_at).getTime()) < thirtyMin) {
-        ids.add(s.id);
-      }
-    }
-    return ids;
-  }, [sessions]);
-
-  const isActive = (s: Session) => activeSessionIds.has(s.id);
-
-  // Stats
-  const stats = useMemo(() => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const activeNow = activeSessionIds.size;
-    const todaySessions = sessions.filter(s => new Date(s.login_at) >= today);
-    const todayLogins = todaySessions.length;
-    const uniqueTodayUsers = new Set(todaySessions.map(s => s.user_id)).size;
-    const withDuration = sessions.filter(s => s.duration_minutes != null);
-    const avgMin = withDuration.length > 0
-      ? Math.round(withDuration.reduce((acc, s) => acc + (s.duration_minutes || 0), 0) / withDuration.length)
-      : 0;
-
-    return { activeNow, todayLogins, uniqueTodayUsers, avgMin };
-  }, [sessions, activeSessionIds]);
-
-  // Role counts for filter badges
-  const roleCounts = useMemo(() => {
-    const counts: Record<string, number> = { ALL: sessions.length, ADMIN: 0, BRAND: 0, VENDOR: 0 };
-    sessions.forEach(s => { if (counts[s.user_role] !== undefined) counts[s.user_role]++; });
-    return counts;
-  }, [sessions]);
+    if (!searchQuery.trim()) return data.sessions;
+    const q = searchQuery.toLowerCase();
+    return data.sessions.filter(s =>
+      s.email.toLowerCase().includes(q) ||
+      s.user_name.toLowerCase().includes(q) ||
+      (s.brand_name && s.brand_name.toLowerCase().includes(q))
+    );
+  }, [data.sessions, searchQuery]);
 
   const getRoleBadge = (role: string) => {
     switch (role) {
       case 'ADMIN': return 'bg-purple-50 text-purple-700 border-purple-200';
       case 'BRAND': return 'bg-blue-50 text-blue-700 border-blue-200';
-      case 'VENDOR': return 'bg-amber-50 text-amber-700 border-amber-200';
       default: return 'bg-slate-50 text-slate-600 border-slate-200';
     }
   };
@@ -217,17 +200,17 @@ export default function ActivityPage() {
           <div className="space-y-6">
             {/* Stats Row */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <StatCard icon={<FiUser className="w-4 h-4 text-green-600" />} label="Active Now" value={stats.activeNow} accent="green" />
-              <StatCard icon={<FiShield className="w-4 h-4 text-blue-600" />} label="Logins Today" value={stats.todayLogins} />
-              <StatCard icon={<FiUsers className="w-4 h-4 text-purple-600" />} label="Unique Users Today" value={stats.uniqueTodayUsers} />
-              <StatCard icon={<FiClock className="w-4 h-4 text-amber-600" />} label="Avg. Session" value={stats.avgMin > 0 ? `${stats.avgMin} min` : '--'} />
+              <StatCard icon={<FiUser className="w-4 h-4 text-green-600" />} label="Active Now" value={data.activeNow} accent="green" />
+              <StatCard icon={<FiShield className="w-4 h-4 text-blue-600" />} label="Logins Today" value={data.todayLogins} />
+              <StatCard icon={<FiUsers className="w-4 h-4 text-purple-600" />} label="Unique Users Today" value={data.uniqueTodayUsers} />
+              <StatCard icon={<FiClock className="w-4 h-4 text-amber-600" />} label="Avg. Session" value={data.avgSessionMin > 0 ? `${data.avgSessionMin} min` : '--'} />
             </div>
 
             {/* Filters */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               {/* Role Tabs */}
               <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
-                {(['ALL', 'ADMIN', 'BRAND', 'VENDOR'] as RoleFilter[]).map(r => (
+                {(['ALL', 'ADMIN', 'BRAND'] as RoleFilter[]).map(r => (
                   <button
                     key={r}
                     onClick={() => setRoleFilter(r)}
@@ -239,7 +222,7 @@ export default function ActivityPage() {
                   >
                     {r === 'ALL' ? 'All' : r.charAt(0) + r.slice(1).toLowerCase()}
                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${roleFilter === r ? 'bg-slate-100 text-slate-600' : 'bg-slate-200/60 text-slate-400'}`}>
-                      {roleCounts[r]}
+                      {data.roleCounts[r] ?? 0}
                     </span>
                   </button>
                 ))}
@@ -306,7 +289,7 @@ export default function ActivityPage() {
                                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-semibold ${
                                   s.user_role === 'ADMIN' ? 'bg-purple-100 text-purple-700' :
                                   s.user_role === 'BRAND' ? 'bg-blue-100 text-blue-700' :
-                                  'bg-amber-100 text-amber-700'
+                                  'bg-slate-100 text-slate-600'
                                 }`}>
                                   {(s.user_name || s.email.charAt(0)).charAt(0).toUpperCase()}
                                 </div>
@@ -320,14 +303,14 @@ export default function ActivityPage() {
                             </td>
                             <td className="px-4 py-2.5">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${getRoleBadge(s.user_role)}`}>
-                                {s.user_role === 'ADMIN' ? 'Admin' : s.user_role === 'BRAND' ? s.brand_name || 'Brand' : s.user_role === 'VENDOR' ? 'Vendor' : s.user_role}
+                                {s.user_role === 'ADMIN' ? 'Admin' : s.user_role === 'BRAND' ? s.brand_name || 'Brand' : s.user_role}
                               </span>
                             </td>
                             <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap text-xs">{formatTime(s.login_at)}</td>
                             <td className="px-4 py-2.5 whitespace-nowrap text-xs">
                               {s.logout_at ? (
                                 <span className="text-slate-500">{formatTime(s.logout_at)}</span>
-                              ) : isActive(s) ? (
+                              ) : s.is_active ? (
                                 <span className="inline-flex items-center gap-1 text-green-600 font-medium">
                                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                                   Active
@@ -339,7 +322,7 @@ export default function ActivityPage() {
                             <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap text-xs font-mono">
                               {s.duration_minutes != null ? (
                                 formatDuration(s.duration_minutes)
-                              ) : isActive(s) ? (
+                              ) : s.is_active ? (
                                 <span className="text-green-600">{formatDuration(Math.round((Date.now() - new Date(s.login_at).getTime()) / 60000))}</span>
                               ) : (
                                 <span className="text-slate-400">--</span>
@@ -360,7 +343,7 @@ export default function ActivityPage() {
                     {filtered.length === 0 && (
                       <tr>
                         <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
-                          {sessions.length === 0 ? 'No login sessions recorded yet.' : 'No sessions match your filters.'}
+                          {data.sessions.length === 0 ? 'No login sessions recorded yet.' : 'No sessions match your filters.'}
                         </td>
                       </tr>
                     )}

@@ -8,9 +8,11 @@ export interface ExifData {
 
 export async function extractExifFromFile(file: File): Promise<ExifData> {
   try {
+    // ModifyDate is deliberately excluded — it reflects edits (crop, rotate,
+    // re-save), not capture, and would shift the auto-filled visit date.
     const exif = await exifr.parse(file, {
       gps: true,
-      pick: ['DateTimeOriginal', 'CreateDate', 'ModifyDate'],
+      pick: ['DateTimeOriginal', 'CreateDate'],
     });
 
     if (!exif) return { latitude: null, longitude: null, dateTaken: null };
@@ -18,7 +20,7 @@ export async function extractExifFromFile(file: File): Promise<ExifData> {
     return {
       latitude: exif.latitude ?? null,
       longitude: exif.longitude ?? null,
-      dateTaken: exif.DateTimeOriginal ?? exif.CreateDate ?? exif.ModifyDate ?? null,
+      dateTaken: exif.DateTimeOriginal ?? exif.CreateDate ?? null,
     };
   } catch {
     return { latitude: null, longitude: null, dateTaken: null };

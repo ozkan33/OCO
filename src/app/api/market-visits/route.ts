@@ -6,16 +6,41 @@ import { bestMatch } from '../../../../lib/marketVisitMatcher';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 
+const PHOTO_URL_TTL_SECONDS = 60 * 60; // 1 hour signed URLs
+
+async function signPhoto(path: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.storage
+    .from('market-photos')
+    .createSignedUrl(path, PHOTO_URL_TTL_SECONDS);
+  if (error || !data) {
+    logger.warn('Signed URL generation failed:', error?.message);
+    return null;
+  }
+  return data.signedUrl;
+}
+
 // POST /api/market-visits — upload a visit photo
 export async function POST(request: Request) {
+  let user;
   try {
-    const user = await getUserFromToken(request);
+    user = await getUserFromToken(request);
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (user.user_metadata?.role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  try {
     const formData = await request.formData();
 
     const file = formData.get('file') as File | null;
     const visitDate = formData.get('visit_date') as string | null;
     const latitude = formData.get('latitude') as string | null;
     const longitude = formData.get('longitude') as string | null;
+    const accuracyRaw = formData.get('accuracy_m') as string | null;
+    const locationSourceRaw = formData.get('location_source') as string | null;
+    const photoTakenAtRaw = formData.get('photo_taken_at') as string | null;
     const address = formData.get('address') as string | null;
     const storeName = formData.get('store_name') as string | null;
     const note = formData.get('note') as string | null;
@@ -66,14 +91,18 @@ export async function POST(request: Request) {
       } catch {
         return NextResponse.json({ error: 'Invalid brands format' }, { status: 400 });
       }
-      // Validate against scorecards in the database
-      const { data: scorecards } = await supabaseAdmin
-        .from('user_scorecards')
-        .select('title');
-      const validBrands = new Set((scorecards || []).map((s: any) => s.title));
-      const invalid = brands.filter(b => !validBrands.has(b));
-      if (invalid.length > 0) {
-        return NextResponse.json({ error: `Unknown brands: ${invalid.join(', ')}` }, { status: 400 });
+      // Validate only the submitted brand names exist as scorecard titles.
+      // Using `in()` avoids scanning every scorecard on every upload.
+      if (brands.length > 0) {
+        const { data: scorecards } = await supabaseAdmin
+          .from('user_scorecards')
+          .select('title')
+          .in('title', brands);
+        const validBrands = new Set((scorecards || []).map((s: any) => s.title));
+        const invalid = brands.filter(b => !validBrands.has(b));
+        if (invalid.length > 0) {
+          return NextResponse.json({ error: `Unknown brands: ${invalid.join(', ')}` }, { status: 400 });
+        }
       }
     }
     if (brands.length === 0) {
@@ -97,23 +126,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Photo upload failed. Please try again.' }, { status: 500 });
     }
 
-    // Get public URL
-    const { data: urlData } = supabaseAdmin.storage
-      .from('market-photos')
-      .getPublicUrl(storagePath);
-
     // Insert database row — sanitize numeric fields to avoid NaN
     const parsedLat = latitude ? parseFloat(latitude) : null;
     const parsedLng = longitude ? parseFloat(longitude) : null;
+    const parsedAccuracy = accuracyRaw ? parseFloat(accuracyRaw) : null;
+    const VALID_SOURCES = ['exif', 'geolocation', 'manual'] as const;
+    const locationSource = VALID_SOURCES.includes(locationSourceRaw as any)
+      ? (locationSourceRaw as typeof VALID_SOURCES[number])
+      : null;
+    const parsedPhotoTakenAt = photoTakenAtRaw && !isNaN(Date.parse(photoTakenAtRaw))
+      ? new Date(photoTakenAtRaw).toISOString()
+      : null;
+    // Placeholder public URL kept for legacy NOT NULL schema;
+    // the gallery resolves signed URLs at read time via photo_storage_path.
     const { data: visit, error: dbError } = await supabaseAdmin
       .from('market_visits')
       .insert({
         user_id: user.id,
-        photo_url: urlData.publicUrl,
+        photo_url: storagePath,
         photo_storage_path: storagePath,
         visit_date: visitDate,
         latitude: parsedLat !== null && !isNaN(parsedLat) ? parsedLat : null,
         longitude: parsedLng !== null && !isNaN(parsedLng) ? parsedLng : null,
+        accuracy_m: parsedAccuracy !== null && !isNaN(parsedAccuracy) ? parsedAccuracy : null,
+        location_source: locationSource,
+        photo_taken_at: parsedPhotoTakenAt,
         address: address || null,
         store_name: storeName || null,
         note: note || null,
@@ -186,6 +223,7 @@ export async function POST(request: Request) {
                   user_email: user.email || '',
                   row_id: String(matchedRow.id),
                   text: commentText,
+                  market_visit_id: visit.id,
                   created_at: timestamp,
                   updated_at: timestamp,
                 })
@@ -223,6 +261,7 @@ export async function POST(request: Request) {
                     row_id: subRow.store_name, // store name as row_id for subgrid
                     parent_row_id: String(matchedRow.id), // link to parent row
                     text: commentText,
+                    market_visit_id: visit.id,
                     created_at: timestamp,
                     updated_at: timestamp,
                   });
@@ -265,21 +304,34 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json(visit, { status: 201 });
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const signedUrl = await signPhoto(storagePath);
+    return NextResponse.json({ ...visit, photo_url: signedUrl ?? visit.photo_url }, { status: 201 });
+  } catch (err) {
+    logger.error('Market visit POST failed:', err);
+    return NextResponse.json({ error: 'Upload failed. Please try again.' }, { status: 500 });
   }
 }
 
-// GET /api/market-visits — list visits with optional filters
+// GET /api/market-visits — list visits with optional filters (admin only,
+// cross-admin visibility so all admins see team-wide market visits)
 export async function GET(request: Request) {
+  let user;
   try {
-    const user = await getUserFromToken(request);
+    user = await getUserFromToken(request);
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (user.user_metadata?.role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  try {
     const { searchParams } = new URL(request.url);
 
     const brand = searchParams.get('brand');
     const dateFrom = searchParams.get('date_from');
     const dateTo = searchParams.get('date_to');
+    const search = searchParams.get('search');
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = Math.min(parseInt(searchParams.get('limit') || '20', 10), 50);
     const offset = (page - 1) * limit;
@@ -287,7 +339,6 @@ export async function GET(request: Request) {
     let query = supabaseAdmin
       .from('market_visits')
       .select('*', { count: 'exact' })
-      .eq('user_id', user.id)
       .order('visit_date', { ascending: false })
       .order('created_at', { ascending: false });
 
@@ -300,17 +351,31 @@ export async function GET(request: Request) {
     if (dateTo) {
       query = query.lte('visit_date', dateTo);
     }
+    if (search) {
+      const like = `%${search.replace(/[%_]/g, m => `\\${m}`)}%`;
+      query = query.or(`store_name.ilike.${like},note.ilike.${like},address.ilike.${like}`);
+    }
 
     query = query.range(offset, offset + limit - 1);
 
     const { data, count, error } = await query;
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      logger.error('Market visit GET failed:', error);
+      return NextResponse.json({ error: 'Failed to load visits' }, { status: 500 });
     }
 
-    return NextResponse.json({ data, count, page, limit });
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Resolve signed URLs in parallel — photos are stored in a private bucket
+    const withSignedUrls = await Promise.all(
+      (data || []).map(async v => ({
+        ...v,
+        photo_url: (await signPhoto(v.photo_storage_path)) ?? v.photo_url,
+      })),
+    );
+
+    return NextResponse.json({ data: withSignedUrls, count, page, limit });
+  } catch (err) {
+    logger.error('Market visit GET failed:', err);
+    return NextResponse.json({ error: 'Failed to load visits' }, { status: 500 });
   }
 }
