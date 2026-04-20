@@ -6,6 +6,10 @@ import AdminHeader from '@/components/admin/AdminHeader';
 import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiCheck, FiEye, FiEyeOff, FiClock, FiUserX, FiUserCheck, FiRefreshCw, FiX, FiMail } from 'react-icons/fi';
 import { Fragment } from 'react';
 import WeeklySummaryCard from '@/components/portal/WeeklySummaryCard';
+import { ALL_ROLES, Role, ROLE_LABELS } from '../../../../lib/rbac';
+
+// Admins are provisioned out-of-band; the admin UI only creates portal users.
+const ASSIGNABLE_ROLES = ALL_ROLES.filter(r => r !== Role.ADMIN);
 
 interface Assignment { scorecardId: string; productColumns: string[]; }
 interface LatestSummary {
@@ -37,6 +41,7 @@ export default function ClientsPage() {
   const [formName, setFormName] = useState('');
   const [formBrand, setFormBrand] = useState('');
   const [formPassword, setFormPassword] = useState('');
+  const [formRole, setFormRole] = useState<Role>(Role.BRAND);
   const [formAssignments, setFormAssignments] = useState<Assignment[]>([]);
   const [showPassword, setShowPassword] = useState(false);
   const [createdUser, setCreatedUser] = useState<{ email: string; tempPassword: string } | null>(null);
@@ -232,13 +237,16 @@ export default function ClientsPage() {
 
   const resetForm = () => {
     setFormEmail(''); setFormName(''); setFormBrand(''); setFormPassword('');
-    setFormAssignments([]); setShowPassword(false); setError(null);
+    setFormRole(Role.BRAND); setFormAssignments([]); setShowPassword(false); setError(null);
   };
 
   const handleCreateWithConfirm = () => {
     setError(null);
-    if (!formEmail || !formName || !formBrand || !formPassword) {
-      setError('All fields are required.'); return;
+    // Brand name is only required for BRAND users. Internal roles (KAM/FSR) are
+    // not scoped to a single brand.
+    const missingBrand = formRole === Role.BRAND && !formBrand;
+    if (!formEmail || !formName || !formPassword || missingBrand) {
+      setError('All required fields must be filled.'); return;
     }
     if (formPassword.length < 8) {
       setError('Password must be at least 8 characters.'); return;
@@ -255,7 +263,7 @@ export default function ClientsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           email: formEmail, contactName: formName, brandName: formBrand,
-          tempPassword: formPassword, scorecardAssignments: formAssignments,
+          tempPassword: formPassword, role: formRole, scorecardAssignments: formAssignments,
         }),
       });
       if (!res.ok) { const d = await res.json(); setError(d.error || 'Failed'); setSubmitting(false); return; }
@@ -871,11 +879,24 @@ export default function ClientsPage() {
               </div>
             ) : (
               <div className="px-6 py-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Role *</label>
+                  <select value={formRole} onChange={e => setFormRole(e.target.value as Role)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                    {ASSIGNABLE_ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {formRole === Role.BRAND && 'External brand client — sees their brand\'s scorecard, master scorecard, and market visits.'}
+                    {formRole === Role.KEY_ACCOUNT_MANAGER && 'Internal employee — sees scorecard, master scorecard, and market visits.'}
+                    {formRole === Role.FIELD_SALES_REP && 'Internal employee — sees only market visits.'}
+                  </p>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Brand *</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Brand {formRole === Role.BRAND ? '*' : <span className="text-slate-400 font-normal">(optional)</span>}
+                    </label>
                     <select value={formBrand} onChange={e => setFormBrand(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-                      <option value="">Select brand...</option>
+                      <option value="">{formRole === Role.BRAND ? 'Select brand...' : 'None'}</option>
                       {brands.map(b => <option key={b} value={b}>{b}</option>)}
                     </select>
                   </div>

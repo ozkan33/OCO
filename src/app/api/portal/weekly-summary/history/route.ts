@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
-import { getUserFromToken } from '../../../../../../lib/apiAuth';
+import { Capability } from '../../../../../../lib/rbac';
+import { authorize } from '../../../../../../lib/rbac/requireCapability';
 
 // GET /api/portal/weekly-summary/history
 // Returns a lightweight list of past weekly summaries for the brand user —
@@ -10,13 +11,11 @@ import { getUserFromToken } from '../../../../../../lib/apiAuth';
 //
 // ?limit=N  — how many weeks back (default 26, max 104).
 export async function GET(request: Request) {
-  try {
-    const user = await getUserFromToken(request);
-    const role = user.user_metadata?.role;
-    if (role !== 'BRAND' && role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+  const auth = await authorize(request, Capability.SCORECARD_READ);
+  if (!auth.ok) return auth.response;
+  const { user } = auth;
 
+  try {
     const { data: profile } = await supabaseAdmin
       .from('brand_user_profiles')
       .select('brand_name')

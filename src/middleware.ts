@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { Capability, ROLE_CAPABILITIES, isRole, type Role } from '../lib/rbac';
 
 // ─── Trusted device token verification (Edge-compatible HMAC-SHA256) ─────────
 async function verifyDeviceTokenEdge(signedToken: string): Promise<boolean> {
@@ -154,16 +155,20 @@ export async function middleware(request: NextRequest) {
   if (accessToken && !isTokenExpired(accessToken)) {
     // Token valid — now check role-based routing
     const payload = decodeToken(accessToken);
-    const role = payload?.user_metadata?.role;
+    const rawRole = payload?.user_metadata?.role;
+    const role: Role | null = typeof rawRole === 'string' && isRole(rawRole.toUpperCase()) ? (rawRole.toUpperCase() as Role) : null;
+    const caps = role ? ROLE_CAPABILITIES[role] : null;
     const mustChangePassword = payload?.user_metadata?.must_change_password;
 
     const mustEnroll2FA = payload?.user_metadata?.must_enroll_2fa;
 
-    // Brand users must change password and/or enroll 2FA before accessing portal.
-    // The /auth/change-password page owns both the password step and the 2FA
-    // enrollment step (scan QR → verify), so redirect there for either flag.
+    // Any non-admin portal user must change password and/or enroll 2FA before
+    // accessing the portal. The /auth/change-password page owns both the
+    // password step and the 2FA enrollment step (scan QR → verify), so
+    // redirect there for either flag.
+    const needsOnboarding = caps?.has(Capability.PORTAL_ACCESS) && !caps.has(Capability.ADMIN_ACCESS);
     if (
-      role === 'BRAND' &&
+      needsOnboarding &&
       (mustChangePassword || mustEnroll2FA) &&
       !pathname.startsWith('/auth/change-password') &&
       !pathname.startsWith('/api/auth/change-password') &&
@@ -191,13 +196,15 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    // Brand users cannot access /admin
-    if (role === 'BRAND' && pathname.startsWith('/admin')) {
-      return NextResponse.redirect(new URL('/portal', request.url));
+    // /admin requires admin:access capability
+    if (pathname.startsWith('/admin') && !caps?.has(Capability.ADMIN_ACCESS)) {
+      // If the user is a portal user, send them to /portal; otherwise login
+      const dest = caps?.has(Capability.PORTAL_ACCESS) ? '/portal' : '/auth/login';
+      return NextResponse.redirect(new URL(dest, request.url));
     }
 
-    // Non-admin, non-brand users trying to access admin
-    if (pathname.startsWith('/admin') && role !== 'ADMIN') {
+    // /portal requires portal:access capability
+    if (pathname.startsWith('/portal') && !caps?.has(Capability.PORTAL_ACCESS)) {
       return NextResponse.redirect(new URL('/auth/login', request.url));
     }
 
@@ -211,7 +218,11 @@ export async function middleware(request: NextRequest) {
     if (refreshed) {
       // Check 2FA on refreshed token too
       const refreshedPayload = decodeToken(refreshed.access_token);
-      const refreshedRole = refreshedPayload?.user_metadata?.role;
+      const rawRefreshedRole = refreshedPayload?.user_metadata?.role;
+      const refreshedRole: Role | null = typeof rawRefreshedRole === 'string' && isRole(rawRefreshedRole.toUpperCase())
+        ? (rawRefreshedRole.toUpperCase() as Role)
+        : null;
+      const refreshedCaps = refreshedRole ? ROLE_CAPABILITIES[refreshedRole] : null;
       const refreshedMustChange = refreshedPayload?.user_metadata?.must_change_password;
       const refreshedMustEnroll = refreshedPayload?.user_metadata?.must_enroll_2fa;
       const refreshedTotpEnabled = refreshedPayload?.user_metadata?.totp_enabled;
@@ -220,8 +231,9 @@ export async function middleware(request: NextRequest) {
       const refreshedHasTrusted = refreshedTrustedCookie ? await verifyDeviceTokenEdge(refreshedTrustedCookie) : false;
 
       // Same onboarding redirect as the fast path above.
+      const refreshedNeedsOnboarding = refreshedCaps?.has(Capability.PORTAL_ACCESS) && !refreshedCaps.has(Capability.ADMIN_ACCESS);
       if (
-        refreshedRole === 'BRAND' &&
+        refreshedNeedsOnboarding &&
         (refreshedMustChange || refreshedMustEnroll) &&
         !pathname.startsWith('/auth/change-password') &&
         !pathname.startsWith('/api/auth/change-password') &&

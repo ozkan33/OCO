@@ -2,17 +2,42 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../lib/apiAuth';
 import { logger } from '../../../../../lib/logger';
+import { Capability, hasCapability, getRoleFromUser } from '../../../../../lib/rbac';
 
-async function authorizeAdmin(request: Request) {
+// Authorize a caller to mutate a specific visit. ADMIN has manage_any and
+// passes unconditionally; internal roles (KAM / FSR) must own the visit.
+async function authorizeMutation(request: Request, visitId: string) {
+  let user;
   try {
-    const user = await getUserFromToken(request);
-    if (user.user_metadata?.role !== 'ADMIN') {
-      return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
-    }
-    return { user };
+    user = await getUserFromToken(request);
   } catch {
     return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
   }
+  const role = getRoleFromUser(user);
+
+  // Everyone who can reach this endpoint needs at least the capability to
+  // create market visits — readers (e.g. BRAND) are never allowed to mutate.
+  if (!hasCapability(role, Capability.MARKET_VISITS_CREATE)) {
+    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+  }
+
+  if (hasCapability(role, Capability.MARKET_VISITS_MANAGE_ANY)) {
+    return { user };
+  }
+
+  // Non-admin: require ownership
+  const { data: visit } = await supabaseAdmin
+    .from('market_visits')
+    .select('user_id')
+    .eq('id', visitId)
+    .single();
+  if (!visit) {
+    return { error: NextResponse.json({ error: 'Not found' }, { status: 404 }) };
+  }
+  if (visit.user_id !== user.id) {
+    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
+  }
+  return { user };
 }
 
 // PUT /api/market-visits/[id] - Update visit metadata
@@ -20,20 +45,11 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await authorizeAdmin(request);
+  const { id } = await params;
+  const auth = await authorizeMutation(request, id);
   if (auth.error) return auth.error;
 
   try {
-    const { id } = await params;
-
-    const { data: visit } = await supabaseAdmin
-      .from('market_visits')
-      .select('id')
-      .eq('id', id)
-      .single();
-
-    if (!visit) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-
     const body = await request.json();
     const updates: Record<string, any> = {};
     if (body.store_name !== undefined) updates.store_name = body.store_name;
@@ -166,12 +182,11 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await authorizeAdmin(request);
+  const { id } = await params;
+  const auth = await authorizeMutation(request, id);
   if (auth.error) return auth.error;
 
   try {
-    const { id } = await params;
-
     // Fetch the visit
     const { data: visit, error: fetchError } = await supabaseAdmin
       .from('market_visits')

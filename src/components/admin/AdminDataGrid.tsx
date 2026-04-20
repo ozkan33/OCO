@@ -270,6 +270,28 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
   // Add state for custom delete confirmation modal
   const [confirmDelete, setConfirmDelete] = useState<null | { type: 'row' | 'column' | 'scorecard' | 'template', id: string | number, name?: string }>(null);
 
+  // Canonical chain names from StoreData — drives autocomplete + validation
+  // on the scorecard "Customer" column so free-form entries don't drift
+  // (e.g. "COBORNS" vs "COBORN'S"). Fetched once when admin opens the grid.
+  const [knownChains, setKnownChains] = useState<string[]>([]);
+  useEffect(() => {
+    if (userRole !== 'ADMIN') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/stores/chains', { credentials: 'include' });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled && Array.isArray(json.chains)) {
+          setKnownChains(json.chains);
+        }
+      } catch {
+        // Non-fatal: validation degrades gracefully to free-text entry.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userRole]);
+
   // 1. Add state for Priority picker
   const [priorityPicker, setPriorityPicker] = React.useState<PickerState | null>(null);
 
@@ -1038,6 +1060,7 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
     setOpenCommentRowId, setOpenRetailerDrawer,
     loadScorecardComments, openCommentRowId,
     columnsWithDeleteRef,
+    knownChains,
   });
 
   // Add new column
@@ -1114,12 +1137,18 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async (e) => {
-      const XLSX = await import('xlsx');
-      const data = new Uint8Array(e.target?.result as ArrayBuffer);
-      const workbook = XLSX.read(data, { type: 'array' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const rows2D: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+      const { parseSpreadsheetToRows, UnsupportedXlsError } = await import('@/lib/spreadsheetImport');
+      let rows2D: any[][] = [];
+      try {
+        rows2D = (await parseSpreadsheetToRows(e.target?.result as ArrayBuffer, file.name)) as any[][];
+      } catch (err) {
+        if (err instanceof UnsupportedXlsError) {
+          toast.error(err.message);
+        } else {
+          toast.error('Failed to parse the file. Please ensure it is a valid .xlsx or .csv file.');
+        }
+        return;
+      }
       if (rows2D.length === 0) return;
 
       // Find the header row
@@ -1134,11 +1163,23 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
       function normalizeColName(name: string) {
         return (name || '').toLowerCase().replace(/\s+/g, '').replace(/_/g, '').trim();
       }
+      // Legacy header aliases — files exported before a rename still import.
+      // Key: normalized legacy label -> canonical current label.
+      const headerAliases: Record<string, string> = {
+        customer: 'chainname',
+        customername: 'chainname',
+        retailername: 'chainname',
+        retailer: 'chainname',
+      };
+      function canonicalize(name: string) {
+        const n = normalizeColName(name);
+        return headerAliases[n] || n;
+      }
       const visibleGridCols = (getCurrentData()?.columns || []).filter(
         col => !col.key.startsWith('_') && col.key !== 'delete' && col.key !== 'comments'
       );
-      const gridColNames = visibleGridCols.map(col => normalizeColName(String(col.name)));
-      const excelColNames = headers.map(h => normalizeColName(String(h)));
+      const gridColNames = visibleGridCols.map(col => canonicalize(String(col.name)));
+      const excelColNames = headers.map(h => canonicalize(String(h)));
 
       // Detect duplicates in Excel columns
       const excelColNameCounts: Record<string, number> = {};
@@ -1175,7 +1216,7 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
       // Build a mapping from grid column key to Excel column index
       const colKeyToExcelIdx: Record<string, number> = {};
       visibleGridCols.forEach((col) => {
-        const normName = normalizeColName(String(col.name));
+        const normName = canonicalize(String(col.name));
         const excelIdx = excelColNames.findIndex(name => name === normName);
         if (excelIdx !== -1) {
           colKeyToExcelIdx[col.key] = excelIdx;
@@ -1218,21 +1259,28 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
     const currentData = getCurrentData();
     if (currentData && currentData.rows.length > 0) {
       try {
-        const XLSX = await import('xlsx');
-        const backupRows = currentData.rows.map(row => {
-          const obj: any = {};
-          currentData.columns.forEach(col => {
-            if (col.key !== 'comments' && col.key !== '_delete_row') {
-              obj[String(col.name || col.key)] = row[col.key] || '';
-            }
-          });
-          return obj;
+        const ExcelJS = (await import('exceljs')).default;
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet(scorecardName.slice(0, 31));
+        const exportCols = currentData.columns.filter(col => col.key !== 'comments' && col.key !== '_delete_row');
+        ws.columns = exportCols.map(col => ({
+          header: String(col.name || col.key),
+          key: col.key,
+        }));
+        currentData.rows.forEach(row => {
+          const rowObj: any = {};
+          exportCols.forEach(col => { rowObj[col.key] = row[col.key] || ''; });
+          ws.addRow(rowObj);
         });
-        const ws = XLSX.utils.json_to_sheet(backupRows);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, scorecardName.slice(0, 31));
         const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-        XLSX.writeFile(wb, `${scorecardName}_backup_before_import_${timestamp}.xlsx`);
+        const buf = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${scorecardName}_backup_before_import_${timestamp}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
       } catch {
         // Backup export failed — continue with import anyway
       }
@@ -1393,9 +1441,10 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
                 if (col.key === 'cmg' && col.name === 'Category Manager') {
                   return { ...col, name: '3B Contact' };
                 }
-                // Update any old "Retailer Name" to "Customer"
-                if (col.key === 'name' && col.name !== 'Customer') {
-                  return { ...col, name: 'Customer' };
+                // Normalize any legacy label (Retailer Name / Customer /
+                // Customer Name) to the current "Chain Name" header.
+                if (col.key === 'name' && col.name !== 'Chain Name') {
+                  return { ...col, name: 'Chain Name' };
                 }
                 return col;
               }),
@@ -1536,17 +1585,31 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
     // ── Sheet 1: Retailers ──────────────────────────────────────────────────
     const scorecardName = editingScoreCard?.name || 'Scorecard';
     const mainSheet = workbook.addWorksheet('Retailers');
-    const mainCols = currentData.columns
-      .filter((c: any) => c.key !== 'comments' && c.key !== '_delete_row')
-      .map((c: any) => String(c.name || c.key));
+
+    // Match the UI's column order on scorecards: Customer → user-added product
+    // columns → Priority/other defaults. The ref holds the grid's final order;
+    // fall back to raw data order for non-scorecard categories.
+    const IGNORED_EXPORT_KEYS = new Set(['comments', '_delete_row', 'delete']);
+    const orderedExportCols: any[] = (() => {
+      const byKey = new Map<string, any>();
+      currentData.columns.forEach((c: any) => byKey.set(c.key, c));
+      const uiOrder = columnsWithDeleteRef.current;
+      if (selectedCategory && isScorecard(selectedCategory) && uiOrder.length > 0) {
+        return uiOrder
+          .filter((c: any) => !IGNORED_EXPORT_KEYS.has(c.key))
+          .map((c: any) => byKey.get(c.key))
+          .filter(Boolean);
+      }
+      return currentData.columns.filter((c: any) => !IGNORED_EXPORT_KEYS.has(c.key));
+    })();
+
+    const mainCols = orderedExportCols.map((c: any) => String(c.name || c.key));
     mainSheet.columns = mainCols.map(name => ({ header: name, key: name }));
 
     currentData.rows.forEach((row: any) => {
       const rowData: Record<string, any> = {};
-      currentData.columns.forEach((col: any) => {
-        if (col.key !== 'comments' && col.key !== '_delete_row') {
-          rowData[String(col.name || col.key)] = row[col.key] ?? '';
-        }
+      orderedExportCols.forEach((col: any) => {
+        rowData[String(col.name || col.key)] = row[col.key] ?? '';
       });
       const excelRow = mainSheet.addRow(rowData);
 
@@ -1580,7 +1643,7 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
 
         if (!detailHeaderSet) {
           detailSheet.columns = [
-            { header: 'Customer', key: 'Retailer' },
+            { header: 'Chain Name', key: 'Retailer' },
             ...subColNames.map((name: string) => ({ header: name, key: name })),
           ];
           styleHeaderRow(detailSheet);
@@ -1609,7 +1672,7 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
     if (includeNotes) {
       const notesSheet = workbook.addWorksheet('Notes');
       notesSheet.columns = [
-        { header: 'Customer', key: 'Retailer' },
+        { header: 'Chain Name', key: 'Retailer' },
         { header: 'Date', key: 'Date' },
         { header: 'Author', key: 'Author' },
         { header: 'Note', key: 'Note' },
@@ -1838,7 +1901,7 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
                 .filter(sc => {
                   // Check if scorecard has product columns (user-added columns)
                   const columns = sc.columns || [];
-                  const retailerCol = columns.find(col => col.name === 'Customer' || col.key === 'name');
+                  const retailerCol = columns.find(col => col.key === 'name');
                   if (!retailerCol) return false;
 
                   const productCols = columns.filter(col =>

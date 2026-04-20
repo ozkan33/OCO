@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { createClient } from '@supabase/supabase-js';
 import { handleMobileRedirect, getMobileBrowserInfo } from '@/utils/mobileDetection';
+import { Role, getLandingPath, isRole } from '../../../../lib/rbac';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -77,17 +78,19 @@ export default function LoginPage() {
       }
 
       // Determine redirect based on role
-      const role = data.user?.user_metadata?.role;
+      const rawRole = data.user?.user_metadata?.role;
+      const role = isRole(typeof rawRole === 'string' ? rawRole.toUpperCase() : null) ? (rawRole.toUpperCase() as Role) : null;
       const mustChangePassword = data.user?.user_metadata?.must_change_password;
       const mustEnroll2FA = data.user?.user_metadata?.must_enroll_2fa;
       const totpEnabled = data.user?.user_metadata?.totp_enabled;
-      let redirectTo = '/admin/dashboard';
+      let redirectTo = getLandingPath(role);
 
-      if (role === 'BRAND') {
-        // /auth/change-password owns both onboarding steps (password + 2FA enroll).
-        // If either flag is set, route there — middleware enforces the same gate
-        // defensively, but routing client-side avoids a flash of /portal.
-        redirectTo = (mustChangePassword || mustEnroll2FA) ? '/auth/change-password' : '/portal';
+      // /auth/change-password owns both onboarding steps (password + 2FA enroll)
+      // for any non-admin portal user. If either flag is set, route there —
+      // middleware enforces the same gate defensively, but routing client-side
+      // avoids a flash of /portal.
+      if (role && role !== Role.ADMIN && (mustChangePassword || mustEnroll2FA)) {
+        redirectTo = '/auth/change-password';
       }
 
       // Check if 2FA is required and device is not trusted.

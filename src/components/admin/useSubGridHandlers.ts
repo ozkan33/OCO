@@ -464,24 +464,31 @@ export function useSubGridHandlers({
   }
 
   async function handleExportSubgridExcel(parentId: string | number) {
-    const XLSX = await import('xlsx');
+    const ExcelJS = (await import('exceljs')).default;
     const grid = subGrids[parentId];
     if (!grid) { toast.error('No subgrid data to export'); return; }
     const colHeaders = getUniqueHeaders(grid.columns);
-    const exportRows = grid.rows.map((row: any) => {
-      const obj: any = {};
-      colHeaders.forEach(({ key, header }) => { obj[header] = row[key] ?? ''; });
-      return obj;
-    });
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
-    const workbook = XLSX.utils.book_new();
+    const workbook = new ExcelJS.Workbook();
     const scorecardName = (editingScoreCard?.name || 'scorecard').replace(/[^a-zA-Z0-9_-]/g, '_');
     const parentRow = getCurrentData()?.rows.find((r: any) => r.id === parentId);
     const parentName = (parentRow?.name || 'subgrid').replace(/[^a-zA-Z0-9_-]/g, '_');
-    XLSX.utils.book_append_sheet(workbook, worksheet, `${scorecardName}_${parentName}`.slice(0, 31));
+    const worksheet = workbook.addWorksheet(`${scorecardName}_${parentName}`.slice(0, 31));
+    worksheet.columns = colHeaders.map(({ key, header }) => ({ header, key }));
+    grid.rows.forEach((row: any) => {
+      const obj: any = {};
+      colHeaders.forEach(({ key }) => { obj[key] = row[key] ?? ''; });
+      worksheet.addRow(obj);
+    });
     const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
     const filename = `${scorecardName}_${parentName}_subgrid_${timestamp}.xlsx`;
-    XLSX.writeFile(workbook, filename);
+    const buf = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
     toast.success(`Exported subgrid as ${filename}`);
   }
 
@@ -492,11 +499,18 @@ export function useSubGridHandlers({
     if (!grid) { toast.error('No subgrid found for import'); return; }
     const reader = new FileReader();
     reader.onload = async (e) => {
-      const XLSX = await import('xlsx');
-      const data = new Uint8Array(e.target?.result as ArrayBuffer);
-      const workbook = XLSX.read(data, { type: 'array' });
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows2D: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+      const { parseSpreadsheetToRows, UnsupportedXlsError } = await import('@/lib/spreadsheetImport');
+      let rows2D: any[][] = [];
+      try {
+        rows2D = (await parseSpreadsheetToRows(e.target?.result as ArrayBuffer, file.name)) as any[][];
+      } catch (err) {
+        if (err instanceof UnsupportedXlsError) {
+          toast.error(err.message);
+        } else {
+          toast.error('Failed to parse the file. Please ensure it is a valid .xlsx or .csv file.');
+        }
+        return;
+      }
       if (rows2D.length === 0) return;
       const headers = rows2D[0];
       if (!headers || headers.length === 0) { toast.error('No headers found in Excel/CSV file!'); return; }

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
 import { logger } from '../../../../lib/logger';
 import { bestMatch } from '../../../../lib/marketVisitMatcher';
+import { Capability, Role, hasCapability, getRoleFromUser } from '../../../../lib/rbac';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 
@@ -27,7 +28,8 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  if (user.user_metadata?.role !== 'ADMIN') {
+  const role = getRoleFromUser(user);
+  if (!hasCapability(role, Capability.MARKET_VISITS_CREATE)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -167,7 +169,10 @@ export async function POST(request: Request) {
     }
 
     // ── Auto-comment: match store_name to scorecard customer rows ──
-    if (storeName && note) {
+    // Only ADMIN posts fan out to scorecard comments because the query below
+    // looks up user_scorecards by the caller's user_id — internal employees
+    // (KAM / FSR) don't own scorecards, so there is nothing to link to.
+    if (role === Role.ADMIN && storeName && note) {
       try {
         // Fetch scorecards for the selected brands
         const { data: matchedScorecards } = await supabaseAdmin

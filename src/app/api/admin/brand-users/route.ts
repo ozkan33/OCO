@@ -96,7 +96,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: parsed.error.errors[0].message }, { status: 400 });
     }
 
-    const { email, contactName, brandName, tempPassword, scorecardAssignments } = parsed.data;
+    const { email, contactName, brandName, tempPassword, role, scorecardAssignments } = parsed.data;
 
     // Create user in Supabase Auth
     const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
@@ -104,7 +104,7 @@ export async function POST(request: Request) {
       password: tempPassword,
       email_confirm: true,
       user_metadata: {
-        role: 'BRAND',
+        role,
         brand: brandName,
         name: contactName,
         must_change_password: features.ENABLE_FORCED_PASSWORD_CHANGE,

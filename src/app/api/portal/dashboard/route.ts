@@ -1,18 +1,16 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
-import { getUserFromToken } from '../../../../../lib/apiAuth';
 import { resolveAuthorInfo } from '../../../../../lib/commentAuthors';
+import { Capability, Role } from '../../../../../lib/rbac';
+import { authorize } from '../../../../../lib/rbac/requireCapability';
 
 // GET /api/portal/dashboard - Get brand user's filtered scorecard data
 export async function GET(request: Request) {
+  const auth = await authorize(request, Capability.SCORECARD_READ);
+  if (!auth.ok) return auth.response;
+  const { user, role } = auth;
+
   try {
-    const user = await getUserFromToken(request);
-    const role = user.user_metadata?.role;
-
-    if (role !== 'BRAND' && role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
     // Get brand profile
     const { data: profile } = await supabaseAdmin
       .from('brand_user_profiles')
@@ -20,7 +18,7 @@ export async function GET(request: Request) {
       .eq('id', user.id)
       .single();
 
-    if (!profile && role === 'BRAND') {
+    if (!profile && role === Role.BRAND) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
@@ -189,6 +187,6 @@ export async function GET(request: Request) {
       },
     });
   } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Failed to load dashboard' }, { status: 500 });
   }
 }

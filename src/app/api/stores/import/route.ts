@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../lib/apiAuth';
-import * as XLSX from 'xlsx';
+import { parseSpreadsheetToRows, UnsupportedXlsError } from '@/lib/spreadsheetImport';
 
 // POST /api/stores/import — upload Excel file and import chain stores
 export async function POST(request: Request) {
@@ -29,9 +29,7 @@ export async function POST(request: Request) {
 
     // Parse Excel
     const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: 'array' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    const rows = await parseSpreadsheetToRows(buffer, file.name);
 
     if (rows.length < 2) {
       return NextResponse.json({ error: 'Excel file must have a header row and data' }, { status: 400 });
@@ -112,6 +110,9 @@ export async function POST(request: Request) {
   } catch (err: any) {
     if (err?.message === 'No token found' || err?.message === 'Invalid token') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (err instanceof UnsupportedXlsError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
     }
     return NextResponse.json({ error: err?.message || 'Server error' }, { status: 500 });
   }

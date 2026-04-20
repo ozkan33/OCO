@@ -108,6 +108,7 @@ function SubgridCommentDrawer() {
   } = ctx;
   const [savingEdit, setSavingEdit] = useState(false);
   const savingEditRef = useRef(false);
+  const clientLogos = useClientLogos();
 
   if (!openSubgridCommentKey) return null;
 
@@ -121,7 +122,6 @@ function SubgridCommentDrawer() {
   const scorecardName = editingScoreCard?.name || '';
   const parentRow = getCurrentData()?.rows.find((r: any) => String(r.id) === parentRowId);
   const retailerName = parentRow?.name || '';
-  const clientLogos = useClientLogos();
   const brandLogoUrl = findLogo(clientLogos, scorecardName);
   const retailerLogoUrl = findLogo(clientLogos, retailerName);
 
@@ -615,7 +615,7 @@ export default function SubGridRenderer({ parentId }: { parentId: string | numbe
         <div className="toolbar-separator" />
         <label className="grid-toolbar-btn sm cursor-pointer" title="Import">
           <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
-          <input type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleImportSubgridExcel(e, parentId)} />
+          <input type="file" accept=".xlsx,.csv" style={{ display: 'none' }} onChange={e => handleImportSubgridExcel(e, parentId)} />
         </label>
         <button onClick={() => handleExportSubgridExcel(parentId)} className="grid-toolbar-btn sm" title="Export">
           <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12M12 16.5V3" /></svg>

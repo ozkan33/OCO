@@ -1,17 +1,27 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
+import { Role, getRoleFromUser } from '../../../../lib/rbac';
 
-// GET /api/brands - Get distinct brand names from the current user's scorecards
+// GET /api/brands - Distinct brand names. ADMIN sees only brands from their
+// own scorecards (their portfolio); internal roles that can create market
+// visits (KAM / FSR) see every brand across all admins so they can tag
+// whichever brand's product they visited.
 export async function GET(request: Request) {
   try {
     const user = await getUserFromToken(request);
+    const role = getRoleFromUser(user);
 
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('user_scorecards')
       .select('title')
-      .eq('user_id', user.id)
       .order('title', { ascending: true });
+
+    if (role === Role.ADMIN) {
+      query = query.eq('user_id', user.id);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

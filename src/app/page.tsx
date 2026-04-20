@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import 'swiper/css';
 import { useState, useEffect } from 'react';
 import TerritoryMap from '@/components/ui/TerritoryMap';
+import { getLandingPath, isRole } from '../../lib/rbac';
 
 const services = [
   {
@@ -176,8 +177,8 @@ export default function LandingPage() {
       const res = await fetch('/api/auth/me', { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        const role = data.user?.role;
-        router.push(role === 'ADMIN' ? '/admin/dashboard' : '/portal');
+        const role = isRole(data.user?.role) ? data.user.role : null;
+        router.push(getLandingPath(role));
         return;
       }
     } catch { /* not logged in */ }

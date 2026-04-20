@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
-import { getUserFromToken } from '../../../../../lib/apiAuth';
+import { Capability } from '../../../../../lib/rbac';
+import { authorize } from '../../../../../lib/rbac/requireCapability';
 
 const SYSTEM_COLUMNS = new Set([
   'name', 'priority', 'retail_price', 'category_review_date',
@@ -67,13 +68,11 @@ function summarizeStores(parentRow: any, productCols: any[]) {
 
 // GET /api/portal/master-scorecard — Brand user's filtered master scorecard
 export async function GET(request: Request) {
-  try {
-    const user = await getUserFromToken(request);
-    const role = user.user_metadata?.role;
-    if (role !== 'BRAND' && role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+  const auth = await authorize(request, Capability.MASTER_SCORECARD_READ);
+  if (!auth.ok) return auth.response;
+  const { user } = auth;
 
+  try {
     // Get brand user assignments (which scorecards + which product columns)
     const { data: assignments } = await supabaseAdmin
       .from('brand_user_assignments')
@@ -125,7 +124,7 @@ export async function GET(request: Request) {
       brandNames.push(brandName);
 
       const retailerCol = columns.find(
-        (col: any) => col.name === 'Customer' || col.name === 'Customer Name' || col.name === 'Retailer Name' || col.key === 'name'
+        (col: any) => col.name === 'Chain Name' || col.name === 'Customer' || col.name === 'Customer Name' || col.name === 'Retailer Name' || col.key === 'name'
       );
       if (!retailerCol) continue;
 
@@ -178,6 +177,6 @@ export async function GET(request: Request) {
       lastUpdated: new Date().toISOString(),
     });
   } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'Failed to load master scorecard' }, { status: 500 });
   }
 }

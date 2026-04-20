@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
-import { getUserFromToken } from '../../../../../lib/apiAuth';
 import { resolveAuthorInfo } from '../../../../../lib/commentAuthors';
 import { logger } from '../../../../../lib/logger';
+import { Capability, Role, hasCapability } from '../../../../../lib/rbac';
+import { authorize } from '../../../../../lib/rbac/requireCapability';
+
+const hasManageAny = (role: Role | null) => hasCapability(role, Capability.MARKET_VISITS_MANAGE_ANY);
 
 const PHOTO_URL_TTL_SECONDS = 60 * 60;
 
@@ -15,32 +18,30 @@ async function signPhoto(path: string | null | undefined): Promise<string | null
   return data.signedUrl;
 }
 
-// GET /api/portal/market-visits - Get market visits for this brand
+// GET /api/portal/market-visits - Get market visits visible to the caller.
+//   BRAND users: only visits tagged with their brand
+//   KAM / FSR / ADMIN: all visits (internal staff)
 export async function GET(request: Request) {
-  let user;
-  try {
-    user = await getUserFromToken(request);
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const role = user.user_metadata?.role;
-  if (role !== 'BRAND' && role !== 'ADMIN') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const auth = await authorize(request, Capability.MARKET_VISITS_READ);
+  if (!auth.ok) return auth.response;
+  const { user, role } = auth;
 
   try {
-    const brandName = user.user_metadata?.brand;
-    if (!brandName) {
-      return NextResponse.json([]);
-    }
-
-    // Fetch market visits tagged with this brand only
-    const { data: visits, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('market_visits')
-      .select('id, photo_url, photo_storage_path, visit_date, store_name, address, note, brands, latitude, longitude, accuracy_m, location_source, photo_taken_at, created_at')
-      .contains('brands', [brandName])
+      .select('id, user_id, photo_url, photo_storage_path, visit_date, store_name, address, note, brands, latitude, longitude, accuracy_m, location_source, photo_taken_at, created_at')
       .order('visit_date', { ascending: false })
       .limit(50);
+
+    if (role === Role.BRAND) {
+      const brandName = user.user_metadata?.brand;
+      if (!brandName) {
+        return NextResponse.json([]);
+      }
+      query = query.contains('brands', [brandName]);
+    }
+
+    const { data: visits, error } = await query;
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -98,12 +99,28 @@ export async function GET(request: Request) {
       }
     }
 
+    // Resolve author display name + role for every visit — drives the
+    // "Added by Tom (Field Sales Rep)" byline in the portal UI.
+    const authorInfo = await resolveAuthorInfo(
+      (visits || []).map((v) => v.user_id),
+    );
+
+    const canEditAny = hasManageAny(role);
+
     const enriched = await Promise.all(
-      (visits || []).map(async (v) => ({
-        ...v,
-        photo_url: (await signPhoto(v.photo_storage_path)) ?? v.photo_url,
-        comments: v.store_name && commentsByStore[v.store_name] ? commentsByStore[v.store_name] : [],
-      })),
+      (visits || []).map(async (v) => {
+        const info = v.user_id ? authorInfo.get(v.user_id) : undefined;
+        return {
+          ...v,
+          photo_url: (await signPhoto(v.photo_storage_path)) ?? v.photo_url,
+          comments: v.store_name && commentsByStore[v.store_name] ? commentsByStore[v.store_name] : [],
+          author: info
+            ? { id: v.user_id, name: info.name, roleLabel: info.roleLabel, role: info.role }
+            : { id: v.user_id, name: 'Unknown', roleLabel: null, role: null },
+          isOwn: v.user_id === user.id,
+          canEdit: canEditAny || v.user_id === user.id,
+        };
+      }),
     );
 
     return NextResponse.json(enriched);

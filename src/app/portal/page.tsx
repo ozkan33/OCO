@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback, useMemo, Fragment } from 'react';
+import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { toast, Toaster } from 'sonner';
 import PortalNotificationBell from '@/components/portal/PortalNotificationBell';
 import { LogoMark } from '@/components/layout/Logo';
@@ -8,6 +10,12 @@ import PhotoLightbox from '@/components/admin/PhotoLightbox';
 import MasterScorecard from '@/components/admin/MasterScorecard';
 import ConfirmDialog from '@/components/portal/ConfirmDialog';
 import WeeklySummaryCard from '@/components/portal/WeeklySummaryCard';
+import { Capability, Role, hasCapability, isRole } from '../../../lib/rbac';
+
+// Lazy-load the upload form — only roles with MARKET_VISITS_CREATE ever open
+// it, and the form pulls EXIF + geolocation helpers that aren't worth shipping
+// to read-only brand users on first paint.
+const MarketVisitUpload = dynamic(() => import('@/components/admin/MarketVisitUpload'), { ssr: false });
 
 interface Product { name: string; status: string; }
 interface RetailerInfo { priority: string; buyer: string; storeCount: number; hqLocation: string; contact: string; }
@@ -15,7 +23,20 @@ interface Comment { id?: string; text: string; author: string; date: string; isO
 interface Retailer { rowId: string; retailerName: string; products: Product[]; retailerInfo: RetailerInfo; comments?: Comment[]; notes?: string; }
 interface Scorecard { id: string; scorecardName: string; retailers: Retailer[]; }
 interface Summary { totalRetailers: number; authorized: number; inProcess: number; buyerPassed: number; presented: number; other: number; otherBreakdown?: Record<string, number>; }
-interface MarketVisit { id: string; photo_url: string; visit_date: string; store_name: string; address: string; note: string; brands?: string[]; comments?: Comment[]; }
+interface VisitAuthor { id: string; name: string; roleLabel: string | null; role: string | null; }
+interface MarketVisit {
+  id: string;
+  photo_url: string;
+  visit_date: string;
+  store_name: string;
+  address: string;
+  note: string;
+  brands?: string[];
+  comments?: Comment[];
+  author?: VisitAuthor;
+  isOwn?: boolean;
+  canEdit?: boolean;
+}
 interface DashboardData { brand: string; contactName: string; scorecards: Scorecard[]; summary: Summary; }
 interface WeeklySummaryPayload { weekOf: string; markdown: string; stats: { visitCount?: number; storeCount?: number; statusChangeCount?: number; scorecardNoteCount?: number }; generatedAt: string; }
 
@@ -48,6 +69,15 @@ export default function PortalDashboard() {
   const [visits, setVisits] = useState<MarketVisit[]>([]);
   const [weeklySummary, setWeeklySummary] = useState<WeeklySummaryPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<Role | null>(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [editingVisit, setEditingVisit] = useState<MarketVisit | null>(null);
+  const [editVisitForm, setEditVisitForm] = useState<{ store_name: string; address: string; visit_date: string; note: string } | null>(null);
+  const [savingVisit, setSavingVisit] = useState(false);
+  const canSeeScorecard = hasCapability(role, Capability.SCORECARD_READ);
+  const canSeeMaster = hasCapability(role, Capability.MASTER_SCORECARD_READ);
+  const canSeeVisits = hasCapability(role, Capability.MARKET_VISITS_READ);
+  const canCreateVisits = hasCapability(role, Capability.MARKET_VISITS_CREATE);
   const [activeTab, setActiveTab] = useState<'overview' | 'scorecard' | 'visits'>('overview');
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [addingNoteFor, setAddingNoteFor] = useState<{ scorecardId: string; rowId: string } | null>(null);
@@ -121,11 +151,13 @@ export default function PortalDashboard() {
     };
   }, [highlight]);
 
-  const refreshData = useCallback(async () => {
+  const refreshData = useCallback(async (effectiveRole: Role | null) => {
+    const canScore = hasCapability(effectiveRole, Capability.SCORECARD_READ);
+    const canVisit = hasCapability(effectiveRole, Capability.MARKET_VISITS_READ);
     const [dashData, visitData, summaryData] = await Promise.all([
-      fetch('/api/portal/dashboard', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
-      fetch('/api/portal/market-visits', { credentials: 'include' }).then(r => r.ok ? r.json() : []),
-      fetch('/api/portal/weekly-summary', { credentials: 'include' }).then(r => r.ok ? r.json() : null),
+      canScore ? fetch('/api/portal/dashboard', { credentials: 'include' }).then(r => r.ok ? r.json() : null) : Promise.resolve(null),
+      canVisit ? fetch('/api/portal/market-visits', { credentials: 'include' }).then(r => r.ok ? r.json() : []) : Promise.resolve([]),
+      canScore ? fetch('/api/portal/weekly-summary', { credentials: 'include' }).then(r => r.ok ? r.json() : null) : Promise.resolve(null),
     ]);
     if (dashData) setData(dashData);
     const freshVisits = Array.isArray(visitData) ? visitData : [];
@@ -135,9 +167,27 @@ export default function PortalDashboard() {
   }, []);
 
   useEffect(() => {
-    refreshData()
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    (async () => {
+      try {
+        const meRes = await fetch('/api/auth/me', { credentials: 'include' });
+        const meData = meRes.ok ? await meRes.json() : null;
+        const resolvedRole: Role | null = isRole(meData?.user?.role) ? meData.user.role : null;
+        if (cancelled) return;
+        setRole(resolvedRole);
+        // Default tab: first one the role can see. Product Status (overview)
+        // and Master Scorecard both require SCORECARD_READ, so a FIELD_SALES_REP
+        // lands directly on the Market Visits tab.
+        if (!hasCapability(resolvedRole, Capability.SCORECARD_READ)) {
+          setActiveTab('visits');
+        }
+        await refreshData(resolvedRole);
+      } catch { /* ignore */ }
+      finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [refreshData]);
 
   // Brand-scoped storage key for last-seen state. Scoping by brand prevents
@@ -405,7 +455,7 @@ export default function PortalDashboard() {
     // Refresh so the newly-added comment is in local state before we scroll to it.
     // Without this, the row's comments thread may not yet be rendered (initial
     // fetch happened at mount, possibly before the admin wrote the note).
-    const fresh = await refreshData().catch(() => null);
+    const fresh = await refreshData(role).catch(() => null);
     const visitList = fresh?.visits ?? visits;
 
     const isMarketVisit = actionType === 'market_visit_comment_added';
@@ -444,6 +494,78 @@ export default function PortalDashboard() {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     };
   }, []);
+
+  const openEditVisit = (v: MarketVisit) => {
+    setEditingVisit(v);
+    setEditVisitForm({
+      store_name: v.store_name || '',
+      address: v.address || '',
+      visit_date: v.visit_date || new Date().toISOString().split('T')[0],
+      note: v.note || '',
+    });
+  };
+
+  const handleSaveVisitEdit = async () => {
+    if (!editingVisit || !editVisitForm || savingVisit) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(editVisitForm.visit_date)) {
+      toast.error('Invalid visit date');
+      return;
+    }
+    setSavingVisit(true);
+    try {
+      const res = await fetch(`/api/market-visits/${editingVisit.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          store_name: editVisitForm.store_name.trim(),
+          address: editVisitForm.address.trim(),
+          visit_date: editVisitForm.visit_date,
+          note: editVisitForm.note.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body.error || 'Failed to update visit');
+        setSavingVisit(false);
+        return;
+      }
+      setEditingVisit(null);
+      setEditVisitForm(null);
+      toast.success('Visit updated');
+      await refreshData(role);
+    } catch {
+      toast.error('Failed to update visit');
+    } finally {
+      setSavingVisit(false);
+    }
+  };
+
+  const handleDeleteVisit = (v: MarketVisit) => {
+    setConfirmState({
+      title: 'Delete this market visit?',
+      description: 'The photo and note will be removed. This cannot be undone.',
+      confirmLabel: 'Delete',
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`/api/market-visits/${v.id}`, {
+            method: 'DELETE', credentials: 'include',
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            toast.error(body.error || 'Failed to delete visit');
+            return;
+          }
+          toast.success('Visit deleted');
+          await refreshData(role);
+        } catch {
+          toast.error('Failed to delete visit');
+        } finally {
+          setConfirmState(null);
+        }
+      },
+    });
+  };
 
   const handleLogout = async () => {
     await fetch('/api/auth/log-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'logout' }) }).catch(() => {});
@@ -486,7 +608,9 @@ export default function PortalDashboard() {
     );
   }
 
-  if (!data) {
+  // Users with scorecard access need `data` to render the overview; users
+  // without it (e.g. FIELD_SALES_REP) see only market visits and use a stub.
+  if (!data && canSeeScorecard) {
     return (
       <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-slate-50 px-4 text-center">
         <p className="text-slate-500">Unable to load dashboard. Please try again.</p>
@@ -494,7 +618,12 @@ export default function PortalDashboard() {
     );
   }
 
-  const { brand, contactName, scorecards, summary } = data;
+  const { brand, contactName, scorecards, summary } = data ?? {
+    brand: '',
+    contactName: '',
+    scorecards: [] as Scorecard[],
+    summary: { totalRetailers: 0, authorized: 0, inProcess: 0, buyerPassed: 0, presented: 0, other: 0, otherBreakdown: {} },
+  };
 
   // Sort market visits by first brand tag A-Z, then by visit date descending
   const sortedVisits = [...visits].sort((a, b) => {
@@ -526,7 +655,7 @@ export default function PortalDashboard() {
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
         <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-3.5 flex items-center justify-between gap-3">
-          <a href="/" className="flex items-center gap-3 group min-w-0 flex-1" title="Go to 3Brothers Marketing">
+          <Link href="/" className="flex items-center gap-3 group min-w-0 flex-1" title="Go to 3Brothers Marketing">
             <div className="p-1.5 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 group-hover:border-blue-200 transition-colors flex-shrink-0">
               <LogoMark size={28} />
             </div>
@@ -534,7 +663,7 @@ export default function PortalDashboard() {
               <h1 className="text-[15px] font-semibold text-slate-900 tracking-tight truncate">{brand}</h1>
               <p className="text-xs text-slate-500 truncate">Welcome back, <span className="text-slate-700 font-medium">{contactName}</span></p>
             </div>
-          </a>
+          </Link>
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
             <PortalNotificationBell onNotificationClick={handleNotificationClick} />
             <div className="h-5 w-px bg-slate-200 hidden sm:block" />
@@ -555,7 +684,8 @@ export default function PortalDashboard() {
         className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6"
         style={{ paddingBottom: 'max(1.5rem, calc(1.5rem + env(safe-area-inset-bottom)))' }}
       >
-        {/* Summary Cards */}
+        {/* Summary Cards — only meaningful for roles with scorecard access */}
+        {canSeeScorecard && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
           <SummaryCard label="Total Customers" value={summary.totalRetailers} color="slate" />
           <SummaryCard label="Authorized" value={summary.authorized} color="green" />
@@ -564,9 +694,11 @@ export default function PortalDashboard() {
           <SummaryCard label="Buyer Passed" value={summary.buyerPassed} color="red" />
           <OtherSummaryCard value={summary.other} breakdown={summary.otherBreakdown || {}} />
         </div>
+        )}
 
         {/* Tab Nav */}
         <div className="inline-flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+          {canSeeScorecard && (
           <button
             onClick={() => setActiveTab('overview')}
             className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${activeTab === 'overview' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
@@ -576,6 +708,8 @@ export default function PortalDashboard() {
             </svg>
             Product Status
           </button>
+          )}
+          {canSeeMaster && (
           <button
             onClick={() => setActiveTab('scorecard')}
             className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${activeTab === 'scorecard' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
@@ -585,6 +719,8 @@ export default function PortalDashboard() {
             </svg>
             Master Scorecard
           </button>
+          )}
+          {canSeeVisits && (
           <button
             onClick={() => setActiveTab('visits')}
             className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-sm font-medium rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${activeTab === 'visits' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'}`}
@@ -598,6 +734,7 @@ export default function PortalDashboard() {
               <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-md ${activeTab === 'visits' ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-700'}`}>{visits.length}</span>
             )}
           </button>
+          )}
         </div>
 
         {/* Product Status Tab */}
@@ -1527,6 +1664,20 @@ export default function PortalDashboard() {
         {/* Market Visits Tab */}
         {activeTab === 'visits' && (
           <div>
+            {canCreateVisits && (
+              <div className="mb-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowUploadModal(true)}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  Add Market Visit
+                </button>
+              </div>
+            )}
             {visits.length === 0 ? (
               <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
                 <div className="mx-auto w-14 h-14 rounded-full bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 flex items-center justify-center mb-4">
@@ -1535,7 +1686,11 @@ export default function PortalDashboard() {
                   </svg>
                 </div>
                 <h3 className="text-sm font-semibold text-slate-800">No market visits yet</h3>
-                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">When your broker visits a store carrying <span className="font-medium text-slate-700">{brand}</span> products, photos and notes will show up here.</p>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  {canCreateVisits
+                    ? 'Tap "Add Market Visit" to upload a photo, location, and note from your store visit.'
+                    : <>When your broker visits a store carrying <span className="font-medium text-slate-700">{brand}</span> products, photos and notes will show up here.</>}
+                </p>
               </div>
             ) : (
               <>
@@ -1634,6 +1789,46 @@ export default function PortalDashboard() {
                           <span className="shrink-0 text-[10px] font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">{brand}</span>
                         )}
                       </div>
+                      {v.author && (
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                          <svg className="w-3 h-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                          </svg>
+                          <span className="truncate">
+                            Added by <span className="font-medium text-slate-700">{v.author.name}</span>
+                            {v.author.roleLabel && <span className="text-slate-400"> · {v.author.roleLabel}</span>}
+                          </span>
+                          {v.isOwn && (
+                            <span className="ml-auto shrink-0 text-[10px] font-semibold text-blue-600">You</span>
+                          )}
+                          {v.canEdit && (
+                            <div className={`flex items-center gap-0.5 ${v.isOwn ? '' : 'ml-auto'} shrink-0`}>
+                              <button
+                                type="button"
+                                onClick={() => openEditVisit(v)}
+                                className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                aria-label="Edit visit"
+                                title="Edit visit"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+                                </svg>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteVisit(v)}
+                                className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                                aria-label="Delete visit"
+                                title="Delete visit"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                                </svg>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {v.address && (
                         <div className="flex items-start gap-1.5 text-xs text-slate-500">
                           <svg className="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -1775,6 +1970,62 @@ export default function PortalDashboard() {
         )}
       </main>
       {lightbox && <PhotoLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 backdrop-blur-sm p-4 overflow-y-auto" onClick={() => setShowUploadModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mt-8 mb-8" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h3 className="text-base font-semibold text-slate-900">Add Market Visit</h3>
+              <button type="button" onClick={() => setShowUploadModal(false)} className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100" aria-label="Close">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-4 sm:p-6">
+              <MarketVisitUpload
+                onUploaded={() => {
+                  setShowUploadModal(false);
+                  refreshData(role).catch(() => {});
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+      {editingVisit && editVisitForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => { setEditingVisit(null); setEditVisitForm(null); }}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h3 className="text-base font-semibold text-slate-900">Edit Market Visit</h3>
+              <button type="button" onClick={() => { setEditingVisit(null); setEditVisitForm(null); }} className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100" aria-label="Close">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Store name</label>
+                <input type="text" value={editVisitForm.store_name} onChange={e => setEditVisitForm(f => f ? { ...f, store_name: e.target.value } : f)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
+                <input type="text" value={editVisitForm.address} onChange={e => setEditVisitForm(f => f ? { ...f, address: e.target.value } : f)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Visit date</label>
+                <input type="date" value={editVisitForm.visit_date} onChange={e => setEditVisitForm(f => f ? { ...f, visit_date: e.target.value } : f)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Note</label>
+                <textarea rows={3} value={editVisitForm.note} onChange={e => setEditVisitForm(f => f ? { ...f, note: e.target.value } : f)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none" />
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => { setEditingVisit(null); setEditVisitForm(null); }} className="flex-1 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200">Cancel</button>
+                <button type="button" onClick={handleSaveVisitEdit} disabled={savingVisit} className="flex-1 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                  {savingVisit ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <ConfirmDialog
         open={confirmState !== null}
         title={confirmState?.title ?? ''}

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
+import { getRoleFromUser } from '../../../../../lib/rbac';
 
 export async function GET(request: Request) {
   try {
@@ -17,8 +18,8 @@ export async function GET(request: Request) {
     }
 
     // Role is stored in Supabase user_metadata when the user is created.
-    // Default to 'VENDOR' — never assume ADMIN.
-    const role = (user.user_metadata?.role as string | undefined)?.toUpperCase() ?? 'VENDOR';
+    // Unknown / missing role → null (never assume ADMIN, never synthesize a role).
+    const role = getRoleFromUser(user);
 
     return NextResponse.json({
       user: {

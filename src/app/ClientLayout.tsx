@@ -6,6 +6,7 @@ import { Inter, DM_Serif_Display } from 'next/font/google';
 import { getMobileBrowserInfo } from '@/utils/mobileDetection';
 import { Suspense } from 'react';
 import VisitorTracker from '@/components/VisitorTracker';
+import { getLandingPath, isRole } from '../../lib/rbac';
 
 const inter = Inter({ subsets: ['latin'] });
 const dmSerif = DM_Serif_Display({ weight: '400', subsets: ['latin'], variable: '--font-display' });
@@ -53,10 +54,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   const handleAccountClick = () => {
     if (!user) return;
-    
-    const dest = user.role === 'ADMIN' ? '/admin/dashboard'
-      : user.role === 'BRAND' ? '/portal'
-      : '/vendor/dashboard';
+    const role = isRole(user.role) ? user.role : null;
+    const dest = getLandingPath(role);
 
     if (isSafari) {
       window.location.href = dest;
