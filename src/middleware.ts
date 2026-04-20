@@ -138,6 +138,25 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // ── Phone UA gate for /admin (Phase 2 PWA) ─────────────────────────────────
+  // The admin surface is intentionally iPad+/desktop only. Redirect phone-class
+  // devices to an informational page BEFORE any auth or capability work — a
+  // bookmark-follower with a saved session on an iPhone shouldn't mount the
+  // 5700-line AdminDataGrid just to hit an unusable UI. iPad detection uses
+  // navigator.maxTouchPoints client-side; the server can only see UA, so here
+  // we match unambiguous phone tokens and leave iPad/tablet cases to render
+  // normally. `?force=desktop` is a documented escape hatch for edge cases.
+  if (pathname.startsWith('/admin') && !pathname.startsWith('/admin/mobile-unavailable')) {
+    const forceDesktop = request.nextUrl.searchParams.get('force') === 'desktop';
+    if (!forceDesktop) {
+      const ua = request.headers.get('user-agent') || '';
+      const isPhoneUA = /iPhone|iPod/.test(ua) || (/Android/.test(ua) && /Mobile/.test(ua));
+      if (isPhoneUA) {
+        return NextResponse.redirect(new URL('/admin/mobile-unavailable', request.url));
+      }
+    }
+  }
+
   // ── Only protect /admin, /vendor, and /portal routes ───────────────────────
   const isProtected = pathname.startsWith('/admin') || pathname.startsWith('/vendor') || pathname.startsWith('/portal');
   if (!isProtected) {

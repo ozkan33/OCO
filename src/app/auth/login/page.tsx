@@ -107,6 +107,9 @@ export default function LoginPage() {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             credentials: 'include', body: JSON.stringify({ action: 'login', device_trusted: true }),
           }).catch(() => {});
+          // PWA Phase 2: flag the first authenticated page load so the admin
+          // install banner can one-shot render. Cleared by the banner on read.
+          try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
           if (isSafari) { window.location.href = redirectTo; }
           else { try { await router.push(redirectTo); } catch { window.location.href = redirectTo; } }
           return;
@@ -129,6 +132,10 @@ export default function LoginPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action: 'login' }),
       }).catch(() => {});
+
+      // PWA Phase 2: flag the first authenticated page load so the admin
+      // install banner can one-shot render.
+      try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
 
       // Navigate
       if (isSafari) {
@@ -168,6 +175,9 @@ export default function LoginPage() {
         return;
       }
       await fetch('/api/auth/log-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'login' }) }).catch(() => {});
+      // PWA Phase 2: flag the first authenticated page load so the admin
+      // install banner can one-shot render.
+      try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
       window.location.href = pendingRedirect;
     } catch { setError('Verification failed.'); setLoading(false); }
   };
@@ -190,6 +200,9 @@ export default function LoginPage() {
       // 2FA is now cleared server-side. Send the user through normally — no second factor,
       // and they can re-enrol from admin settings once signed in.
       await fetch('/api/auth/log-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'login', twofa_reset: true }) }).catch(() => {});
+      // PWA Phase 2: flag the first authenticated page load so the admin
+      // install banner can one-shot render.
+      try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
       window.location.href = pendingRedirect;
     } catch { setError('Reset failed. Please try again.'); setLoading(false); }
   };
