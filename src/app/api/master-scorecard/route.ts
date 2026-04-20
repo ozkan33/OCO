@@ -3,6 +3,45 @@ import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
 import { logger } from '../../../../lib/logger';
 
+// Strict match key — case-insensitive + whitespace-tolerant, but preserves
+// apostrophes and punctuation. Intentionally NOT using normalizeChain here:
+// the admin wants scorecard rows like "COBORN'S" hidden when StoreData only
+// has "COBORNS" (and vice versa), so apostrophes must count.
+function strictKey(name: string): string {
+  return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
+}
+
+// Fetch the canonical set of chain names from chain_stores so the master
+// scorecard view can hide scorecard rows whose Chain Name isn't in StoreData.
+// Scorecard data is still being cleaned up by the admin; this filter keeps
+// dirty entries off the master view without touching the underlying records.
+// Returns a Set of strict-match keys, or null if chain_stores is empty
+// (caller should then skip filtering so the admin doesn't see a blank view).
+async function loadKnownChainSet(): Promise<Set<string> | null> {
+  const PAGE = 1000;
+  const names: string[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabaseAdmin
+      .from('chain_stores')
+      .select('chain_name')
+      .range(from, from + PAGE - 1);
+    if (error) {
+      logger.error('loadKnownChainSet failed:', error);
+      return null;
+    }
+    if (!data || data.length === 0) break;
+    for (const row of data) {
+      const n = (row.chain_name || '').trim();
+      if (n) names.push(n);
+    }
+    if (data.length < PAGE) break;
+  }
+  if (names.length === 0) return null;
+  const set = new Set<string>();
+  for (const n of names) set.add(strictKey(n));
+  return set;
+}
+
 // Default system columns that are NOT product columns
 const SYSTEM_COLUMNS = new Set([
   'name', 'priority', 'retail_price', 'category_review_date',
@@ -127,14 +166,19 @@ export async function GET(request: Request) {
       });
     }
 
+    // Pull canonical chain set once — used to hide rows whose Chain Name
+    // isn't in StoreData while admin is still cleaning scorecard entries.
+    const knownChainSet = await loadKnownChainSet();
+
     // ── Legacy single-scorecard view (when scorecardId is provided) ──
     if (selectedScorecardId) {
-      return handleLegacyView(scorecards, selectedScorecardId);
+      return handleLegacyView(scorecards, selectedScorecardId, knownChainSet);
     }
 
     // ── Pivot view: all brands × all retailers ──
     const brandNames: string[] = [];
     const pivotMap = new Map<string, Record<string, BrandCell>>();
+    let hiddenUnknownCount = 0;
 
     for (const sc of scorecards) {
       const columns = sc.data?.columns || [];
@@ -151,13 +195,20 @@ export async function GET(request: Request) {
 
       // Find the retailer name column
       const retailerCol = columns.find(
-        (col: any) => col.name === 'Customer' || col.name === 'Customer Name' || col.name === 'Retailer Name' || col.key === 'name'
+        (col: any) => col.name === 'Chain Name' || col.name === 'Customer' || col.name === 'Customer Name' || col.name === 'Retailer Name' || col.key === 'name'
       );
       if (!retailerCol) continue;
 
       for (const row of rows) {
         const retailer = String(row[retailerCol.key] || '').trim();
         if (!retailer) continue;
+
+        // Hide rows whose Chain Name isn't in StoreData. Skip filtering when
+        // chain_stores is empty — otherwise the admin sees a blank view.
+        if (knownChainSet && !knownChainSet.has(strictKey(retailer))) {
+          hiddenUnknownCount++;
+          continue;
+        }
 
         const products: ProductDetail[] = [];
         const activeProductCols: any[] = [];
@@ -206,6 +257,7 @@ export async function GET(request: Request) {
       brands: brandNames,
       pivotRows,
       lastUpdated: new Date().toISOString(),
+      hiddenUnknownCount,
     });
   } catch (error) {
     logger.error('❌ Error in GET /api/master-scorecard:', error);
@@ -214,7 +266,7 @@ export async function GET(request: Request) {
 }
 
 // Legacy single-scorecard view for backward compatibility
-function handleLegacyView(scorecards: any[], scorecardId: string) {
+function handleLegacyView(scorecards: any[], scorecardId: string, knownChainSet: Set<string> | null) {
   const sc = scorecards.find(s => s.id === scorecardId) || scorecards[0];
   if (!sc) {
     return NextResponse.json({
@@ -229,7 +281,7 @@ function handleLegacyView(scorecards: any[], scorecardId: string) {
   const rows = sc.data?.rows || [];
 
   const retailerCol = columns.find(
-    (col: any) => col.name === 'Customer' || col.name === 'Customer Name' || col.name === 'Retailer Name' || col.key === 'name'
+    (col: any) => col.name === 'Chain Name' || col.name === 'Customer' || col.name === 'Customer Name' || col.name === 'Retailer Name' || col.key === 'name'
   );
   if (!retailerCol) {
     return NextResponse.json({
@@ -256,9 +308,15 @@ function handleLegacyView(scorecards: any[], scorecardId: string) {
   }
 
   const retailerSummary: any[] = [];
+  let hiddenUnknownCount = 0;
   for (const row of rows) {
     const retailer = String(row[retailerCol.key] || '').trim();
     if (!retailer) continue;
+
+    if (knownChainSet && !knownChainSet.has(strictKey(retailer))) {
+      hiddenUnknownCount++;
+      continue;
+    }
 
     let productAuthorized = 0;
     let productTotal = 0;
@@ -299,5 +357,6 @@ function handleLegacyView(scorecards: any[], scorecardId: string) {
     retailers: retailerSummary.map((r: any) => r.retailer),
     retailerSummary,
     lastUpdated: new Date().toISOString(),
+    hiddenUnknownCount,
   });
 }

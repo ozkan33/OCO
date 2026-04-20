@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import { ALL_ROLES, Role } from './rbac';
+
+// Roles that an admin may assign to a new user via the admin UI. ADMIN is
+// excluded on purpose — admins are provisioned out-of-band, not from the UI.
+const ASSIGNABLE_ROLES = ALL_ROLES.filter(r => r !== Role.ADMIN) as [Role, ...Role[]];
 
 export const createCommentSchema = z.object({
   scorecard_id: z.string().min(1, 'Scorecard ID is required'),
@@ -37,13 +42,19 @@ export const updateScorecardSchema = z.object({
 export const createBrandUserSchema = z.object({
   email: z.string().email('Valid email required'),
   contactName: z.string().min(1, 'Contact name required').max(255),
-  brandName: z.string().min(1, 'Brand name required').max(255),
+  // brandName is required for BRAND users (they belong to a brand) but optional
+  // for internal roles (KEY_ACCOUNT_MANAGER, FIELD_SALES_REP). Enforced below.
+  brandName: z.string().max(255).optional().default(''),
   tempPassword: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  role: z.enum(ASSIGNABLE_ROLES).default(Role.BRAND),
   scorecardAssignments: z.array(z.object({
     scorecardId: z.string().min(1),
     productColumns: z.array(z.string()),
   })).optional().default([]),
-});
+}).refine(
+  (data) => data.role !== Role.BRAND || (data.brandName && data.brandName.trim().length > 0),
+  { message: 'Brand name is required for brand users', path: ['brandName'] },
+);
 
 export const updateBrandUserSchema = z.object({
   contactName: z.string().min(1).max(255).optional(),

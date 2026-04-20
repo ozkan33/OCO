@@ -4,12 +4,132 @@ import { type Column, type SortColumn, type RenderEditCellProps } from 'react-da
 import { FaSort, FaSortUp, FaSortDown, FaRegCommentDots } from 'react-icons/fa';
 import Select, { components } from 'react-select';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 import EditableColumnHeader from './EditableColumnHeader';
 import { productStatusOptions, statusIcons, priorityOptions, contactOptions } from './constants';
 import type { PickerState } from './types';
+import { matchChain, strictKey, suggestAlternative } from './chainNameUtils';
 
 interface Row { id: number | string; name?: string; isAddRow?: boolean; [key: string]: any; }
 type MyColumn = Column<Row> & { locked?: boolean; isDefault?: boolean };
+
+// Extracted from renderEditCell so React Hooks (useRef) live in a real
+// component, not an inline arrow. Validation runs on commit (blur/Enter):
+// silently auto-corrects exact-key matches, warns on fuzzy/prefix typos,
+// and re-fires on every commit so re-opening a typo'd cell re-shows the
+// suggestion.
+function ChainNameEditCell({
+  row,
+  column,
+  onRowChange,
+  onClose,
+  chainList,
+  getCurrentData,
+}: RenderEditCellProps<Row> & {
+  chainList: string[];
+  getCurrentData: () => any;
+}) {
+  const originalRef = React.useRef<string>(
+    row[column.key] !== undefined ? String(row[column.key]) : ''
+  );
+  const commit = (next: string, close: boolean) => {
+    const trimmed = next.trim();
+
+    const otherRows = (getCurrentData()?.rows || []).filter(
+      (r: Row) => r.id !== row.id && !r.isAddRow
+    );
+    const usedKeys = new Set<string>();
+    for (const r of otherRows) {
+      const n = String(r.name || '').trim();
+      if (n) usedKeys.add(strictKey(n));
+    }
+
+    const match = matchChain(trimmed, chainList);
+    const effectiveValue =
+      match.kind === 'normalized' ? match.canonical : trimmed;
+    if (usedKeys.has(strictKey(effectiveValue))) {
+      const alt = suggestAlternative(effectiveValue, chainList, usedKeys);
+      onRowChange({ ...row, [column.key]: trimmed }, close);
+      toast.warning(
+        `"${effectiveValue}" already exists in this scorecard`,
+        alt
+          ? {
+              description: `Did you mean "${alt}"?`,
+              action: {
+                label: `Use "${alt}"`,
+                onClick: () => {
+                  onRowChange({ ...row, [column.key]: alt }, true);
+                },
+              },
+              duration: 6000,
+            }
+          : {
+              description:
+                'Chain names must be unique within a scorecard — please choose a different name.',
+              duration: 6000,
+            }
+      );
+      return;
+    }
+    if (match.kind === 'normalized' && trimmed !== match.canonical) {
+      onRowChange({ ...row, [column.key]: match.canonical }, close);
+      toast.success(
+        `Chain name auto-corrected: "${trimmed}" -> "${match.canonical}"`,
+        { description: 'Matched to Store Data.' }
+      );
+      return;
+    }
+    if (match.kind === 'fuzzy' || match.kind === 'prefix') {
+      const suggestion = match.suggestion;
+      if (trimmed !== suggestion) {
+        onRowChange({ ...row, [column.key]: trimmed }, close);
+        const extra =
+          match.kind === 'prefix' && match.alternatives.length > 0
+            ? ` (+${match.alternatives.length} more)`
+            : '';
+        toast.warning(`"${trimmed}" not found in Store Data`, {
+          description: `Did you mean "${suggestion}"?${extra}`,
+          action: {
+            label: `Use "${suggestion}"`,
+            onClick: () => {
+              onRowChange({ ...row, [column.key]: suggestion }, true);
+            },
+          },
+        });
+        return;
+      }
+    }
+    if (match.kind === 'unknown') {
+      onRowChange({ ...row, [column.key]: trimmed }, close);
+      toast.warning(`"${trimmed}" not found in Store Data`, {
+        description:
+          'Double-check the chain exists in Store Management — this chain name has no match.',
+        duration: 6000,
+      });
+      return;
+    }
+    onRowChange({ ...row, [column.key]: next }, close);
+  };
+  return (
+    <input
+      type="text"
+      defaultValue={originalRef.current}
+      onChange={e => onRowChange({ ...row, [column.key]: e.target.value })}
+      onBlur={e => commit(e.target.value, true)}
+      onKeyDown={e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commit((e.target as HTMLInputElement).value, true);
+        } else if (e.key === 'Escape') {
+          onClose(false);
+        }
+      }}
+      className="w-full h-full px-2 py-1"
+      autoFocus
+      placeholder="Enter chain name"
+    />
+  );
+}
 
 export function useColumnDefinitions({
   editingScoreCard, selectedCategory, userRole,
@@ -25,11 +145,13 @@ export function useColumnDefinitions({
   setOpenCommentRowId, setOpenRetailerDrawer,
   loadScorecardComments, openCommentRowId,
   columnsWithDeleteRef,
+  knownChains = [],
 }: any) {
+  const chainList: string[] = Array.isArray(knownChains) ? knownChains : [];
   const defaultColumnKeys = ['name', 'retail_price', 'buyer', 'store_count', 'hq_location', 'cmg'];
   const retailersColumns: MyColumn[] = [
     {
-      key: 'name', name: 'Customer', editable: true, sortable: true, isDefault: true, frozen: true, width: 220,
+      key: 'name', name: 'Chain Name', editable: true, sortable: true, isDefault: true, frozen: true, width: 220,
       renderCell: (props) => <div className="retailer-col">{props.row["name"]}</div>
     },
     // Priority dropdown column
@@ -702,10 +824,18 @@ export function useColumnDefinitions({
     if (col.key === 'name') {
       return {
         ...col,
+        renderEditCell: isScorecard(selectedCategory)
+          ? (props: RenderEditCellProps<Row>) => (
+              <ChainNameEditCell
+                {...props}
+                chainList={chainList}
+                getCurrentData={getCurrentData}
+              />
+            )
+          : col.renderEditCell,
         renderCell: (props: { row: Row }) => {
           if (props.row.isAddRow) return null;
           const isExpanded = expandedRowId === props.row.id;
-          // Add highlight style to the row container if expanded
           return (
             <div
               style={{

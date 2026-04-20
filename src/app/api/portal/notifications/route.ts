@@ -1,19 +1,18 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
-import { getUserFromToken } from '../../../../../lib/apiAuth';
 import { logger } from '../../../../../lib/logger';
 import { markNotificationsReadSchema } from '../../../../../lib/schemas';
+import { Capability } from '../../../../../lib/rbac';
+import { authorize } from '../../../../../lib/rbac/requireCapability';
 import { z } from 'zod';
 
-// GET /api/portal/notifications - Fetch notifications for brand user
+// GET /api/portal/notifications - Fetch notifications for the current portal user
 export async function GET(request: Request) {
-  try {
-    const user = await getUserFromToken(request);
-    const role = user.user_metadata?.role;
+  const auth = await authorize(request, Capability.PORTAL_ACCESS);
+  if (!auth.ok) return auth.response;
+  const { user } = auth;
 
-    if (role !== 'BRAND') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+  try {
 
     const { data: notifications, error } = await supabaseAdmin
       .from('notifications')
@@ -48,13 +47,11 @@ export async function GET(request: Request) {
 
 // PATCH /api/portal/notifications - Mark notifications as read
 export async function PATCH(request: Request) {
-  try {
-    const user = await getUserFromToken(request);
-    const role = user.user_metadata?.role;
+  const auth = await authorize(request, Capability.PORTAL_ACCESS);
+  if (!auth.ok) return auth.response;
+  const { user } = auth;
 
-    if (role !== 'BRAND') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+  try {
 
     const body = await request.json();
     const parsed = markNotificationsReadSchema.parse(body);

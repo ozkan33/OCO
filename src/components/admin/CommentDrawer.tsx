@@ -188,12 +188,12 @@ function CommentInput({ onSubmit }: { onSubmit: () => void }) {
 // ─── Simple Comment Drawer (opened from comment icon) ───────────────────────
 export function SimpleCommentDrawer() {
   const { openCommentRowId, handleCloseCommentModal, handleAddComment, getCurrentData, editingScoreCard } = useAdminGrid();
+  const clientLogos = useClientLogos();
 
   if (openCommentRowId === null) return null;
 
   const row = getCurrentData()?.rows.find((r: any) => r.id === openCommentRowId) || {};
   const scorecardName = editingScoreCard?.name || '';
-  const clientLogos = useClientLogos();
   const brandLogoUrl = findLogo(clientLogos, scorecardName);
   const retailerLogoUrl = findLogo(clientLogos, row.name);
 
@@ -273,6 +273,7 @@ export function RetailerDrawer() {
 
   const [isAddingRetailerComment, setIsAddingRetailerComment] = useState(false);
   const addingRetailerRef = useRef(false);
+  const clientLogos = useClientLogos();
 
   if (openRetailerDrawer === null || !selectedCategory || !isScorecard(selectedCategory)) return null;
 
@@ -370,7 +371,6 @@ export function RetailerDrawer() {
   const retailerSubmitDisabled = isAddingRetailerComment || !commentInput.trim();
 
   const scorecardName = editingScoreCard?.name || '';
-  const clientLogos = useClientLogos();
   const brandLogoUrl = findLogo(clientLogos, scorecardName);
   const retailerLogoUrl = findLogo(clientLogos, row.name);
 

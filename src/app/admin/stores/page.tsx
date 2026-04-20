@@ -263,7 +263,7 @@ export default function StoresPage() {
             <div className="flex items-center gap-2 pl-7">
               <input
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx,.csv"
                 onChange={e => setImportFile(e.target.files?.[0] || null)}
                 disabled={importing}
                 className="text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-white file:text-slate-700 file:border-slate-300 file:text-xs file:font-medium hover:file:bg-slate-50 file:cursor-pointer"

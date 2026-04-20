@@ -1,13 +1,15 @@
 // Server-side helper for resolving comment author display names.
-// Brand users come from `brand_user_profiles.contact_name`; admins come from
-// `auth.users.user_metadata.name`. Falls back to a capitalized email prefix
-// so legacy rows without a stored name still render something reasonable.
+// Brand users come from `brand_user_profiles.contact_name`; admins and internal
+// roles (KAM / FSR) come from `auth.users.user_metadata.name`. Falls back to a
+// capitalized email prefix so legacy rows without a stored name still render.
 import { supabaseAdmin } from './supabaseAdmin';
+import { Role, ROLE_LABELS, getRoleFromUser } from './rbac';
 
 export interface AuthorInfo {
   name: string;
   brandName: string | null;
-  role: 'BRAND' | 'ADMIN';
+  role: Role | null;
+  roleLabel: string | null;
 }
 
 function capitalizeEmailPrefix(email: string | null | undefined): string {
@@ -29,37 +31,42 @@ export async function resolveAuthorInfo(
     .select('id, brand_name, contact_name, email')
     .in('id', ids);
 
-  for (const p of brandProfiles || []) {
-    const fallback = capitalizeEmailPrefix(p.email);
-    result.set(p.id, {
-      name: (p.contact_name && p.contact_name.trim()) || fallback,
-      brandName: p.brand_name || null,
-      role: 'BRAND',
-    });
-  }
+  // Everyone is first looked up via auth.users so the role on the JWT wins
+  // over the (optional) brand profile row — an internal employee (KAM / FSR)
+  // may have a brand_user_profiles row with brand_name '' but they are NOT
+  // a BRAND user.
+  const authUsers = await Promise.all(
+    ids.map(async id => {
+      try {
+        const { data } = await supabaseAdmin.auth.admin.getUserById(id);
+        return { id, user: data?.user ?? null };
+      } catch {
+        return { id, user: null };
+      }
+    }),
+  );
+  const userById = new Map(authUsers.map(({ id, user }) => [id, user] as const));
 
-  const adminIds = ids.filter(id => !result.has(id));
-  if (adminIds.length > 0) {
-    const admins = await Promise.all(
-      adminIds.map(async id => {
-        try {
-          const { data } = await supabaseAdmin.auth.admin.getUserById(id);
-          return { id, user: data?.user ?? null };
-        } catch {
-          return { id, user: null };
-        }
-      }),
-    );
-    for (const { id, user } of admins) {
-      const meta = user?.user_metadata || {};
-      const metaName = typeof meta.name === 'string' ? meta.name.trim() : '';
-      const email = user?.email || emailByUserId?.get(id) || '';
-      result.set(id, {
-        name: metaName || capitalizeEmailPrefix(email),
-        brandName: null,
-        role: 'ADMIN',
-      });
-    }
+  const brandProfileById = new Map(
+    (brandProfiles || []).map((p: { id: string; brand_name: string | null; contact_name: string | null; email: string | null }) => [p.id, p] as const),
+  );
+
+  for (const id of ids) {
+    const user = userById.get(id) ?? null;
+    const role = getRoleFromUser(user);
+    const profile = brandProfileById.get(id);
+    const metaName = typeof user?.user_metadata?.name === 'string' ? (user.user_metadata.name as string).trim() : '';
+    const email = user?.email || profile?.email || emailByUserId?.get(id) || '';
+    const fallback = capitalizeEmailPrefix(email);
+    const isBrand = role === Role.BRAND;
+    result.set(id, {
+      name: isBrand
+        ? ((profile?.contact_name && profile.contact_name.trim()) || metaName || fallback)
+        : (metaName || fallback),
+      brandName: isBrand ? (profile?.brand_name || null) : null,
+      role,
+      roleLabel: role ? ROLE_LABELS[role] : null,
+    });
   }
 
   return result;

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
-import { getUserFromToken } from '../../../../../lib/apiAuth';
+import { Capability } from '../../../../../lib/rbac';
+import { authorize } from '../../../../../lib/rbac/requireCapability';
 
 // GET /api/portal/weekly-summary
 // Returns the weekly summary for the authenticated brand user.
@@ -8,12 +9,11 @@ import { getUserFromToken } from '../../../../../lib/apiAuth';
 //   ?week=YYYY-MM-DD      → specific week (by Monday date)
 // Returns { summary: null } if none found.
 export async function GET(request: Request) {
+  const auth = await authorize(request, Capability.SCORECARD_READ);
+  if (!auth.ok) return auth.response;
+  const { user } = auth;
+
   try {
-    const user = await getUserFromToken(request);
-    const role = user.user_metadata?.role;
-    if (role !== 'BRAND' && role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
 
     const { data: profile } = await supabaseAdmin
       .from('brand_user_profiles')
