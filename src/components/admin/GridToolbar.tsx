@@ -41,7 +41,7 @@ export default function GridToolbar({
   onFetchTemplates,
 }: GridToolbarProps) {
   return (
-    <div className="flex items-center justify-between gap-2 pb-3 flex-wrap sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10 -mx-6 px-6 pt-2 border-b border-slate-100">
+    <div className="flex items-center justify-between gap-2 pb-3 flex-wrap sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10 -mx-3 sm:-mx-6 px-3 sm:px-6 pt-2 border-b border-slate-100">
       <div className="flex items-center gap-2">
         <button onClick={onAddColumn} className="grid-toolbar-btn primary" disabled={userRole !== 'ADMIN'}>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>

@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { DataGrid, type Column, type SortColumn, type RenderEditCellProps } from 'react-data-grid';
 import { useAdminGrid } from './AdminDataGridContext';
 import { AUTHORIZATION_OPTIONS } from './useSubGridHandlers';
@@ -100,12 +100,14 @@ function SubgridCommentDrawer() {
   const {
     openSubgridCommentKey, setOpenSubgridCommentKey,
     subgridCommentInput, setSubgridCommentInput,
-    handleAddSubgridComment,
+    handleAddSubgridComment, isAddingSubgridComment,
     comments, selectedCategory, user,
     editCommentIdx, editCommentText, setEditCommentIdx, setEditCommentText,
     updateComment, setConfirmDeleteComment,
     editingScoreCard, getCurrentData,
   } = ctx;
+  const [savingEdit, setSavingEdit] = useState(false);
+  const savingEditRef = useRef(false);
 
   if (!openSubgridCommentKey) return null;
 
@@ -264,18 +266,27 @@ function SubgridCommentDrawer() {
                             <div className="flex gap-2">
                               <button
                                 onClick={async () => {
+                                  if (savingEditRef.current) return;
+                                  savingEditRef.current = true;
+                                  setSavingEdit(true);
                                   try {
                                     await updateComment(c.id, editCommentText);
                                     setEditCommentIdx(null);
                                     setEditCommentText('');
                                     toast.success('Comment updated!');
-                                  } catch { toast.error('Failed to update comment'); }
+                                  } catch { toast.error('Failed to update comment'); } finally {
+                                    savingEditRef.current = false;
+                                    setSavingEdit(false);
+                                  }
                                 }}
-                                className="px-2.5 py-1 bg-blue-600 text-white rounded text-xs font-semibold"
-                              >Save</button>
+                                disabled={savingEdit || !editCommentText.trim()}
+                                aria-busy={savingEdit}
+                                className="px-2.5 py-1 bg-blue-600 text-white rounded text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
+                              >{savingEdit ? 'Saving…' : 'Save'}</button>
                               <button
                                 onClick={() => { setEditCommentIdx(null); setEditCommentText(''); }}
-                                className="px-2.5 py-1 bg-slate-200 text-slate-700 rounded text-xs font-semibold"
+                                disabled={savingEdit}
+                                className="px-2.5 py-1 bg-slate-200 text-slate-700 rounded text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                               >Cancel</button>
                             </div>
                           </div>
@@ -309,13 +320,21 @@ function SubgridCommentDrawer() {
                 placeholder="Add a comment..."
                 rows={2}
                 style={{ minHeight: 40, maxHeight: 100 }}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddSubgridComment(); } }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!isAddingSubgridComment && subgridCommentInput.trim()) handleAddSubgridComment();
+                  }
+                }}
+                disabled={isAddingSubgridComment}
               />
               <button
                 onClick={handleAddSubgridComment}
-                className="mt-1.5 px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow transition-all float-right"
+                disabled={isAddingSubgridComment || !subgridCommentInput.trim()}
+                aria-busy={isAddingSubgridComment}
+                className="mt-1.5 px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow transition-all float-right disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
               >
-                Add
+                {isAddingSubgridComment ? 'Adding…' : 'Add'}
               </button>
             </div>
           </div>

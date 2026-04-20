@@ -35,7 +35,7 @@ export async function POST(request: Request) {
       weekOf = today;
     }
 
-    const { data, summary } = await buildWeeklySummaryForBrand(brandName, weekOf);
+    const { data, summary } = await buildWeeklySummaryForBrand(brandName, weekOf, 'manual');
     return NextResponse.json({
       brand: brandName,
       week_of: data.weekOf,

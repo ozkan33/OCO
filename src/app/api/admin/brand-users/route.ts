@@ -26,10 +26,55 @@ export async function GET(request: Request) {
       .select('*')
       .in('user_id', userIds.length > 0 ? userIds : ['none']);
 
-    const result = (profiles || []).map((p: any) => ({
-      ...p,
-      assignments: (assignments || []).filter((a: any) => a.user_id === p.id),
-    }));
+    // Latest weekly summary per brand — used in the Clients table to show when
+    // the AI report was last generated and whether it was cron-driven or a
+    // manual admin regen. The summary itself is brand-scoped (shared across
+    // a brand's users), but `email_sent_to` is a per-recipient log, so we
+    // also fan out a per-user `last_email_sent_at` for the email indicator.
+    const brandNames = Array.from(new Set((profiles || []).map((p: any) => p.brand_name).filter(Boolean)));
+    const latestByBrand = new Map<string, { week_of: string; generated_at: string; generated_by: 'cron' | 'manual'; email_sent_to: Array<{ email: string; sent_at: string }> }>();
+    if (brandNames.length > 0) {
+      const { data: summaries } = await supabaseAdmin
+        .from('weekly_summaries')
+        .select('brand_name, week_of, generated_at, generated_by, email_sent_to')
+        .in('brand_name', brandNames)
+        .order('generated_at', { ascending: false });
+      for (const s of summaries || []) {
+        if (!latestByBrand.has(s.brand_name)) {
+          const sentList = Array.isArray(s.email_sent_to)
+            ? (s.email_sent_to as Array<{ email?: string; sent_at?: string }>)
+                .filter((r) => r && typeof r.email === 'string' && typeof r.sent_at === 'string')
+                .map((r) => ({ email: (r.email as string).toLowerCase(), sent_at: r.sent_at as string }))
+            : [];
+          latestByBrand.set(s.brand_name, {
+            week_of: s.week_of,
+            generated_at: s.generated_at,
+            generated_by: s.generated_by || 'cron',
+            email_sent_to: sentList,
+          });
+        }
+      }
+    }
+
+    const result = (profiles || []).map((p: any) => {
+      const latest = latestByBrand.get(p.brand_name) || null;
+      const userEmail = typeof p.email === 'string' ? p.email.toLowerCase() : '';
+      const sentEntry = latest && userEmail
+        ? latest.email_sent_to.find((r) => r.email === userEmail)
+        : undefined;
+      return {
+        ...p,
+        assignments: (assignments || []).filter((a: any) => a.user_id === p.id),
+        latest_summary: latest
+          ? {
+              week_of: latest.week_of,
+              generated_at: latest.generated_at,
+              generated_by: latest.generated_by,
+            }
+          : null,
+        last_email_sent_at: sentEntry ? sentEntry.sent_at : null,
+      };
+    });
 
     return NextResponse.json(result);
   } catch {

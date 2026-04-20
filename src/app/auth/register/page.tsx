@@ -11,12 +11,15 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setError(null);
     setSuccess(false);
+    setSubmitting(true);
     try {
       const response = await fetch('/api/auth/register', {
         method: 'POST',
@@ -29,8 +32,10 @@ export default function RegisterPage() {
         return;
       }
       setSuccess(true);
-    } catch (err: any) {
+    } catch {
       setError('Registration failed');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -116,9 +121,11 @@ export default function RegisterPage() {
             </div>
             <button
               type="submit"
-              className="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-lg shadow"
+              disabled={submitting}
+              aria-busy={submitting}
+              className="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-lg shadow disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
             >
-              Sign Up
+              {submitting ? 'Signing up…' : 'Sign Up'}
             </button>
           </form>
         )}

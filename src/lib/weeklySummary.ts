@@ -42,6 +42,13 @@ export interface ScorecardNote {
   text: string;
 }
 
+export interface StatusSnapshotDelta {
+  status: string;
+  prev: number;
+  curr: number;
+  delta: number;
+}
+
 export interface BrandWeekData {
   brandName: string;
   weekOf: string;      // ISO date (Monday)
@@ -49,11 +56,14 @@ export interface BrandWeekData {
   visits: VisitItem[];
   statusChanges: StatusChange[];
   scorecardNotes: ScorecardNote[];
+  statusSnapshot: Record<string, number>;
+  statusDeltas: StatusSnapshotDelta[];
   stats: {
     visitCount: number;
     storeCount: number;
     statusChangeCount: number;
     scorecardNoteCount: number;
+    statusSnapshot: Record<string, number>;
   };
 }
 
@@ -96,7 +106,7 @@ export async function gatherBrandWeekData(brandName: string, weekOf: Date): Prom
   const idList = Array.from(scorecardIds);
 
   // Load full scorecard rows/columns for retailer/product name lookup.
-  const scorecardById = new Map<string, { rows: Array<{ id: number | string; name?: string }>; columns: Array<{ key: string; name?: string; label?: string }> }>();
+  const scorecardById = new Map<string, { rows: Array<{ id: number | string; name?: string; [key: string]: unknown }>; columns: Array<{ key: string; name?: string; label?: string }> }>();
   if (idList.length > 0) {
     const { data: scorecards } = await supabaseAdmin
       .from('user_scorecards')
@@ -109,6 +119,46 @@ export async function gatherBrandWeekData(brandName: string, weekOf: Date): Prom
       });
     }
   }
+
+  // Current status snapshot: count every non-empty cell value in product columns
+  // across all of this brand's scorecards. Used for week-over-week deltas.
+  const statusSnapshot: Record<string, number> = {};
+  for (const sc of scorecardById.values()) {
+    const productKeys = sc.columns
+      .map((c) => c.key)
+      .filter((k) => !DEFAULT_COLUMN_KEYS.has(k));
+    for (const row of sc.rows) {
+      for (const key of productKeys) {
+        const raw = row[key];
+        if (raw === undefined || raw === null) continue;
+        const val = String(raw).trim();
+        if (!val) continue;
+        statusSnapshot[val] = (statusSnapshot[val] || 0) + 1;
+      }
+    }
+  }
+
+  // Previous week's snapshot, if any, to compute deltas.
+  const prevWeekOf = new Date(weekOf);
+  prevWeekOf.setUTCDate(prevWeekOf.getUTCDate() - 7);
+  const prevWeekISO = toISODate(prevWeekOf);
+  const { data: prevSummary } = await supabaseAdmin
+    .from('weekly_summaries')
+    .select('stats')
+    .eq('brand_name', brandName)
+    .eq('week_of', prevWeekISO)
+    .maybeSingle();
+  const prevSnapshot: Record<string, number> = (prevSummary?.stats?.statusSnapshot as Record<string, number> | undefined) || {};
+
+  const statusKeys = new Set<string>([...Object.keys(statusSnapshot), ...Object.keys(prevSnapshot)]);
+  const statusDeltas: StatusSnapshotDelta[] = [];
+  for (const status of statusKeys) {
+    const curr = statusSnapshot[status] || 0;
+    const prev = prevSnapshot[status] || 0;
+    if (curr === prev) continue;
+    statusDeltas.push({ status, prev, curr, delta: curr - prev });
+  }
+  statusDeltas.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 
   // Market visits in window.
   const { data: rawVisits } = await supabaseAdmin
@@ -235,11 +285,14 @@ export async function gatherBrandWeekData(brandName: string, weekOf: Date): Prom
     visits: visitItems,
     statusChanges,
     scorecardNotes,
+    statusSnapshot,
+    statusDeltas,
     stats: {
       visitCount: visitItems.length,
       storeCount: storeNames.length,
       statusChangeCount: statusChanges.length,
       scorecardNoteCount: scorecardNotes.length,
+      statusSnapshot,
     },
   };
 }
@@ -269,6 +322,14 @@ PROGRESS THIS WEEK (only if there are status changes)
   - "- Target authorized Chipotle Salsa."
   - "- Whole Foods moved Spicy Mustard from In Process to Presented."
 - Skip this entire section (header included) if there were no status changes.
+
+WEEK-OVER-WEEK MOVEMENT (only if the snapshot deltas are meaningful)
+- The input includes a "Week-over-week status movement" block comparing this week's status totals to last week's snapshot.
+- If the deltas reflect real, intentional movement (e.g. "Authorized: 9 → 8 (-1)" or "Discontinued: 2 → 3 (+1)"), mention them in plain English — either as a sentence in the opener or as a short bullet under Progress.
+- Good phrasings: "Authorized count dipped from 9 to 8 this week." / "Discontinued count ticked up by one."
+- Ignore deltas that are just the flip side of a status change already narrated (e.g. a cell went "In Process → Authorized" — don't double-count it as both a Progress bullet AND a snapshot delta).
+- Ignore tiny churn (±1) unless it's clearly meaningful (e.g. a drop in Authorized is always worth flagging).
+- If there are no deltas or no prior snapshot, skip this entirely — do not invent movement.
 
 FROM THE FIELD
 - This is the heart of the recap. Use a bold header like **From the field**.
@@ -344,6 +405,28 @@ function formatDataForPrompt(data: BrandWeekData): string {
   } else {
     for (const s of data.statusChanges) {
       lines.push(`  - ${s.retailer} → ${s.product}: "${s.from || 'empty'}" → "${s.to || 'empty'}"`);
+    }
+  }
+  lines.push('');
+
+  lines.push(`Status snapshot — current totals across all product cells:`);
+  const snapEntries = Object.entries(data.statusSnapshot).sort((a, b) => b[1] - a[1]);
+  if (snapEntries.length === 0) {
+    lines.push('  (no status values set)');
+  } else {
+    for (const [status, count] of snapEntries) {
+      lines.push(`  - ${status}: ${count}`);
+    }
+  }
+  lines.push('');
+
+  lines.push(`Week-over-week status movement (vs. last week's snapshot):`);
+  if (data.statusDeltas.length === 0) {
+    lines.push('  (no change from last week, or no prior snapshot)');
+  } else {
+    for (const d of data.statusDeltas) {
+      const sign = d.delta > 0 ? `+${d.delta}` : `${d.delta}`;
+      lines.push(`  - ${d.status}: ${d.prev} → ${d.curr} (${sign})`);
     }
   }
   lines.push('');
@@ -455,10 +538,13 @@ function splitInlineBullets(s: string): string[] {
     .filter(Boolean);
 }
 
+export type SummaryGeneratedBy = 'cron' | 'manual';
+
 export async function persistWeeklySummary(
   data: BrandWeekData,
   summary: string,
   model: string,
+  generatedBy: SummaryGeneratedBy = 'cron',
 ): Promise<void> {
   const { error } = await supabaseAdmin
     .from('weekly_summaries')
@@ -470,17 +556,22 @@ export async function persistWeeklySummary(
         stats: data.stats,
         model,
         generated_at: new Date().toISOString(),
+        generated_by: generatedBy,
       },
       { onConflict: 'brand_name,week_of' },
     );
   if (error) throw new Error(`Failed to persist summary: ${error.message}`);
 }
 
-export async function buildWeeklySummaryForBrand(brandName: string, weekOf: Date): Promise<{ data: BrandWeekData; summary: string }> {
+export async function buildWeeklySummaryForBrand(
+  brandName: string,
+  weekOf: Date,
+  generatedBy: SummaryGeneratedBy = 'cron',
+): Promise<{ data: BrandWeekData; summary: string }> {
   const data = await gatherBrandWeekData(brandName, weekOf);
   const { summary, model } = await generateWeeklySummary(data);
-  await persistWeeklySummary(data, summary, model);
-  logger.info(`[weekly-summary] generated for ${brandName} week of ${data.weekOf}`);
+  await persistWeeklySummary(data, summary, model, generatedBy);
+  logger.info(`[weekly-summary] generated for ${brandName} week of ${data.weekOf} (${generatedBy})`);
   return { data, summary };
 }
 

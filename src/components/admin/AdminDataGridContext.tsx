@@ -33,6 +33,7 @@ export interface AdminGridContextValue {
   handleCloseCommentModal: () => void;
   updateComment: (commentId: string, newText: string) => Promise<void>;
   deleteComment: (commentId: string, rowId: number | string) => Promise<void>;
+  isAddingComment: boolean;
 
   // Scorecard mutations (needed by retailer drawer migration logic)
   setScorecards: React.Dispatch<React.SetStateAction<any[]>>;
@@ -50,6 +51,7 @@ export interface AdminGridContextValue {
   subgridCommentInput: string;
   setSubgridCommentInput: (v: string) => void;
   handleAddSubgridComment: () => void;
+  isAddingSubgridComment: boolean;
 
   // Subgrid state
   subGrids: Record<string, { columns: any[]; rows: any[] }>;

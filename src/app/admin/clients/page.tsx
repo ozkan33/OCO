@@ -3,15 +3,22 @@
 import { useEffect, useState } from 'react';
 import { useBrands } from '@/hooks/useBrands';
 import AdminHeader from '@/components/admin/AdminHeader';
-import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiCheck, FiEye, FiEyeOff, FiClock, FiUserX, FiUserCheck, FiRefreshCw, FiX } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiCheck, FiEye, FiEyeOff, FiClock, FiUserX, FiUserCheck, FiRefreshCw, FiX, FiMail } from 'react-icons/fi';
 import { Fragment } from 'react';
 import WeeklySummaryCard from '@/components/portal/WeeklySummaryCard';
 
 interface Assignment { scorecardId: string; productColumns: string[]; }
+interface LatestSummary {
+  week_of: string;
+  generated_at: string;
+  generated_by: 'cron' | 'manual';
+}
 interface BrandUser {
   id: string; brand_name: string; contact_name: string; email: string;
   is_active: boolean; must_change_password: boolean; created_at: string; last_login: string | null;
   assignments: { scorecard_id: string; product_columns: string[]; brand_name: string }[];
+  latest_summary: LatestSummary | null;
+  last_email_sent_at: string | null;
 }
 interface Scorecard { id: string; title: string; columns: any[]; rowCount: number; }
 
@@ -96,6 +103,13 @@ export default function ClientsPage() {
         stats: body.stats || {},
         summary: body.summary || '',
       });
+      // Optimistically update the latest-summary indicator for every user of
+      // this brand. The server has already persisted it as "manual" — this
+      // just avoids a refetch so the pill flips to "Manual · today" instantly.
+      const nowISO = new Date().toISOString();
+      setBrandUsers(prev => prev.map(u => u.brand_name === brandName
+        ? { ...u, latest_summary: { week_of: body.week_of, generated_at: nowISO, generated_by: 'manual' } }
+        : u));
     } catch (err) {
       setRegenError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -105,6 +119,67 @@ export default function ClientsPage() {
 
   const handleRegenerateSummary = (brandName: string) => {
     setRegenPickerFor(brandName);
+  };
+
+  // Weekly email state — per-user. Each row has its own send button so the
+  // admin can email a specific contact without spamming the rest of the brand.
+  interface EmailTarget { userId: string; brand: string; email: string; name: string }
+  const [emailingUserId, setEmailingUserId] = useState<string | null>(null);
+  const [emailPickerFor, setEmailPickerFor] = useState<EmailTarget | null>(null);
+  const [emailResult, setEmailResult] = useState<{
+    brand: string;
+    weekOf: string;
+    sent: number;
+    recipients?: Array<{ email: string; name: string }>;
+    skipped?: boolean;
+    reason?: string;
+    partialError?: string;
+  } | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+
+  const runSendEmail = async (target: EmailTarget, weekOf: string) => {
+    if (emailingUserId) return;
+    setEmailingUserId(target.userId);
+    setEmailError(null);
+    setEmailPickerFor(null);
+    try {
+      const res = await fetch('/api/admin/weekly-summary/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          brand_name: target.brand,
+          week_of: weekOf,
+          recipient_email: target.email,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error || 'Failed to send email');
+      setEmailResult({
+        brand: body.brand,
+        weekOf: body.week_of,
+        sent: body.sent || 0,
+        recipients: body.recipients,
+        skipped: body.skipped,
+        reason: body.reason,
+        partialError: body.partial_error,
+      });
+      // Optimistic per-user indicator update — only flip the row we sent to.
+      if (!body.skipped && (body.sent || 0) > 0) {
+        const nowISO = new Date().toISOString();
+        setBrandUsers(prev => prev.map(u => u.id === target.userId
+          ? { ...u, last_email_sent_at: nowISO }
+          : u));
+      }
+    } catch (err) {
+      setEmailError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setEmailingUserId(null);
+    }
+  };
+
+  const handleSendEmail = (target: EmailTarget) => {
+    setEmailPickerFor(target);
   };
 
   // Edit-specific state
@@ -247,8 +322,10 @@ export default function ClientsPage() {
   };
 
   const executeDelete = async (id: string) => {
-    await fetch(`/api/admin/brand-users/${id}`, { method: 'DELETE', credentials: 'include' });
-    setBrandUsers(prev => prev.map(u => u.id === id ? { ...u, is_active: false } : u));
+    const res = await fetch(`/api/admin/brand-users/${id}`, { method: 'DELETE', credentials: 'include' });
+    if (res.ok) {
+      setBrandUsers(prev => prev.map(u => u.id === id ? { ...u, is_active: false } : u));
+    }
   };
 
   const viewSessions = async (userId: string) => {
@@ -273,12 +350,19 @@ export default function ClientsPage() {
     if (res.ok) setBrandUsers(prev => prev.filter(u => u.id !== id));
   };
 
+  const [reactivatingId, setReactivatingId] = useState<string | null>(null);
   const handleReactivate = async (id: string) => {
-    const res = await fetch(`/api/admin/brand-users/${id}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ isActive: true }),
-    });
-    if (res.ok) setBrandUsers(prev => prev.map(u => u.id === id ? { ...u, is_active: true } : u));
+    if (reactivatingId) return;
+    setReactivatingId(id);
+    try {
+      const res = await fetch(`/api/admin/brand-users/${id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ isActive: true }),
+      });
+      if (res.ok) setBrandUsers(prev => prev.map(u => u.id === id ? { ...u, is_active: true } : u));
+    } finally {
+      setReactivatingId(null);
+    }
   };
 
   const handleConfirmAction = async () => {
@@ -368,11 +452,11 @@ export default function ClientsPage() {
                 <tr><td colSpan={7} className="px-4 py-12 text-center text-slate-400">No brand users yet. Click &ldquo;Add Client&rdquo; to create one.</td></tr>
               ) : (() => {
                 // Sort so same-brand users are adjacent, then contact name.
-                // The first user of each brand is the "anchor" — it owns the
-                // Regenerate button. Other users of the same brand show a
-                // muted "shared" indicator instead, since the summary is
-                // brand-scoped in the DB and regenerating once updates it
-                // for everyone on that brand.
+                // The summary is brand-scoped in the DB, so every row of the
+                // same brand shares the same `latest_summary` indicator and
+                // regenerating from any row updates it for everyone. The
+                // email button still uses anchor semantics to avoid sending
+                // duplicate emails per row of the same brand.
                 const sorted = [...brandUsers].sort((a, b) => {
                   const brandCmp = a.brand_name.localeCompare(b.brand_name);
                   return brandCmp !== 0 ? brandCmp : a.contact_name.localeCompare(b.contact_name);
@@ -380,12 +464,45 @@ export default function ClientsPage() {
                 const brandCounts = new Map<string, number>();
                 sorted.forEach(u => brandCounts.set(u.brand_name, (brandCounts.get(u.brand_name) || 0) + 1));
                 const seenBrands = new Set<string>();
+                const fmtRelative = (iso: string) => {
+                  const then = new Date(iso).getTime();
+                  const now = Date.now();
+                  const diffMs = Math.max(0, now - then);
+                  const mins = Math.floor(diffMs / 60000);
+                  if (mins < 1) return 'just now';
+                  if (mins < 60) return `${mins}m ago`;
+                  const hrs = Math.floor(mins / 60);
+                  if (hrs < 24) return `${hrs}h ago`;
+                  const days = Math.floor(hrs / 24);
+                  if (days < 7) return `${days}d ago`;
+                  const weeks = Math.floor(days / 7);
+                  if (weeks < 5) return `${weeks}w ago`;
+                  const months = Math.floor(days / 30);
+                  return `${months}mo ago`;
+                };
                 return sorted.map(bu => {
                   const isAnchor = !seenBrands.has(bu.brand_name);
                   if (isAnchor) seenBrands.add(bu.brand_name);
                   const brandUserCount = brandCounts.get(bu.brand_name) || 1;
                   const isShared = brandUserCount > 1;
                   const isThisBrandRegenerating = regeneratingBrand === bu.brand_name;
+                  const ls = bu.latest_summary;
+                  // Encode the AI-summary provenance into the regenerate button
+                  // (dot overlay) and a brand-anchor-only relative-time label
+                  // beneath the actions row. This dedupes the signal across
+                  // same-brand rows and removes the floating pill that was
+                  // competing with the icon group.
+                  const summaryStatus: 'manual' | 'cron' | 'never' = ls
+                    ? (ls.generated_by === 'manual' ? 'manual' : 'cron')
+                    : 'never';
+                  const summaryDotCls =
+                    summaryStatus === 'manual' ? 'bg-purple-500 ring-white'
+                    : summaryStatus === 'cron' ? 'bg-slate-300 ring-white'
+                    : 'bg-white border border-amber-400 ring-white';
+                  const summaryRelative = ls ? fmtRelative(ls.generated_at) : 'Never generated';
+                  const summaryTooltip = ls
+                    ? `Last AI summary: ${new Date(ls.generated_at).toLocaleString()}\n${ls.generated_by === 'manual' ? 'Manually regenerated by an admin' : 'Generated automatically by Monday cron'}\nWeek of ${ls.week_of}\n\nClick to regenerate now${isShared ? ` (shared across ${brandUserCount} ${bu.brand_name} users)` : ''}.`
+                    : `No AI summary has been generated yet for this brand.\n\nClick to generate now${isShared ? ` (shared across ${brandUserCount} ${bu.brand_name} users)` : ''}.`;
                   return (
                 <Fragment key={bu.id}>
                   <tr className="border-b border-slate-50 hover:bg-slate-50/50">
@@ -402,41 +519,67 @@ export default function ClientsPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-400">{bu.last_login ? new Date(bu.last_login).toLocaleDateString() : 'Never'}</td>
                     <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="flex flex-col items-end gap-0.5">
+                        <div className="flex items-center justify-end gap-1">
                         <button onClick={() => viewSessions(bu.id)} className={`transition-colors p-1.5 rounded-md ${selectedUserSessions === bu.id ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-blue-600 hover:bg-slate-100'}`} title="Login History"><FiClock className="w-4 h-4" /></button>
-                        {isAnchor ? (
-                          <button
-                            onClick={() => handleRegenerateSummary(bu.brand_name)}
-                            disabled={isThisBrandRegenerating}
-                            className="text-slate-400 hover:text-purple-600 hover:bg-purple-50 transition-colors p-1.5 rounded-md disabled:opacity-50"
-                            title={isShared
-                              ? `Regenerate this week's AI summary (shared across ${brandUserCount} ${bu.brand_name} users)`
-                              : "Regenerate this week's AI summary"}
-                          >
-                            <FiRefreshCw className={`w-4 h-4 ${isThisBrandRegenerating ? 'animate-spin' : ''}`} />
-                          </button>
-                        ) : (
-                          <span
-                            className="inline-flex items-center justify-center p-1.5 rounded-md text-slate-300"
-                            title={`Weekly summary is shared with ${bu.brand_name}. Regenerate it from the first row of this brand.`}
-                            aria-label={`Summary shared with ${bu.brand_name}`}
-                          >
-                            {isThisBrandRegenerating ? (
-                              <FiRefreshCw className="w-4 h-4 animate-spin text-purple-300" />
-                            ) : (
-                              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
-                              </svg>
-                            )}
-                          </span>
-                        )}
+                        <button
+                          onClick={() => handleRegenerateSummary(bu.brand_name)}
+                          disabled={isThisBrandRegenerating}
+                          className="relative text-slate-400 hover:text-purple-600 hover:bg-purple-50 transition-colors p-1.5 rounded-md disabled:opacity-50"
+                          title={summaryTooltip}
+                          aria-label={`Regenerate AI summary. ${summaryRelative}, ${summaryStatus === 'manual' ? 'manual' : summaryStatus === 'cron' ? 'automatic' : 'never generated'}.`}
+                        >
+                          <FiRefreshCw className={`w-4 h-4 ${isThisBrandRegenerating ? 'animate-spin' : ''}`} />
+                          {!isThisBrandRegenerating && (
+                            <span
+                              className={`absolute top-0.5 right-0.5 h-2 w-2 rounded-full ring-2 ${summaryDotCls}`}
+                              aria-hidden="true"
+                            />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleSendEmail({ userId: bu.id, brand: bu.brand_name, email: bu.email, name: bu.contact_name })}
+                          disabled={emailingUserId === bu.id || !bu.is_active}
+                          className={`transition-colors p-1.5 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:text-emerald-700 hover:bg-emerald-50 ${
+                            bu.last_email_sent_at ? 'text-emerald-600' : 'text-slate-400'
+                          }`}
+                          title={!bu.is_active
+                            ? 'Reactivate this contact to email them'
+                            : bu.last_email_sent_at
+                              ? `Re-email this week's AI summary to ${bu.contact_name} (last sent ${new Date(bu.last_email_sent_at).toLocaleString()})`
+                              : `Email this week's AI summary to ${bu.contact_name} (not sent yet)`}
+                        >
+                          {emailingUserId === bu.id ? (
+                            <FiRefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <FiMail className="w-4 h-4" />
+                          )}
+                        </button>
                         <button onClick={() => openEditModal(bu)} className="text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition-colors p-1.5 rounded-md" title="Edit"><FiEdit2 className="w-4 h-4" /></button>
                         <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden="true" />
                         {bu.is_active
                           ? <button onClick={() => handleDelete(bu.id)} className="text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors p-1.5 rounded-md" title="Deactivate (user can't log in)"><FiUserX className="w-4 h-4" /></button>
-                          : <button onClick={() => handleReactivate(bu.id)} className="text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors p-1.5 rounded-md" title="Reactivate user"><FiUserCheck className="w-4 h-4" /></button>
+                          : <button onClick={() => handleReactivate(bu.id)} disabled={reactivatingId === bu.id} aria-busy={reactivatingId === bu.id} className="text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors p-1.5 rounded-md disabled:opacity-50 disabled:cursor-not-allowed" title="Reactivate user"><FiUserCheck className={`w-4 h-4 ${reactivatingId === bu.id ? 'animate-pulse' : ''}`} /></button>
                         }
                         <button onClick={() => handlePermanentDelete(bu)} className="text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors p-1.5 rounded-md" title="Delete permanently"><FiTrash2 className="w-4 h-4" /></button>
+                        </div>
+                        {isAnchor && (
+                          <div
+                            className="hidden sm:flex items-center gap-1 pr-1.5 text-[10px] leading-none text-slate-400"
+                            title={summaryTooltip}
+                          >
+                            <span className="uppercase tracking-wide text-slate-300">AI&nbsp;summary</span>
+                            <span aria-hidden="true" className="text-slate-200">·</span>
+                            <span className={
+                              summaryStatus === 'manual' ? 'text-purple-600 font-medium'
+                              : summaryStatus === 'never' ? 'text-amber-600 font-medium'
+                              : 'text-slate-500'
+                            }>
+                              {summaryRelative}
+                              {summaryStatus === 'manual' ? ' (manual)' : ''}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -502,17 +645,29 @@ export default function ClientsPage() {
             <div className="p-4 space-y-2">
               <button
                 onClick={() => runRegenerate(regenPickerFor, thisWeekMonday)}
-                className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50/40 transition-colors"
+                disabled={regeneratingBrand === regenPickerFor}
+                aria-busy={regeneratingBrand === regenPickerFor}
+                className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50/40 transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:border-slate-200 disabled:hover:bg-transparent"
               >
                 <div className="text-sm font-semibold text-slate-900">This week</div>
-                <div className="text-xs text-slate-500 mt-0.5">Monday {thisWeekMonday} onwards (in progress)</div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  {regeneratingBrand === regenPickerFor
+                    ? 'Generating…'
+                    : `Monday ${thisWeekMonday} onwards (in progress)`}
+                </div>
               </button>
               <button
                 onClick={() => runRegenerate(regenPickerFor, lastWeekMonday)}
-                className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50/40 transition-colors"
+                disabled={regeneratingBrand === regenPickerFor}
+                aria-busy={regeneratingBrand === regenPickerFor}
+                className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50/40 transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:border-slate-200 disabled:hover:bg-transparent"
               >
                 <div className="text-sm font-semibold text-slate-900">Last completed week</div>
-                <div className="text-xs text-slate-500 mt-0.5">Monday {lastWeekMonday} — what the Monday cron would generate</div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  {regeneratingBrand === regenPickerFor
+                    ? 'Generating…'
+                    : `Monday ${lastWeekMonday} — what the Monday cron would generate`}
+                </div>
               </button>
             </div>
             <div className="px-6 py-3 border-t border-slate-200 flex justify-end">
@@ -578,6 +733,107 @@ export default function ClientsPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Send Weekly Email — Week Picker (per recipient) */}
+      {emailPickerFor && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="px-6 py-4 border-b border-slate-200">
+              <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+                <FiMail className="w-4 h-4 text-emerald-600" /> Email weekly AI summary
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Sends the existing AI-generated recap to <span className="font-medium text-slate-700">{emailPickerFor.name}</span> only — <span className="font-mono text-slate-600">{emailPickerFor.email}</span>. Other {emailPickerFor.brand} contacts won&apos;t receive this send.
+              </p>
+            </div>
+            <div className="p-4 space-y-2">
+              <button
+                onClick={() => runSendEmail(emailPickerFor, lastWeekMonday)}
+                disabled={emailingUserId === emailPickerFor.userId}
+                aria-busy={emailingUserId === emailPickerFor.userId}
+                className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40 transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:border-slate-200 disabled:hover:bg-transparent"
+              >
+                <div className="text-sm font-semibold text-slate-900">Last completed week</div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  {emailingUserId === emailPickerFor.userId
+                    ? 'Sending…'
+                    : `Week of ${lastWeekMonday} — matches the Monday cron`}
+                </div>
+              </button>
+              <button
+                onClick={() => runSendEmail(emailPickerFor, thisWeekMonday)}
+                disabled={emailingUserId === emailPickerFor.userId}
+                aria-busy={emailingUserId === emailPickerFor.userId}
+                className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40 transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:border-slate-200 disabled:hover:bg-transparent"
+              >
+                <div className="text-sm font-semibold text-slate-900">This week (in progress)</div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  {emailingUserId === emailPickerFor.userId
+                    ? 'Sending…'
+                    : `Week of ${thisWeekMonday} — only if already generated`}
+                </div>
+              </button>
+              <div className="text-[11px] text-slate-400 px-1 pt-1">
+                No summary exists? Regenerate it first from the purple refresh icon.
+              </div>
+            </div>
+            <div className="px-6 py-3 border-t border-slate-200 flex justify-end">
+              <button
+                onClick={() => setEmailPickerFor(null)}
+                className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-lg"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send Weekly Email — Error Toast */}
+      {emailError && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-md bg-red-50 border border-red-200 rounded-xl shadow-lg p-4 flex items-start gap-3">
+          <div className="flex-1">
+            <h4 className="text-sm font-semibold text-red-900">Weekly email failed</h4>
+            <p className="text-xs text-red-700 mt-0.5">{emailError}</p>
+          </div>
+          <button onClick={() => setEmailError(null)} className="text-red-400 hover:text-red-600 p-1 rounded-md">
+            <FiX className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Send Weekly Email — Result Toast */}
+      {emailResult && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-md bg-white border border-emerald-200 rounded-xl shadow-lg p-4 flex items-start gap-3">
+          <div className="flex-1">
+            <h4 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <FiMail className="w-4 h-4 text-emerald-600" />
+              {emailResult.skipped
+                ? 'Nothing to send'
+                : emailResult.sent === 0
+                  ? 'Sent to 0 contacts'
+                  : `Sent to ${emailResult.sent} contact${emailResult.sent === 1 ? '' : 's'}`}
+            </h4>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {emailResult.brand} · week of {emailResult.weekOf}
+              {emailResult.skipped && emailResult.reason ? ` — ${emailResult.reason}` : ''}
+            </p>
+            {emailResult.recipients && emailResult.recipients.length > 0 && (
+              <ul className="mt-2 space-y-0.5 text-xs text-slate-600">
+                {emailResult.recipients.map((r) => (
+                  <li key={r.email}>• {r.email}</li>
+                ))}
+              </ul>
+            )}
+            {emailResult.partialError && (
+              <p className="text-xs text-amber-700 mt-2">Some sends failed: {emailResult.partialError}</p>
+            )}
+          </div>
+          <button onClick={() => setEmailResult(null)} className="text-slate-400 hover:text-slate-600 p-1 rounded-md">
+            <FiX className="w-4 h-4" />
+          </button>
         </div>
       )}
 

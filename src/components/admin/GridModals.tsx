@@ -3,10 +3,19 @@ import React from 'react';
 import type { ScoreCard } from './types';
 
 // ─── Shared modal shell ───────────────────────────────────────────────────────
+// Centered dialog on sm+, bottom-sheet on <sm (phones).
 function Modal({ children }: { children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 modal-backdrop">
-      <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md border border-slate-200 modal-content">{children}</div>
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 modal-backdrop">
+      <div
+        className="bg-white p-5 sm:p-6 rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-md max-h-[92dvh] overflow-y-auto touch-scroll border border-slate-200 sheet-slide-up sm:modal-content"
+        style={{ paddingBottom: 'max(1.25rem, calc(1.25rem + env(safe-area-inset-bottom)))' }}
+      >
+        <div className="sm:hidden flex justify-center mb-2 -mt-1">
+          <span className="block w-10 h-1 rounded-full bg-slate-300" aria-hidden="true" />
+        </div>
+        {children}
+      </div>
     </div>
   );
 }
@@ -17,7 +26,7 @@ function ConfirmDialog({
   onConfirm,
   onCancel,
   confirmLabel = 'Delete',
-  confirmClass = 'bg-red-600 hover:bg-red-700',
+  confirmClass = 'bg-red-600 [@media(hover:hover)]:hover:bg-red-700 active:bg-red-700',
 }: {
   title: string;
   message: React.ReactNode;
@@ -27,17 +36,23 @@ function ConfirmDialog({
   confirmClass?: string;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm modal-backdrop">
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm flex flex-col items-center border border-slate-200 modal-content">
-        <h2 className="text-lg font-bold mb-2">{title}</h2>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm modal-backdrop">
+      <div
+        className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5 sm:p-6 w-full sm:max-w-sm flex flex-col items-center border border-slate-200 sheet-slide-up sm:modal-content"
+        style={{ paddingBottom: 'max(1.25rem, calc(1.25rem + env(safe-area-inset-bottom)))' }}
+      >
+        <div className="sm:hidden flex justify-center mb-2 -mt-1 w-full">
+          <span className="block w-10 h-1 rounded-full bg-slate-300" aria-hidden="true" />
+        </div>
+        <h2 className="text-lg font-bold mb-2 text-center">{title}</h2>
         <p className="mb-4 text-center text-slate-700">{message}</p>
-        <div className="flex gap-4 w-full justify-center">
+        <div className="flex gap-3 w-full justify-center">
           <button
-            className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200"
+            className="flex-1 sm:flex-none min-h-[44px] px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-md [@media(hover:hover)]:hover:bg-slate-200 active:bg-slate-200"
             onClick={onCancel}
           >Cancel</button>
           <button
-            className={`px-4 py-2 text-sm font-medium text-white rounded-md ${confirmClass}`}
+            className={`flex-1 sm:flex-none min-h-[44px] px-4 py-2 text-sm font-medium text-white rounded-md ${confirmClass}`}
             onClick={onConfirm}
           >{confirmLabel}</button>
         </div>

@@ -17,6 +17,7 @@ export default function AdminSettingsPage() {
   const [verifyCode, setVerifyCode] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [disabling, setDisabling] = useState(false);
+  const [enabling, setEnabling] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -39,6 +40,8 @@ export default function AdminSettingsPage() {
   }, []);
 
   const handleEnable2FA = async () => {
+    if (enabling) return;
+    setEnabling(true);
     try {
       const res = await fetch('/api/auth/2fa/setup', {
         method: 'POST',
@@ -54,6 +57,8 @@ export default function AdminSettingsPage() {
       setShowSetup(true);
     } catch {
       toast.error('Failed to start 2FA setup');
+    } finally {
+      setEnabling(false);
     }
   };
 
@@ -189,9 +194,11 @@ export default function AdminSettingsPage() {
                 ) : (
                   <button
                     onClick={handleEnable2FA}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                    disabled={enabling}
+                    aria-busy={enabling}
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
                   >
-                    Enable
+                    {enabling ? 'Starting…' : 'Enable'}
                   </button>
                 )}
               </div>

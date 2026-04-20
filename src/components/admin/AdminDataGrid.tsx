@@ -174,6 +174,8 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
   // Subgrid comment state
   const [openSubgridCommentKey, setOpenSubgridCommentKey] = useState<string | null>(null);
   const [subgridCommentInput, setSubgridCommentInput] = useState('');
+  const [isAddingSubgridComment, setIsAddingSubgridComment] = useState(false);
+  const addingSubgridCommentRef = useRef(false);
 
   // Add state for contact card modal
   const [openContactModal, setOpenContactModal] = useState<{ rowId: number; key: string; value: string } | null>(null);
@@ -294,6 +296,7 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
   const {
     loadScorecardComments, updateComment, deleteComment,
     handleOpenCommentModal, handleCloseCommentModal, handleAddComment,
+    isAddingComment,
   } = useCommentHandlers({
     comments, setComments, commentInput, setCommentInput,
     openCommentRowId, setOpenCommentRowId,
@@ -1669,6 +1672,7 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
 
   // ─── Subgrid comment handler ───────────────────────────────────────────────
   const handleAddSubgridComment = useCallback(async () => {
+    if (addingSubgridCommentRef.current) return;
     if (!subgridCommentInput.trim() || !openSubgridCommentKey || !isScorecard(selectedCategory) || !user) return;
 
     // Parse composite key: "sub:{parentRowId}:{storeName}"
@@ -1676,6 +1680,8 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
     if (!parts) return;
     const [, parentRowId, storeName] = parts;
 
+    addingSubgridCommentRef.current = true;
+    setIsAddingSubgridComment(true);
     try {
       const requestBody: any = {
         scorecard_id: selectedCategory,
@@ -1710,6 +1716,9 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
     } catch (error) {
       console.error('Error adding subgrid comment:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to add comment');
+    } finally {
+      addingSubgridCommentRef.current = false;
+      setIsAddingSubgridComment(false);
     }
   }, [subgridCommentInput, openSubgridCommentKey, selectedCategory, user, isScorecard, setComments]);
 
@@ -1722,11 +1731,12 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
     setOpenCommentRowId, setOpenRetailerDrawer, setComments,
     setConfirmDeleteComment, handleAddComment, handleCloseCommentModal,
     updateComment, deleteComment,
+    isAddingComment,
     setScorecards, setEditingScoreCard, setSelectedCategory,
     getCurrentData, updateCurrentData, isScorecard,
     openSubgridCommentKey, setOpenSubgridCommentKey,
     subgridCommentInput, setSubgridCommentInput,
-    handleAddSubgridComment,
+    handleAddSubgridComment, isAddingSubgridComment,
     subGrids, expandedRowId, setExpandedRowId,
     subgridExpanded, setSubgridExpanded,
     setConfirmDelete,
@@ -1741,6 +1751,7 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
     editCommentIdx, editCommentText, openCommentRowId, openRetailerDrawer,
     openSubgridCommentKey, subgridCommentInput, handleAddSubgridComment,
     subGrids, expandedRowId, subgridExpanded,
+    isAddingComment, isAddingSubgridComment,
   ]);
 
   return (

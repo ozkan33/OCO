@@ -22,6 +22,10 @@ interface NotificationBellProps {
   onNewActivity?: (scorecardIds: string[]) => void;
 }
 
+function capitalizeName(name: string): string {
+  return name.replace(/\b\p{L}/gu, c => c.toUpperCase());
+}
+
 function timeAgo(dateStr: string): string {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
@@ -238,7 +242,7 @@ export default function NotificationBell({ onNotificationClick, onNewActivity }:
                   {/* Content */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-slate-700 leading-snug">
-                      <span className="font-semibold text-slate-900">{notif.actor_name}</span>
+                      <span className="font-semibold text-slate-900">{capitalizeName(notif.actor_name)}</span>
                       {notif.action_type === 'comment_updated'
                         ? ' edited a note on '
                         : ' added a note on '}
