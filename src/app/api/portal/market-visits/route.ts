@@ -61,11 +61,14 @@ export async function GET(request: Request) {
       const storeNames = Array.from(new Set((visits || []).map((v) => v.store_name).filter(Boolean)));
 
       if (storeNames.length > 0) {
+        // Exclude auto-generated market-visit comments — they duplicate the
+        // visit note that's already rendered above the thread on the visits tab.
         const { data: allComments } = await supabaseAdmin
           .from('comments')
-          .select('id, scorecard_id, row_id, text, user_id, user_email, created_at')
+          .select('id, scorecard_id, row_id, text, user_id, user_email, created_at, market_visit_id')
           .in('scorecard_id', scorecardIds)
           .in('row_id', storeNames)
+          .is('market_visit_id', null)
           .order('created_at', { ascending: true });
 
         const emailByUserId = new Map<string, string | null>();

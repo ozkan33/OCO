@@ -1,5 +1,5 @@
 'use client';
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useAdminGrid } from './AdminDataGridContext';
 import { parseCommentMeta } from './commentMeta';
@@ -13,6 +13,8 @@ function CommentList({ rowId }: { rowId: number | string }) {
     updateComment, setConfirmDeleteComment,
   } = useAdminGrid();
   const clientLogos = useClientLogos();
+  const [savingEdit, setSavingEdit] = useState(false);
+  const savingEditRef = useRef(false);
 
   const rowComments = comments[selectedCategory]?.[rowId] || [];
 
@@ -91,6 +93,9 @@ function CommentList({ rowId }: { rowId: number | string }) {
                   <div className="flex gap-2 mt-1">
                     <button
                       onClick={async () => {
+                        if (savingEditRef.current) return;
+                        savingEditRef.current = true;
+                        setSavingEdit(true);
                         try {
                           const comment = comments[selectedCategory][rowId][i];
                           await updateComment(comment.id, editCommentText);
@@ -99,13 +104,19 @@ function CommentList({ rowId }: { rowId: number | string }) {
                           toast.success('Comment updated!');
                         } catch {
                           toast.error('Failed to update comment');
+                        } finally {
+                          savingEditRef.current = false;
+                          setSavingEdit(false);
                         }
                       }}
-                      className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-semibold"
-                    >Save</button>
+                      disabled={savingEdit || !editCommentText.trim()}
+                      aria-busy={savingEdit}
+                      className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
+                    >{savingEdit ? 'Saving…' : 'Save'}</button>
                     <button
                       onClick={() => { setEditCommentIdx(null); setEditCommentText(''); }}
-                      className="px-3 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-semibold"
+                      disabled={savingEdit}
+                      className="px-3 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                     >Cancel</button>
                   </div>
                 </div>
@@ -136,11 +147,12 @@ function CommentList({ rowId }: { rowId: number | string }) {
 
 // Shared comment input form
 function CommentInput({ onSubmit }: { onSubmit: () => void }) {
-  const { user, commentInput, setCommentInput } = useAdminGrid();
+  const { user, commentInput, setCommentInput, isAddingComment } = useAdminGrid();
+  const disabled = isAddingComment || !commentInput.trim();
 
   return (
     <form
-      onSubmit={e => { e.preventDefault(); onSubmit(); }}
+      onSubmit={e => { e.preventDefault(); if (!disabled) onSubmit(); }}
       className="pt-4 border-t bg-white rounded-b-2xl flex gap-3 items-start mt-2"
       style={{ borderTop: '1px solid #e5e7eb' }}
     >
@@ -156,14 +168,17 @@ function CommentInput({ onSubmit }: { onSubmit: () => void }) {
           rows={commentInput.length > 60 ? 4 : 2}
           style={{ minHeight: 44, maxHeight: 120, marginBottom: 8 }}
           onFocus={e => e.currentTarget.rows = 4}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); } }}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!disabled) onSubmit(); } }}
+          disabled={isAddingComment}
         />
         <button
           type="submit"
-          className="mt-2 px-6 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-base font-semibold shadow transition-all float-right"
+          disabled={disabled}
+          aria-busy={isAddingComment}
+          className="mt-2 px-6 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-base font-semibold shadow transition-all float-right disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
           style={{ minWidth: 120 }}
         >
-          Add
+          {isAddingComment ? 'Adding…' : 'Add'}
         </button>
       </div>
     </form>
@@ -185,10 +200,16 @@ export function SimpleCommentDrawer() {
   return (
     // Drawer sits below the sticky AdminHeader (~56px tall, z-50) so the
     // breadcrumb/title aren't clipped by the main nav.
-    <div className="fixed left-0 right-0 bottom-0 top-14 z-40 flex">
+    <div className="fixed left-0 right-0 bottom-0 top-14 z-40 flex flex-col sm:flex-row">
       <div className="absolute inset-0 bg-black bg-opacity-40 transition-opacity" onClick={handleCloseCommentModal}></div>
-      <div className="relative ml-auto w-full max-w-md h-full bg-white shadow-2xl flex flex-col animate-slideInRight rounded-l-2xl border-l border-slate-200">
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-5 bg-slate-50 rounded-t-2xl">
+      <div
+        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92vh] max-h-[92dvh] rounded-t-2xl sm:rounded-t-none sm:rounded-l-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="sm:hidden pt-2 pb-1 flex justify-center">
+          <span className="block w-10 h-1 rounded-full bg-slate-300" aria-hidden="true" />
+        </div>
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 sm:px-6 py-4 sm:py-5 bg-slate-50 rounded-t-2xl">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             {/* Scope badge: retailer logo when available, else chain icon (indigo) */}
             {retailerLogoUrl ? (
@@ -250,6 +271,9 @@ export function RetailerDrawer() {
     setOpenRetailerDrawer, setComments,
   } = ctx;
 
+  const [isAddingRetailerComment, setIsAddingRetailerComment] = useState(false);
+  const addingRetailerRef = useRef(false);
+
   if (openRetailerDrawer === null || !selectedCategory || !isScorecard(selectedCategory)) return null;
 
   const currentData = getCurrentData();
@@ -257,8 +281,11 @@ export function RetailerDrawer() {
   const row = currentData?.rows.find((r: any) => r.id === openRetailerDrawer || String(r.id) === String(openRetailerDrawer)) || {};
 
   const handleAddRetailerComment = async () => {
+    if (addingRetailerRef.current) return;
     if (!commentInput.trim() || openRetailerDrawer == null || !selectedCategory || !user) return;
 
+    addingRetailerRef.current = true;
+    setIsAddingRetailerComment(true);
     try {
       const currentScorecard = editingScoreCard;
       const requestBody: any = {
@@ -334,8 +361,13 @@ export function RetailerDrawer() {
       setCommentInput('');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to add comment');
+    } finally {
+      addingRetailerRef.current = false;
+      setIsAddingRetailerComment(false);
     }
   };
+
+  const retailerSubmitDisabled = isAddingRetailerComment || !commentInput.trim();
 
   const scorecardName = editingScoreCard?.name || '';
   const clientLogos = useClientLogos();
@@ -345,9 +377,15 @@ export function RetailerDrawer() {
   return (
     // Drawer sits below the sticky AdminHeader (~56px tall, z-50) so the
     // breadcrumb/title aren't clipped by the main nav.
-    <div className="fixed left-0 right-0 bottom-0 top-14 z-40 flex">
+    <div className="fixed left-0 right-0 bottom-0 top-14 z-40 flex flex-col sm:flex-row">
       <div className="absolute inset-0 bg-black bg-opacity-40 transition-opacity" onClick={() => setOpenRetailerDrawer(null)}></div>
-      <div className="relative ml-auto w-full max-w-md h-full bg-white shadow-2xl flex flex-col animate-slideInRight rounded-l-2xl border-l border-slate-200">
+      <div
+        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92vh] max-h-[92dvh] rounded-t-2xl sm:rounded-t-none sm:rounded-l-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="sm:hidden pt-2 pb-1 flex justify-center">
+          <span className="block w-10 h-1 rounded-full bg-slate-300" aria-hidden="true" />
+        </div>
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 bg-slate-50 rounded-t-2xl">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             {/* Scope badge: retailer logo when available, else chain icon (indigo) */}
@@ -420,14 +458,17 @@ export function RetailerDrawer() {
                 style={{ minHeight: 44, maxHeight: 120, marginBottom: 8 }}
                 onFocus={e => e.currentTarget.rows = 4}
                 onBlur={e => e.currentTarget.rows = commentInput.length > 60 ? 4 : 2}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddRetailerComment(); } }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!retailerSubmitDisabled) handleAddRetailerComment(); } }}
+                disabled={isAddingRetailerComment}
               />
               <button
                 onClick={handleAddRetailerComment}
-                className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow transition-all float-right"
+                disabled={retailerSubmitDisabled}
+                aria-busy={isAddingRetailerComment}
+                className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow transition-all float-right disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
                 style={{ minWidth: 120 }}
               >
-                Add Comment
+                {isAddingRetailerComment ? 'Adding…' : 'Add Comment'}
               </button>
             </div>
           </div>

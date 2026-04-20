@@ -222,7 +222,7 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen min-h-[100dvh] bg-white">
 
       {/* JSON-LD Structured Data for SEO — multiple schemas for rich results */}
       <script
@@ -439,13 +439,13 @@ export default function LandingPage() {
           <div className="flex flex-col sm:flex-row gap-3 mt-3 w-full max-w-sm sm:max-w-none sm:justify-center">
             <a
               href="#contact"
-              className="px-8 py-3.5 bg-blue-500 text-white font-bold rounded-lg hover:bg-blue-600 active:scale-95 transition-all text-base shadow-lg shadow-blue-500/30"
+              className="px-8 py-4 sm:py-3.5 min-h-[48px] inline-flex items-center justify-center bg-blue-500 text-white font-bold rounded-lg [@media(hover:hover)]:hover:bg-blue-600 active:bg-blue-600 active:scale-95 transition-all text-base shadow-lg shadow-blue-500/30"
             >
               Get in Touch
             </a>
             <button
               onClick={handlePortalClick}
-              className="px-8 py-3.5 bg-white/10 text-white font-semibold rounded-lg hover:bg-white/20 active:scale-95 transition-all text-base border border-white/25 backdrop-blur-sm"
+              className="px-8 py-4 sm:py-3.5 min-h-[48px] inline-flex items-center justify-center bg-white/10 text-white font-semibold rounded-lg [@media(hover:hover)]:hover:bg-white/20 active:bg-white/20 active:scale-95 transition-all text-base border border-white/25 backdrop-blur-sm"
             >
               Partner Portal
             </button>
@@ -459,7 +459,7 @@ export default function LandingPage() {
       {/* ── Client Logos Marquee (immediately after hero) ─────────────────── */}
       {clientLogos.length > 0 && (
         <section id="clients" className="bg-slate-50 py-6 border-b border-slate-200/60 overflow-hidden scroll-mt-20">
-          <p className="text-center text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Our Brands</p>
+          <p className="text-center text-xs sm:text-sm font-semibold text-slate-500 uppercase tracking-widest mb-4 sm:mb-5 px-4">Our Brand Partners</p>
           <div className="relative">
             <div className="flex items-center gap-8 logo-marquee" style={{ width: 'max-content' }}>
               {/* Double the logos for seamless loop */}
@@ -468,10 +468,10 @@ export default function LandingPage() {
                 const Wrapper = url ? 'a' : 'div';
                 const linkProps = url ? { href: url, target: '_blank', rel: 'noopener noreferrer' } : {};
                 return (
-                  <Wrapper key={idx} {...linkProps} className={`flex-shrink-0 flex flex-col items-center justify-center gap-2 px-5 py-2 opacity-70 hover:opacity-100 transition-opacity ${url ? 'cursor-pointer' : ''}`} title={url ? `Visit ${logo.alt}` : logo.alt}>
+                  <Wrapper key={idx} {...linkProps} className={`flex-shrink-0 flex flex-col items-center justify-center gap-2 px-4 sm:px-5 py-2 opacity-80 [@media(hover:hover)]:hover:opacity-100 active:opacity-100 transition-opacity ${url ? 'cursor-pointer' : ''}`} title={url ? `Visit ${logo.alt}` : logo.alt}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={logo.src} alt={logo.alt} className="max-h-12 sm:max-h-16 max-w-[100px] sm:max-w-[140px] object-contain" />
-                    <span className="text-xs font-medium text-slate-400 uppercase tracking-wider leading-none text-center whitespace-nowrap">{logo.alt}</span>
+                    <img src={logo.src} alt={logo.alt} className="max-h-14 sm:max-h-16 max-w-[120px] sm:max-w-[140px] object-contain" />
+                    <span className="text-[13px] sm:text-sm font-semibold text-slate-600 uppercase tracking-wider leading-tight text-center whitespace-nowrap">{logo.alt}</span>
                   </Wrapper>
                 );
               })}
@@ -763,85 +763,175 @@ export default function LandingPage() {
               >
                 {sending ? 'Sending...' : 'Send Message'}
               </button>
-              <p className="text-xs text-center text-slate-400">
-                Or{' '}
-                <a href="mailto:volkan@3brothersmarketing.com" className="text-blue-600 hover:underline font-medium">
-                  email us directly
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-slate-200" />
+                <span className="text-xs text-slate-400 uppercase tracking-wider">Or reach us</span>
+                <div className="flex-1 h-px bg-slate-200" />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <a
+                  href="mailto:volkan@3brothersmarketing.com"
+                  className="inline-flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-lg border border-slate-200 bg-white hover:border-blue-500 hover:bg-blue-50 text-slate-700 hover:text-blue-700 transition-all"
+                >
+                  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  <span className="text-sm font-medium">Email</span>
                 </a>
-              </p>
+                <a
+                  href="https://www.instagram.com/3brothersmarketingmn/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Follow us on Instagram"
+                  className="group inline-flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-lg border border-slate-200 bg-white hover:border-transparent hover:bg-gradient-to-br hover:from-purple-500 hover:via-pink-500 hover:to-amber-400 text-slate-700 hover:text-white transition-all"
+                >
+                  <svg className="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
+                  </svg>
+                  <span className="text-sm font-medium">Instagram</span>
+                </a>
+                <a
+                  href="https://www.linkedin.com/company/3brothersmarketing"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Follow us on LinkedIn"
+                  className="group inline-flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-lg border border-slate-200 bg-white hover:border-transparent hover:bg-[#0A66C2] text-slate-700 hover:text-white transition-all"
+                >
+                  <svg className="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+                  </svg>
+                  <span className="text-sm font-medium">LinkedIn</span>
+                </a>
+              </div>
             </form>
           )}
         </div>
       </section>
 
       {/* ── Footer ────────────────────────────────────────────────────────── */}
-      <footer className="bg-slate-900 text-slate-400 py-12 px-5">
-        <div className="max-w-5xl mx-auto flex flex-col gap-8">
-          {/* Top row: logo, nav, location */}
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/logo.png"
-                alt="3Brothers Logo"
-                width={32}
-                height={32}
-                className="rounded"
-              />
-              <div>
-                <p className="text-white font-bold text-sm">3Brothers Marketing</p>
-                <p className="text-xs text-slate-500">MN · WI · MI · ND · SD</p>
+      <footer className="bg-slate-900 text-slate-400 pt-16 pb-8 px-5">
+        <div className="max-w-6xl mx-auto flex flex-col gap-12">
+          {/* Main columns */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-10 md:gap-8">
+            {/* Brand / About */}
+            <div className="md:col-span-5 flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/logo.png"
+                  alt="3Brothers Logo"
+                  width={44}
+                  height={44}
+                  className="rounded-lg"
+                />
+                <div>
+                  <p className="text-white font-bold text-base">3Brothers Marketing</p>
+                  <p className="text-xs text-slate-500 mt-0.5">MN · WI · MI · ND · SD</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span>Minneapolis, MN</span>
               </div>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-6 text-sm text-center">
-              <a href="#retailers" className="hover:text-white transition py-1">Retailers</a>
-              <a href="#clients" className="hover:text-white transition py-1">Clients</a>
-              <a href="#contact" className="hover:text-white transition py-1">Contact</a>
-              <button onClick={handlePortalClick} className="hover:text-white transition py-1">Portal Login</button>
+
+            {/* Quick Links */}
+            <div className="md:col-span-3 flex flex-col gap-4">
+              <h3 className="text-xs font-semibold text-white uppercase tracking-wider">Explore</h3>
+              <ul className="flex flex-col gap-2.5 text-sm">
+                <li>
+                  <a href="#retailers" className="text-slate-400 hover:text-white transition-colors inline-flex items-center gap-2 group">
+                    <span className="w-1 h-1 rounded-full bg-slate-700 group-hover:bg-blue-500 transition-colors" />
+                    Retailers
+                  </a>
+                </li>
+                <li>
+                  <a href="#clients" className="text-slate-400 hover:text-white transition-colors inline-flex items-center gap-2 group">
+                    <span className="w-1 h-1 rounded-full bg-slate-700 group-hover:bg-blue-500 transition-colors" />
+                    Clients
+                  </a>
+                </li>
+                <li>
+                  <a href="#contact" className="text-slate-400 hover:text-white transition-colors inline-flex items-center gap-2 group">
+                    <span className="w-1 h-1 rounded-full bg-slate-700 group-hover:bg-blue-500 transition-colors" />
+                    Contact
+                  </a>
+                </li>
+                <li>
+                  <button onClick={handlePortalClick} className="text-slate-400 hover:text-white transition-colors inline-flex items-center gap-2 group">
+                    <span className="w-1 h-1 rounded-full bg-slate-700 group-hover:bg-blue-500 transition-colors" />
+                    Portal Login
+                  </button>
+                </li>
+              </ul>
             </div>
-            <div className="text-center md:text-right">
-              <p className="text-xs text-slate-500">Minneapolis, MN</p>
+
+            {/* Connect */}
+            <div className="md:col-span-4 flex flex-col gap-4">
+              <h3 className="text-xs font-semibold text-white uppercase tracking-wider">Connect</h3>
+
+              {/* Direct email CTA */}
+              <a
+                href="mailto:volkan@3brothersmarketing.com"
+                className="group flex items-start gap-3 p-3 rounded-lg bg-slate-800/60 border border-slate-800 hover:border-blue-500/60 hover:bg-slate-800 transition-all"
+              >
+                <div className="flex-none w-9 h-9 rounded-md bg-slate-900 flex items-center justify-center group-hover:bg-blue-500/10 transition-colors">
+                  <svg className="w-[18px] h-[18px] text-slate-400 group-hover:text-blue-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Email us</p>
+                  <p className="text-sm font-medium text-white truncate group-hover:text-blue-400 transition-colors">
+                    volkan@3brothersmarketing.com
+                  </p>
+                </div>
+              </a>
+
+              {/* Social */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  {/* Instagram */}
+                  <a
+                    href="https://www.instagram.com/3brothersmarketingmn/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Follow us on Instagram"
+                    className="group inline-flex items-center gap-2 pl-2 pr-3 py-2 rounded-lg bg-slate-800/60 border border-slate-800 hover:border-transparent hover:bg-gradient-to-br hover:from-purple-500 hover:via-pink-500 hover:to-amber-400 transition-all duration-200"
+                  >
+                    <svg className="w-[18px] h-[18px] text-slate-400 group-hover:text-white transition-colors duration-200" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
+                    </svg>
+                    <span className="text-xs font-medium text-slate-300 group-hover:text-white transition-colors duration-200">Instagram</span>
+                  </a>
+                  {/* LinkedIn */}
+                  <a
+                    href="https://www.linkedin.com/company/3brothersmarketing"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Follow us on LinkedIn"
+                    className="group inline-flex items-center gap-2 pl-2 pr-3 py-2 rounded-lg bg-slate-800/60 border border-slate-800 hover:border-transparent hover:bg-[#0A66C2] transition-all duration-200"
+                  >
+                    <svg className="w-[18px] h-[18px] text-slate-400 group-hover:text-white transition-colors duration-200" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+                    </svg>
+                    <span className="text-xs font-medium text-slate-300 group-hover:text-white transition-colors duration-200">LinkedIn</span>
+                  </a>
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Divider */}
           <div className="border-t border-slate-800" />
 
-          {/* Bottom row: social links + copyright */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            {/* Social links */}
-            <div className="flex items-center gap-4">
-              <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Connect With Us</span>
-              <div className="flex items-center gap-2">
-                {/* Instagram */}
-                <a
-                  href="https://www.instagram.com/3brothersmarketingmn/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="Follow us on Instagram"
-                  className="group flex items-center justify-center w-9 h-9 rounded-lg bg-slate-800 hover:bg-gradient-to-br hover:from-purple-500 hover:via-pink-500 hover:to-amber-400 transition-all duration-200"
-                >
-                  <svg className="w-[18px] h-[18px] text-slate-400 group-hover:text-white transition-colors duration-200" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
-                  </svg>
-                </a>
-                {/* LinkedIn */}
-                <a
-                  href="https://www.linkedin.com/company/3brothersmarketing"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="Follow us on LinkedIn"
-                  className="group flex items-center justify-center w-9 h-9 rounded-lg bg-slate-800 hover:bg-[#0A66C2] transition-all duration-200"
-                >
-                  <svg className="w-[18px] h-[18px] text-slate-400 group-hover:text-white transition-colors duration-200" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
-                  </svg>
-                </a>
-              </div>
-            </div>
-
-            {/* Copyright */}
-            <p className="text-xs text-slate-600">
+          {/* Bottom bar */}
+          <div className="flex items-center justify-center -mt-4">
+            <p className="text-xs text-slate-500">
               &copy; {new Date().getFullYear()} 3Brothers Marketing. All rights reserved.
             </p>
           </div>

@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 interface UseCommentHandlersParams {
@@ -24,6 +25,8 @@ export function useCommentHandlers({
   setScorecards, setEditingScoreCard, setSelectedCategory,
   scorecardsRef,
 }: UseCommentHandlersParams) {
+  const [isAddingComment, setIsAddingComment] = useState(false);
+  const addingRef = useRef(false);
 
   async function loadScorecardComments(scorecardId: string) {
     try {
@@ -156,8 +159,11 @@ export function useCommentHandlers({
   }
 
   async function handleAddComment() {
+    if (addingRef.current) return;
     if (!commentInput.trim() || openCommentRowId == null || !isScorecard(selectedCategory) || !user) return;
 
+    addingRef.current = true;
+    setIsAddingComment(true);
     try {
       const currentScorecard = editingScoreCard;
       const requestBody: any = {
@@ -230,6 +236,9 @@ export function useCommentHandlers({
     } catch (error) {
       console.error('Error adding comment:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to add comment');
+    } finally {
+      addingRef.current = false;
+      setIsAddingComment(false);
     }
   }
 
@@ -240,5 +249,6 @@ export function useCommentHandlers({
     handleOpenCommentModal,
     handleCloseCommentModal,
     handleAddComment,
+    isAddingComment,
   };
 }

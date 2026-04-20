@@ -53,11 +53,10 @@ export default function LoginPage() {
         password,
       });
 
-      setLoading(false);
-
       if (error || !data?.session) {
         // Generic message — never reveal whether the email exists or the exact failure reason
         setError('Invalid email or password.');
+        setLoading(false);
         return;
       }
 
@@ -73,6 +72,7 @@ export default function LoginPage() {
 
       if (!response.ok) {
         setError('Authentication failed. Please try again.');
+        setLoading(false);
         return;
       }
 
@@ -116,6 +116,7 @@ export default function LoginPage() {
         if (tfaData?.enabled) {
           setPendingRedirect(redirectTo);
           setNeeds2FA(true);
+          setLoading(false);
           return;
         }
       }
@@ -204,7 +205,10 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen min-h-[100dvh] flex items-center justify-center relative overflow-hidden">
+    <div
+      className="min-h-screen min-h-[100dvh] flex items-center justify-center relative overflow-hidden"
+      style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
       {/* Background — reuses the hero image from the landing page for brand continuity */}
       <div
         aria-hidden="true"
@@ -295,7 +299,7 @@ export default function LoginPage() {
                 type="button"
                 onClick={handleReset2FA}
                 disabled={loading || !resetPassword}
-                className="w-full py-3.5 bg-blue-500 text-white font-semibold rounded-xl hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 flex items-center justify-center gap-2"
+                className="w-full py-4 min-h-[48px] bg-blue-500 text-white font-semibold rounded-xl [@media(hover:hover)]:hover:bg-blue-600 active:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 flex items-center justify-center gap-2 text-base"
               >
                 {loading && (
                   <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
@@ -334,7 +338,7 @@ export default function LoginPage() {
                   onChange={e => setTotpCode(e.target.value.replace(/\D/g, ''))}
                   placeholder="000000"
                   autoFocus
-                  className="w-full border border-slate-200 rounded-xl px-4 py-3.5 text-center text-2xl font-mono tracking-[0.5em] text-slate-900 placeholder-slate-300 bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-4 min-h-[52px] text-center text-2xl font-mono tracking-[0.5em] text-slate-900 placeholder-slate-300 bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all"
                 />
               </div>
 
@@ -357,7 +361,7 @@ export default function LoginPage() {
                 type="button"
                 onClick={handleVerify2FA}
                 disabled={loading || totpCode.length !== 6}
-                className="w-full py-3.5 bg-blue-500 text-white font-semibold rounded-xl hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 flex items-center justify-center gap-2"
+                className="w-full py-4 min-h-[48px] bg-blue-500 text-white font-semibold rounded-xl [@media(hover:hover)]:hover:bg-blue-600 active:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 flex items-center justify-center gap-2 text-base"
               >
                 {loading && (
                   <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
@@ -401,7 +405,7 @@ export default function LoginPage() {
                   name="email"
                   placeholder="you@company.com"
                   required
-                  className="w-full pl-11 pr-4 py-3.5 border border-slate-200 rounded-xl bg-slate-50/50 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all text-sm"
+                  className="w-full pl-11 pr-4 py-4 min-h-[48px] border border-slate-200 rounded-xl bg-slate-50/50 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all text-base"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   autoComplete="email"
@@ -427,7 +431,7 @@ export default function LoginPage() {
                   name="password"
                   placeholder="Enter your password"
                   required
-                  className="w-full pl-11 pr-11 py-3.5 border border-slate-200 rounded-xl bg-slate-50/50 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all text-sm"
+                  className="w-full pl-11 pr-11 py-4 min-h-[48px] border border-slate-200 rounded-xl bg-slate-50/50 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all text-base"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
@@ -435,7 +439,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded p-0.5"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 [@media(hover:hover)]:hover:text-slate-600 active:text-slate-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg w-11 h-11 inline-flex items-center justify-center"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   tabIndex={0}
                 >
@@ -456,7 +460,7 @@ export default function LoginPage() {
             {/* Sign in button */}
             <button
               type="submit"
-              className="w-full py-3.5 mt-2 bg-blue-500 text-white font-semibold rounded-xl hover:bg-blue-600 active:scale-[0.98] transition-all shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 flex items-center justify-center gap-2 text-sm"
+              className="w-full py-4 min-h-[48px] mt-2 bg-blue-500 text-white font-semibold rounded-xl [@media(hover:hover)]:hover:bg-blue-600 active:bg-blue-600 active:scale-[0.98] transition-all shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 flex items-center justify-center gap-2 text-base"
               disabled={loading}
             >
               {loading && (

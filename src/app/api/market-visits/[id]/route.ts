@@ -74,12 +74,81 @@ export async function PUT(
     if (body.note !== undefined) {
       try {
         const newText = `[Market Visit — ${updated.visit_date} · ${updated.store_name || ''}] ${body.note}`;
-        const { error: syncErr } = await supabaseAdmin
+        const { data: updatedComments, error: syncErr } = await supabaseAdmin
           .from('comments')
           .update({ text: newText, updated_at: new Date().toISOString() })
-          .eq('market_visit_id', id);
+          .eq('market_visit_id', id)
+          .select('id, scorecard_id, row_id, parent_row_id');
 
         if (syncErr) logger.error('Comment sync failed:', syncErr);
+
+        // Notify brand users that the note was edited. Mirrors POST fan-out
+        // but only on parent-row comments — subgrid comments share the same
+        // text and would just duplicate the notification per store.
+        const parentComments = (updatedComments || []).filter((c) => !c.parent_row_id);
+        if (parentComments.length > 0) {
+          const actor = auth.user!;
+          const adminName = actor.user_metadata?.name || actor.email?.split('@')[0] || 'Admin';
+
+          const scorecardIds = Array.from(new Set(parentComments.map((c) => c.scorecard_id)));
+          const [{ data: scorecards }, { data: assignments }] = await Promise.all([
+            supabaseAdmin
+              .from('user_scorecards')
+              .select('id, title, data')
+              .in('id', scorecardIds),
+            supabaseAdmin
+              .from('brand_user_assignments')
+              .select('user_id, scorecard_id')
+              .in('scorecard_id', scorecardIds),
+          ]);
+
+          const scorecardById = new Map((scorecards || []).map((s: any) => [s.id, s]));
+          const usersByScorecard = new Map<string, string[]>();
+          for (const a of (assignments || []) as { user_id: string; scorecard_id: string }[]) {
+            const list = usersByScorecard.get(a.scorecard_id) || [];
+            list.push(a.user_id);
+            usersByScorecard.set(a.scorecard_id, list);
+          }
+
+          const notifs: any[] = [];
+          for (const c of parentComments) {
+            const sc: any = scorecardById.get(c.scorecard_id);
+            const userIds = usersByScorecard.get(c.scorecard_id) || [];
+            if (!sc || userIds.length === 0) continue;
+
+            const matchedRow = (sc.data?.rows || []).find(
+              (r: any) => String(r.id) === c.row_id,
+            );
+            const rowName = matchedRow?.name || `Row ${c.row_id}`;
+            const storeLabel = updated.store_name || rowName;
+            const message = `${adminName} edited a market visit note on ${storeLabel} in ${sc.title}`;
+
+            for (const uid of userIds) {
+              notifs.push({
+                recipient_role: 'BRAND',
+                recipient_user_id: uid,
+                actor_user_id: actor.id,
+                actor_name: adminName,
+                action_type: 'market_visit_comment_updated',
+                scorecard_id: sc.id,
+                scorecard_name: sc.title,
+                row_id: c.row_id,
+                row_name: rowName,
+                store_name: updated.store_name || null,
+                comment_id: c.id,
+                message,
+                is_read: false,
+              });
+            }
+          }
+
+          if (notifs.length > 0) {
+            const { error: notifErr } = await supabaseAdmin
+              .from('notifications')
+              .insert(notifs);
+            if (notifErr) logger.error('Market visit update notification failed:', notifErr);
+          }
+        }
       } catch (syncErr) {
         logger.error('Comment sync error:', syncErr);
       }

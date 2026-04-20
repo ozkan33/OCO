@@ -4,6 +4,7 @@ import {
   listActiveBrands,
   mondayOf,
 } from '@/lib/weeklySummary';
+import { sendWeeklySummaryEmail } from '@/lib/weeklyEmail';
 import { logger } from '../../../../../lib/logger';
 
 // Each brand call is ~2-5s (Gemini latency + Supabase round trips).
@@ -52,12 +53,37 @@ export async function GET(request: Request) {
   }
 
   const brands = brandParam ? [brandParam] : await listActiveBrands();
-  const results: Array<{ brand: string; ok: boolean; error?: string; stats?: unknown }> = [];
+  const skipEmail = url.searchParams.get('email') === 'false';
+  const weekOfISO = weekOf.toISOString().slice(0, 10);
+  const results: Array<{
+    brand: string;
+    ok: boolean;
+    error?: string;
+    stats?: unknown;
+    email?: { sent: number; skipped?: boolean; error?: string };
+  }> = [];
 
   for (const brand of brands) {
     try {
-      const { data } = await buildWeeklySummaryForBrand(brand, weekOf);
-      results.push({ brand, ok: true, stats: data.stats });
+      const { data } = await buildWeeklySummaryForBrand(brand, weekOf, 'cron');
+      const result: (typeof results)[number] = { brand, ok: true, stats: data.stats };
+
+      if (!skipEmail) {
+        try {
+          const emailResult = await sendWeeklySummaryEmail(brand, weekOfISO);
+          result.email = {
+            sent: emailResult.recipients.length,
+            skipped: emailResult.skipped || undefined,
+            error: emailResult.error,
+          };
+        } catch (emailErr) {
+          const msg = emailErr instanceof Error ? emailErr.message : String(emailErr);
+          logger.error(`[weekly-summary] email failed for ${brand}: ${msg}`);
+          result.email = { sent: 0, error: msg };
+        }
+      }
+
+      results.push(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error(`[weekly-summary] failed for ${brand}: ${msg}`);
@@ -66,7 +92,7 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({
-    week_of: weekOf.toISOString().slice(0, 10),
+    week_of: weekOfISO,
     brands: brands.length,
     results,
   });

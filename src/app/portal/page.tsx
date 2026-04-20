@@ -53,6 +53,8 @@ export default function PortalDashboard() {
   const [addingNoteFor, setAddingNoteFor] = useState<{ scorecardId: string; rowId: string } | null>(null);
   const [noteText, setNoteText] = useState('');
   const [submittingNote, setSubmittingNote] = useState(false);
+  const [savingCommentEdit, setSavingCommentEdit] = useState(false);
+  const [savingVisitCommentEdit, setSavingVisitCommentEdit] = useState(false);
   const [editingComment, setEditingComment] = useState<{ id: string; scorecardId: string; rowId: string } | null>(null);
   const [editText, setEditText] = useState('');
   const [photoCommentText, setPhotoCommentText] = useState<Record<string, string>>({});
@@ -70,24 +72,40 @@ export default function PortalDashboard() {
     | { kind: 'visit'; visitId: string }
     | null
   >(null);
+  const [visitsQuery, setVisitsQuery] = useState('');
+  const [chainSearch, setChainSearch] = useState('');
+  const [activityFilter, setActivityFilter] = useState<'all' | '7d' | '30d' | 'unread'>('all');
+  const [sortMode, setSortMode] = useState<'default' | 'recent'>('default');
+  // Per-row last-seen timestamps. Persisted to localStorage so unread state
+  // survives reloads. Keyed by `${scorecardId}:${rowId}`. Note: localStorage
+  // is per-browser, so unread state does not sync across devices — acceptable
+  // for v1 since brand users typically check from one machine.
+  const [lastSeenMap, setLastSeenMap] = useState<Record<string, number>>({});
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [visibleCountPerRow, setVisibleCountPerRow] = useState<Record<string, number>>({});
+  // Per-store expansion inside an expanded Store Visits section.
+  // Key: `${scorecardId}:${rowId}` -> Set of storeNames that are expanded.
+  const [expandedStoresPerRow, setExpandedStoresPerRow] = useState<Record<string, Set<string>>>({});
   const [pulseThread, setPulseThread] = useState<string | null>(null);
   const threadRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Auto-expand the Chain Discussion thread when a notification deep-links to a row.
+  // Auto-expand the Chain Discussion thread AND Store Visits section when a
+  // notification deep-links to a row. We don't know if the notification is chain-
+  // or store-related, so open both so the user sees the full context immediately.
   // We leave the row expanded after the highlight clears — the user is reading.
   useEffect(() => {
     if (highlight?.kind !== 'row') return;
     const key = `${highlight.scorecardId}:${highlight.rowId}`;
+    const storesKey = `${key}:stores`;
     setExpandedRows(prev => {
-      if (prev.has(key)) return prev;
+      if (prev.has(key) && prev.has(storesKey)) return prev;
       const next = new Set(prev);
       next.add(key);
+      next.add(storesKey);
       return next;
     });
-    // Brief ring pulse on the indigo thread panel so the eye lands on the conversation.
+    // Brief ring pulse on the thread panel so the eye lands on the conversation.
     setPulseThread(key);
     const t = setTimeout(() => setPulseThread(curr => (curr === key ? null : curr)), 1500);
     // After the thread renders expanded, scroll the inner container to the latest message.
@@ -121,6 +139,56 @@ export default function PortalDashboard() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [refreshData]);
+
+  // Brand-scoped storage key for last-seen state. Scoping by brand prevents
+  // cross-pollination if two brand users share a browser.
+  const lastSeenStorageKey = useMemo(() => {
+    const brand = (data?.brand || 'unknown').toLowerCase().replace(/\s+/g, '_');
+    return `portal:lastSeen:${brand}`;
+  }, [data?.brand]);
+
+  // Hydrate lastSeen map once we know the brand.
+  useEffect(() => {
+    if (!data?.brand) return;
+    try {
+      const raw = window.localStorage.getItem(lastSeenStorageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') setLastSeenMap(parsed as Record<string, number>);
+    } catch {
+      // ignore — corrupt JSON, treat as empty
+    }
+  }, [data?.brand, lastSeenStorageKey]);
+
+  // Mark a row as seen "now" and persist. Called when the user opens a thread.
+  const markRowSeen = useCallback((scorecardId: string, rowId: string) => {
+    const key = `${scorecardId}:${rowId}`;
+    setLastSeenMap(prev => {
+      const next = { ...prev, [key]: Date.now() };
+      try { window.localStorage.setItem(lastSeenStorageKey, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [lastSeenStorageKey]);
+
+  // Latest comment timestamp on a row (any author). Returns 0 if none.
+  const latestActivityTs = useCallback((comments?: Comment[]) => {
+    if (!comments || comments.length === 0) return 0;
+    let max = 0;
+    for (const c of comments) {
+      const t = new Date(c.date).getTime();
+      if (!Number.isNaN(t) && t > max) max = t;
+    }
+    return max;
+  }, []);
+
+  // True if the row has any comment newer than the user's last-seen mark,
+  // OR if there is activity but no last-seen mark yet.
+  const isRowUnread = useCallback((scorecardId: string, rowId: string, comments?: Comment[]) => {
+    const latest = latestActivityTs(comments);
+    if (latest === 0) return false;
+    const seen = lastSeenMap[`${scorecardId}:${rowId}`] ?? 0;
+    return latest > seen;
+  }, [lastSeenMap, latestActivityTs]);
 
   const handleAddNote = async (scorecardId: string, rowId: string) => {
     if (!noteText.trim() || submittingNote) return;
@@ -163,7 +231,9 @@ export default function PortalDashboard() {
   };
 
   const handleEditComment = async (commentId: string, scorecardId: string, rowId: string) => {
+    if (savingCommentEdit) return;
     if (!editText.trim()) return;
+    setSavingCommentEdit(true);
     try {
       const res = await fetch('/api/portal/comments', {
         method: 'PUT',
@@ -187,7 +257,9 @@ export default function PortalDashboard() {
       });
       setEditingComment(null);
       setEditText('');
-    } catch { /* silent */ }
+    } catch { /* silent */ } finally {
+      setSavingCommentEdit(false);
+    }
   };
 
   const handleDeleteComment = (commentId: string, scorecardId: string, rowId: string) => {
@@ -266,8 +338,10 @@ export default function PortalDashboard() {
   };
 
   const handleEditVisitComment = async (commentId: string, visitId: string) => {
+    if (savingVisitCommentEdit) return;
     const trimmed = editVisitText.trim();
     if (!trimmed) return;
+    setSavingVisitCommentEdit(true);
     try {
       const res = await fetch('/api/portal/comments', {
         method: 'PUT',
@@ -285,6 +359,8 @@ export default function PortalDashboard() {
       toast.success('Comment updated');
     } catch {
       toast.error('Could not update comment.');
+    } finally {
+      setSavingVisitCommentEdit(false);
     }
   };
 
@@ -377,7 +453,7 @@ export default function PortalDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen min-h-[100dvh] bg-slate-50">
         <header className="bg-white border-b border-slate-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -412,7 +488,7 @@ export default function PortalDashboard() {
 
   if (!data) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-slate-50 px-4 text-center">
         <p className="text-slate-500">Unable to load dashboard. Please try again.</p>
       </div>
     );
@@ -428,29 +504,43 @@ export default function PortalDashboard() {
     return new Date(b.visit_date).getTime() - new Date(a.visit_date).getTime();
   });
 
+  const trimmedVisitsQuery = visitsQuery.trim().toLowerCase();
+  const filteredVisits = trimmedVisitsQuery
+    ? sortedVisits.filter(v => {
+        const haystack = [
+          v.store_name,
+          v.address,
+          v.note,
+          v.visit_date,
+        ].filter(Boolean).join(' ').toLowerCase();
+        return haystack.includes(trimmedVisitsQuery);
+      })
+    : sortedVisits;
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+    <div className="min-h-screen min-h-[100dvh] bg-gradient-to-b from-slate-50 to-white">
       <Toaster position="top-right" richColors closeButton />
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <a href="/" className="flex items-center gap-3 group" title="Go to 3Brothers Marketing">
-              <div className="p-1.5 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 group-hover:border-blue-200 transition-colors">
-                <LogoMark size={28} />
-              </div>
-              <div className="leading-tight">
-                <h1 className="text-[15px] font-semibold text-slate-900 tracking-tight">{brand}</h1>
-                <p className="text-xs text-slate-500">Welcome back, <span className="text-slate-700 font-medium">{contactName}</span></p>
-              </div>
-            </a>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-3">
+      <header
+        className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40"
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      >
+        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-3.5 flex items-center justify-between gap-3">
+          <a href="/" className="flex items-center gap-3 group min-w-0 flex-1" title="Go to 3Brothers Marketing">
+            <div className="p-1.5 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 group-hover:border-blue-200 transition-colors flex-shrink-0">
+              <LogoMark size={28} />
+            </div>
+            <div className="leading-tight min-w-0">
+              <h1 className="text-[15px] font-semibold text-slate-900 tracking-tight truncate">{brand}</h1>
+              <p className="text-xs text-slate-500 truncate">Welcome back, <span className="text-slate-700 font-medium">{contactName}</span></p>
+            </div>
+          </a>
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
             <PortalNotificationBell onNotificationClick={handleNotificationClick} />
             <div className="h-5 w-px bg-slate-200 hidden sm:block" />
             <button
               onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 font-medium px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 font-medium px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 flex-shrink-0"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
@@ -461,9 +551,12 @@ export default function PortalDashboard() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <main
+        className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6"
+        style={{ paddingBottom: 'max(1.5rem, calc(1.5rem + env(safe-area-inset-bottom)))' }}
+      >
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
           <SummaryCard label="Total Customers" value={summary.totalRetailers} color="slate" />
           <SummaryCard label="Authorized" value={summary.authorized} color="green" />
           <SummaryCard label="In Process" value={summary.inProcess} color="blue" />
@@ -508,9 +601,102 @@ export default function PortalDashboard() {
         </div>
 
         {/* Product Status Tab */}
-        {activeTab === 'overview' && (
+        {activeTab === 'overview' && (() => {
+          // Aggregate unread count across every retailer in every scorecard.
+          // Drives the badge inside the filter bar so the brand user can see
+          // at a glance how many chains have new activity since they last looked.
+          let totalUnread = 0;
+          for (const sc of scorecards) {
+            for (const r of sc.retailers) {
+              if (isRowUnread(sc.id, r.rowId, r.comments)) totalUnread++;
+            }
+          }
+          const isFiltering = chainSearch.trim() !== '' || activityFilter !== 'all' || sortMode !== 'default';
+          const resetFilters = () => {
+            setChainSearch('');
+            setActivityFilter('all');
+            setSortMode('default');
+          };
+          return (
           <div className="space-y-6">
             <WeeklySummaryCard summary={weeklySummary} />
+            {scorecards.length > 0 && (
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-3 flex flex-col lg:flex-row lg:items-center gap-3">
+                {/* Search */}
+                <div className="relative flex-1 min-w-0 lg:max-w-sm">
+                  <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                  </svg>
+                  <input
+                    type="search"
+                    value={chainSearch}
+                    onChange={e => setChainSearch(e.target.value)}
+                    placeholder="Search chains…"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-8 py-2 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    aria-label="Search chains"
+                  />
+                  {chainSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setChainSearch('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-md"
+                      aria-label="Clear search"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                {/* Activity filter pills */}
+                <div className="inline-flex items-center bg-slate-100 rounded-xl p-0.5 shrink-0">
+                  {([
+                    { key: 'all',    label: 'All' },
+                    { key: 'unread', label: 'Unread', count: totalUnread },
+                    { key: '7d',     label: 'Last 7d' },
+                    { key: '30d',    label: 'Last 30d' },
+                  ] as const).map(opt => {
+                    const active = activityFilter === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setActivityFilter(opt.key)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                        aria-pressed={active}
+                      >
+                        {opt.label}
+                        {'count' in opt && opt.count !== undefined && opt.count > 0 && (
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${active ? 'bg-blue-50 text-blue-700' : 'bg-blue-600 text-white'}`}>{opt.count}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Sort */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <label htmlFor="portal-sort" className="text-xs font-medium text-slate-500">Sort</label>
+                  <select
+                    id="portal-sort"
+                    value={sortMode}
+                    onChange={e => setSortMode(e.target.value as 'default' | 'recent')}
+                    className="bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="default">Default order</option>
+                    <option value="recent">Most recent activity</option>
+                  </select>
+                </div>
+                {isFiltering && (
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="text-xs font-medium text-slate-500 hover:text-slate-800 px-2 py-1 rounded-md hover:bg-slate-100 transition-colors lg:ml-auto"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            )}
             {scorecards.length === 0 ? (
               <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
                 <div className="mx-auto w-14 h-14 rounded-full bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 flex items-center justify-center mb-4">
@@ -521,13 +707,43 @@ export default function PortalDashboard() {
                 <h3 className="text-sm font-semibold text-slate-800">No scorecards assigned yet</h3>
                 <p className="text-xs text-slate-500 mt-1">Your broker will set this up shortly.</p>
               </div>
-            ) : scorecards.map(sc => (
-              <div key={sc.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-                  <h3 className="text-sm font-bold text-slate-800">{sc.scorecardName}</h3>
-                  <p className="text-xs text-slate-400">{sc.retailers.length} customer{sc.retailers.length !== 1 ? 's' : ''}</p>
+            ) : scorecards.map(sc => {
+              // Apply search/activity filter and sort to this scorecard's retailers.
+              const q = chainSearch.trim().toLowerCase();
+              const now = Date.now();
+              const windowMs = activityFilter === '7d' ? 7 * 24 * 60 * 60 * 1000
+                : activityFilter === '30d' ? 30 * 24 * 60 * 60 * 1000
+                : 0;
+              const visibleRetailers = sc.retailers.filter(r => {
+                if (q && !r.retailerName.toLowerCase().includes(q)) return false;
+                if (activityFilter === 'unread' && !isRowUnread(sc.id, r.rowId, r.comments)) return false;
+                if (windowMs > 0) {
+                  const latest = latestActivityTs(r.comments);
+                  if (latest === 0 || now - latest > windowMs) return false;
+                }
+                return true;
+              });
+              if (sortMode === 'recent') {
+                visibleRetailers.sort((a, b) => latestActivityTs(b.comments) - latestActivityTs(a.comments));
+              }
+              return (
+              <div key={sc.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm">
+                <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 rounded-t-2xl flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">{sc.scorecardName}</h3>
+                    <p className="text-xs text-slate-400">
+                      {visibleRetailers.length === sc.retailers.length
+                        ? `${sc.retailers.length} customer${sc.retailers.length !== 1 ? 's' : ''}`
+                        : `${visibleRetailers.length} of ${sc.retailers.length} customer${sc.retailers.length !== 1 ? 's' : ''}`}
+                    </p>
+                  </div>
                 </div>
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto rounded-b-2xl">
+                  {visibleRetailers.length === 0 ? (
+                    <div className="px-5 py-10 text-center">
+                      <p className="text-sm text-slate-500">No chains match your filters.</p>
+                    </div>
+                  ) : (
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-slate-100">
@@ -540,8 +756,17 @@ export default function PortalDashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {sc.retailers.map((r, i) => {
+                      {visibleRetailers.map((r, i) => {
                         const isAddingNote = addingNoteFor?.scorecardId === sc.id && addingNoteFor?.rowId === r.rowId;
+                        // Split r.comments into chain-level vs store-visit-level to drive both
+                        // the header indicators and the expanded thread panel below.
+                        const mvRegexRow = /^\[Market Visit\s+[\u2014\u2013-]\s+(\d{4}-\d{2}-\d{2})(?:\s+[·\u00B7]\s+([^\]]+))?\]\s*([\s\S]*)$/;
+                        let chainNoteCount = 0;
+                        let storeNoteCount = 0;
+                        (r.comments || []).forEach(c => {
+                          if (mvRegexRow.test(c.text)) storeNoteCount++;
+                          else chainNoteCount++;
+                        });
                         return (
                         <Fragment key={i}>
                           <tr
@@ -553,10 +778,30 @@ export default function PortalDashboard() {
                             }`}
                           >
                             <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-medium text-slate-900">{r.retailerName}</span>
-                                {(r.comments?.length ?? 0) > 0 && (
-                                  <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">{r.comments!.length}</span>
+                                {chainNoteCount > 0 && (
+                                  <span
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.5 rounded-full"
+                                    title={`${chainNoteCount} chain ${chainNoteCount === 1 ? 'note' : 'notes'}`}
+                                  >
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+                                    </svg>
+                                    {chainNoteCount}
+                                  </span>
+                                )}
+                                {storeNoteCount > 0 && (
+                                  <span
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold bg-teal-50 text-teal-700 border border-teal-200 px-1.5 py-0.5 rounded-full"
+                                    title={`${storeNoteCount} store visit ${storeNoteCount === 1 ? 'note' : 'notes'}`}
+                                  >
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                    </svg>
+                                    {storeNoteCount}
+                                  </span>
                                 )}
                                 <button
                                   onClick={() => {
@@ -678,13 +923,34 @@ export default function PortalDashboard() {
                               setExpandedRows(prev => {
                                 const next = new Set(prev);
                                 if (next.has(expandKey)) next.delete(expandKey);
-                                else next.add(expandKey);
+                                else {
+                                  next.add(expandKey);
+                                  // Opening the thread counts as "seeing" the latest activity.
+                                  // Persists to localStorage so the unread badge clears across reloads.
+                                  markRowSeen(sc.id, r.rowId);
+                                }
                                 return next;
                               });
                             };
-                            const SectionHeader = ({ label }: { label: string }) => (
-                              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1 first:mt-0">{label}</div>
-                            );
+                            const rowUnread = isRowUnread(sc.id, r.rowId, r.comments);
+                            const SectionHeader = ({ label }: { label: string }) => {
+                              // Accent dot is color-keyed per section so the eye can lock on to each group quickly.
+                              const dot =
+                                label === 'Chain Discussion'
+                                  ? 'bg-blue-500'
+                                  : label === 'Store Visits'
+                                  ? 'bg-teal-500'
+                                  : label === 'Broker Summary'
+                                  ? 'bg-amber-500'
+                                  : 'bg-slate-400';
+                              return (
+                                <div className="flex items-center gap-1.5 mt-3 mb-0.5 first:mt-1 pl-0.5">
+                                  <span className={`w-1.5 h-1.5 rounded-full ${dot}`} aria-hidden="true" />
+                                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.12em]">{label}</span>
+                                  <span className="flex-1 h-px bg-slate-200/80" aria-hidden="true" />
+                                </div>
+                              );
+                            };
                             // Chain Discussion header summary — always computed cheaply.
                             const chainCount = chainNotes.length;
                             const lastChain = chainCount > 0 ? chainNotes[chainNotes.length - 1] : null;
@@ -720,8 +986,10 @@ export default function PortalDashboard() {
                                   : 'bg-slate-50/80'
                               }`}
                             >
-                              <td colSpan={r.products.length + 3} className="px-4 py-3">
-                                <div className="flex flex-col gap-2.5 max-w-2xl">
+                              {/* Indent the whole expanded payload (pl-10) so children visibly nest under the retailer name above.
+                                  A subtle vertical rail (border-l) ties these sub-sections to their parent retailer row. */}
+                              <td colSpan={r.products.length + 3} className="pl-10 pr-4 pt-2 pb-5">
+                                <div className="flex flex-col gap-2 max-w-2xl border-l-2 border-slate-200 pl-4 py-0.5">
                                   {/* 1. Chain Discussion — TOP priority, collapsed by default */}
                                   {chainCount > 0 && (
                                     <>
@@ -732,15 +1000,25 @@ export default function PortalDashboard() {
                                           type="button"
                                           onClick={toggleExpand}
                                           aria-expanded={false}
-                                          className="group/chhdr w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-br from-indigo-50/70 via-slate-50 to-slate-50 border border-indigo-100/70 hover:border-indigo-300 hover:from-indigo-50 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                                          className={`group/chhdr relative w-full flex items-center gap-2 pl-4 pr-3 py-2 rounded-xl shadow-sm text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 before:content-[''] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full ${
+                                            rowUnread
+                                              ? 'bg-blue-50 border border-blue-300 hover:bg-blue-100 hover:border-blue-400 before:bg-blue-500'
+                                              : 'bg-stone-50 border border-stone-300 hover:bg-stone-100/80 hover:border-stone-400 before:bg-slate-400'
+                                          }`}
                                         >
-                                          <svg className="w-3.5 h-3.5 text-indigo-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                          <svg className={`w-3.5 h-3.5 shrink-0 ${rowUnread ? 'text-blue-600' : 'text-slate-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
                                           </svg>
-                                          <span className="text-[11px] font-semibold text-indigo-700 uppercase tracking-wider shrink-0">Chain Discussion</span>
-                                          <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-100/80 border border-indigo-200 px-1.5 py-0.5 rounded-md shrink-0">
+                                          <span className={`text-[11px] font-semibold uppercase tracking-wider shrink-0 ${rowUnread ? 'text-blue-900' : 'text-slate-800'}`}>Chain Discussion</span>
+                                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md shrink-0 ${rowUnread ? 'bg-blue-600 text-white border border-blue-700' : 'bg-white text-slate-800 border border-stone-300'}`}>
                                             {chainCount}
                                           </span>
+                                          {rowUnread && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-white border border-blue-300 px-1.5 py-0.5 rounded-full shrink-0">
+                                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                                              NEW
+                                            </span>
+                                          )}
                                           {lastChain && (
                                             <>
                                               <span className="hidden sm:inline text-[10px] text-slate-400 shrink-0">Last reply: {relativeTime(lastChain.c.date)}</span>
@@ -749,7 +1027,7 @@ export default function PortalDashboard() {
                                               </span>
                                             </>
                                           )}
-                                          <svg className="w-3.5 h-3.5 text-slate-400 group-hover/chhdr:text-indigo-500 transition-colors shrink-0 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                          <svg className="w-3.5 h-3.5 text-slate-400 group-hover/chhdr:text-slate-700 transition-colors shrink-0 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                                           </svg>
                                         </button>
@@ -776,19 +1054,19 @@ export default function PortalDashboard() {
                                           };
                                           const pulse = pulseThread === expandKey;
                                           return (
-                                            <div className={`relative rounded-xl bg-gradient-to-br from-indigo-50/60 via-slate-50 to-slate-50 border px-3 py-2.5 transition-all ${pulse ? 'border-indigo-400 ring-2 ring-indigo-400/60 shadow-md' : 'border-indigo-100/70'}`}>
+                                            <div className={`relative rounded-xl bg-stone-50 border pl-4 pr-3 py-2.5 transition-all shadow-sm before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:rounded-full before:bg-slate-400 ${pulse ? 'border-blue-400 ring-2 ring-blue-400/50 shadow-md' : 'border-stone-300'}`}>
                                               {/* Thread header (expanded) */}
                                               <div className="flex items-center gap-1.5 mb-2">
-                                                <svg className="w-3.5 h-3.5 text-indigo-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <svg className="w-3.5 h-3.5 text-slate-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                                   <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
                                                 </svg>
-                                                <span className="text-[10px] font-semibold text-indigo-700 uppercase tracking-wider">Chain Discussion</span>
-                                                <span className="text-[10px] font-medium text-indigo-400/80">{chainCount} {chainCount === 1 ? 'message' : 'messages'}</span>
+                                                <span className="text-[10px] font-semibold text-slate-800 uppercase tracking-wider">Chain Discussion</span>
+                                                <span className="text-[10px] font-medium text-slate-400">{chainCount} {chainCount === 1 ? 'message' : 'messages'}</span>
                                                 <button
                                                   type="button"
                                                   onClick={toggleExpand}
                                                   aria-expanded={true}
-                                                  className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100/70 px-1.5 py-0.5 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                                                  className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-slate-700 hover:text-slate-900 hover:bg-stone-200/60 px-1.5 py-0.5 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                                                   title="Collapse thread"
                                                 >
                                                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -805,11 +1083,11 @@ export default function PortalDashboard() {
                                                   style={{ maskImage: 'linear-gradient(to bottom, transparent 0, black 18px, black calc(100% - 18px), transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, black 18px, black calc(100% - 18px), transparent 100%)' }}
                                                 >
                                                   {hasOlder && (
-                                                    <div className="sticky top-0 z-10 flex justify-center pt-1 pb-1.5 bg-gradient-to-b from-indigo-50/95 via-indigo-50/70 to-transparent">
+                                                    <div className="sticky top-0 z-10 flex justify-center pt-1 pb-1.5 bg-gradient-to-b from-slate-50/95 via-slate-50/70 to-transparent">
                                                       <button
                                                         type="button"
                                                         onClick={loadOlder}
-                                                        className="inline-flex items-center gap-1 text-[10px] font-medium text-indigo-700 hover:text-indigo-900 bg-white border border-indigo-200 hover:border-indigo-300 hover:bg-indigo-50 px-2 py-0.5 rounded-full shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                                                        className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-700 hover:text-slate-900 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 px-2 py-0.5 rounded-full shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                                                       >
                                                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                                           <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
@@ -829,11 +1107,11 @@ export default function PortalDashboard() {
                                                       <Fragment key={c.id || ci}>
                                                         {showBucket && (
                                                           <div className="flex items-center gap-2 py-1 select-none">
-                                                            <div className="flex-1 h-px bg-indigo-200/50" aria-hidden="true" />
-                                                            <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-400/90 bg-white/70 backdrop-blur-sm border border-indigo-100 px-2 py-0.5 rounded-full shadow-sm">
+                                                            <div className="flex-1 h-px bg-slate-200" aria-hidden="true" />
+                                                            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 bg-white/70 backdrop-blur-sm border border-slate-200 px-2 py-0.5 rounded-full shadow-sm">
                                                               {thisBucket}
                                                             </span>
-                                                            <div className="flex-1 h-px bg-indigo-200/50" aria-hidden="true" />
+                                                            <div className="flex-1 h-px bg-slate-200" aria-hidden="true" />
                                                           </div>
                                                         )}
                                                         <div className={`relative flex items-start gap-2 group/comment ${c.isOwn ? 'flex-row-reverse' : ''}`}>
@@ -841,11 +1119,11 @@ export default function PortalDashboard() {
                                                           {!isLast && (
                                                             <span
                                                               aria-hidden="true"
-                                                              className={`absolute top-7 h-[calc(100%-0.75rem)] w-px ${c.isOwn ? 'right-[11px] bg-blue-200/70' : 'left-[11px] bg-indigo-200/70'}`}
+                                                              className={`absolute top-7 h-[calc(100%-0.75rem)] w-px ${c.isOwn ? 'right-[11px] bg-blue-200/70' : 'left-[11px] bg-slate-200'}`}
                                                             />
                                                           )}
                                                           {/* Avatar */}
-                                                          <div className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold ring-2 ring-white ${c.isOwn ? 'bg-blue-600 text-white' : 'bg-indigo-100 text-indigo-700 border border-indigo-200'}`}>
+                                                          <div className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold ring-2 ring-white ${c.isOwn ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700 border border-slate-300'}`}>
                                                             {initial}
                                                           </div>
                                                           {/* Bubble */}
@@ -874,13 +1152,23 @@ export default function PortalDashboard() {
                                                                     className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white"
                                                                     autoFocus
                                                                     onKeyDown={e => {
-                                                                      if (e.key === 'Enter') handleEditComment(c.id!, sc.id, r.rowId);
-                                                                      if (e.key === 'Escape') { setEditingComment(null); setEditText(''); }
+                                                                      if (e.key === 'Enter' && !savingCommentEdit) handleEditComment(c.id!, sc.id, r.rowId);
+                                                                      if (e.key === 'Escape' && !savingCommentEdit) { setEditingComment(null); setEditText(''); }
                                                                     }}
+                                                                    disabled={savingCommentEdit}
                                                                   />
                                                                   <div className="flex items-center gap-1.5">
-                                                                    <button onClick={() => handleEditComment(c.id!, sc.id, r.rowId)} className="text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded transition-colors">Save</button>
-                                                                    <button onClick={() => { setEditingComment(null); setEditText(''); }} className="text-xs font-medium text-slate-400 hover:text-slate-600 px-2 py-0.5 rounded transition-colors">Cancel</button>
+                                                                    <button
+                                                                      onClick={() => handleEditComment(c.id!, sc.id, r.rowId)}
+                                                                      disabled={savingCommentEdit || !editText.trim()}
+                                                                      aria-busy={savingCommentEdit}
+                                                                      className="text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                    >{savingCommentEdit ? 'Saving…' : 'Save'}</button>
+                                                                    <button
+                                                                      onClick={() => { setEditingComment(null); setEditText(''); }}
+                                                                      disabled={savingCommentEdit}
+                                                                      className="text-xs font-medium text-slate-400 hover:text-slate-600 px-2 py-0.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                    >Cancel</button>
                                                                   </div>
                                                                 </div>
                                                               ) : (
@@ -919,91 +1207,278 @@ export default function PortalDashboard() {
                                     </>
                                   )}
 
-                                  {/* 2. Store Visits — grouped by store, location-card style */}
-                                  {storeNotes.length > 0 && (
-                                    <>
-                                      {showHeaders && <SectionHeader label="Store Visits" />}
-                                      <div className="flex flex-col gap-2">
-                                        {Array.from(storeGroups.entries()).map(([storeName, items]) => (
-                                          <div key={storeName} className="relative bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                                            {/* Teal accent bar */}
-                                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-teal-500" aria-hidden="true" />
-                                            {/* Store header */}
-                                            <div className="flex items-center gap-2 pl-4 pr-3 py-2 bg-teal-50/50 border-b border-slate-100">
-                                              <svg className="w-3.5 h-3.5 text-teal-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                                              </svg>
-                                              <span className="text-xs font-semibold text-slate-800 uppercase tracking-wide truncate" title={storeName}>{storeName}</span>
-                                              <span className="text-[10px] font-medium text-teal-700 bg-teal-100/70 border border-teal-200 px-1.5 py-0.5 rounded-md ml-auto shrink-0">
-                                                {items.length} {items.length === 1 ? 'visit note' : 'visit notes'}
+                                  {/* 2. Store Visits — collapsed-by-default summary + two-tier expand.
+                                      Read-only on Product Status; edits happen on the Market Visits tab. */}
+                                  {storeNotes.length > 0 && (() => {
+                                    // Keys are suffixed so they never collide with the chain-discussion key.
+                                    const storesKey = `${sc.id}:${r.rowId}:stores`;
+                                    const storesExpanded = expandedRows.has(storesKey);
+                                    const rowKey = `${sc.id}:${r.rowId}`;
+                                    // Helper: best-known timestamp for a parsed comment (prefer mvDate).
+                                    const tsOf = (p: { c: Comment; mvDate: string | null }) => {
+                                      const t1 = p.mvDate ? new Date(p.mvDate).getTime() : NaN;
+                                      if (!Number.isNaN(t1)) return t1;
+                                      const t2 = new Date(p.c.date).getTime();
+                                      return Number.isNaN(t2) ? 0 : t2;
+                                    };
+                                    // Sort store groups by most-recently-active first (cheap: one pass).
+                                    const storeGroupsSorted: Array<[string, typeof storeNotes]> = Array.from(storeGroups.entries())
+                                      .map(([name, items]) => {
+                                        const latest = items.reduce((mx, p) => Math.max(mx, tsOf(p)), 0);
+                                        return { name, items, latest };
+                                      })
+                                      .sort((a, b) => b.latest - a.latest)
+                                      .map(({ name, items }) => [name, items]);
+                                    const totalStoreNotes = storeNotes.length;
+                                    const totalStoreCount = storeGroupsSorted.length;
+                                    const mostRecentStore = storeGroupsSorted[0];
+                                    const latestStoreNote = mostRecentStore
+                                      ? mostRecentStore[1].slice().sort((a, b) => tsOf(b) - tsOf(a))[0]
+                                      : null;
+                                    const toggleStoresSection = () => {
+                                      setExpandedRows(prev => {
+                                        const next = new Set(prev);
+                                        if (next.has(storesKey)) next.delete(storesKey);
+                                        else {
+                                          next.add(storesKey);
+                                          // Seed per-store expansion: only the most-recently-active store.
+                                          setExpandedStoresPerRow(curr => {
+                                            if (curr[rowKey]) return curr;
+                                            const seed = new Set<string>();
+                                            if (mostRecentStore) seed.add(mostRecentStore[0]);
+                                            return { ...curr, [rowKey]: seed };
+                                          });
+                                        }
+                                        return next;
+                                      });
+                                    };
+                                    return (
+                                      <>
+                                        {showHeaders && <SectionHeader label="Store Visits" />}
+                                        {!storesExpanded ? (
+                                          // Collapsed: one compact summary button. Do NOT iterate storeGroups for rendering.
+                                          <button
+                                            type="button"
+                                            onClick={toggleStoresSection}
+                                            aria-expanded={false}
+                                            className="group/svhdr relative w-full flex items-center gap-2 pl-4 pr-3 py-2 rounded-xl bg-slate-50/60 border border-slate-300 shadow-sm hover:border-slate-400 hover:bg-slate-100/70 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 before:content-[''] before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-teal-400/70"
+                                          >
+                                            <svg className="w-3.5 h-3.5 text-teal-500/80 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                            </svg>
+                                            <span className="text-[11px] font-semibold text-slate-600 uppercase tracking-wider shrink-0">Store Visits</span>
+                                            <span className="text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-100 px-1.5 py-0.5 rounded-md shrink-0">
+                                              {totalStoreNotes}
+                                            </span>
+                                            <span className="hidden sm:inline text-[10px] text-slate-400 shrink-0">across {totalStoreCount} {totalStoreCount === 1 ? 'store' : 'stores'}</span>
+                                            {latestStoreNote && mostRecentStore && (
+                                              <span className="text-xs text-slate-500 truncate min-w-0 flex-1 italic">
+                                                Latest: <span className="font-medium text-slate-600 not-italic">{truncate(mostRecentStore[0], 24)}</span> · &ldquo;{truncate(latestStoreNote.displayText || latestStoreNote.c.text, 60)}&rdquo;
                                               </span>
-                                            </div>
-                                            {/* Store visit entries */}
-                                            <div className="divide-y divide-slate-100">
-                                              {items.map(({ c, mvDate, displayText }, idx) => {
-                                                const isEditing = editingComment?.id === c.id;
-                                                return (
-                                                  <div key={c.id || `${storeName}-${idx}`} className="group/storenote pl-4 pr-3 py-2.5">
-                                                    <div className="flex items-start justify-between gap-2 mb-1">
-                                                      <div className="flex items-center gap-1.5 min-w-0">
-                                                        <span className="text-[11px] font-semibold text-slate-700 truncate">{c.author}</span>
-                                                        <span className="text-[10px] text-slate-400 shrink-0">
-                                                          {mvDate
-                                                            ? new Date(mvDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-                                                            : `${new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${new Date(c.date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
-                                                          }
+                                            )}
+                                            <svg className="w-3.5 h-3.5 text-slate-400 group-hover/svhdr:text-slate-600 transition-colors shrink-0 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                            </svg>
+                                          </button>
+                                        ) : (() => {
+                                          // Expanded state — two-tier. Paginate stores (8 per page).
+                                          const STORE_PAGE = 8;
+                                          const storeCountKey = `${sc.id}:${r.rowId}:storeCount`;
+                                          const visibleStoreCount = visibleCountPerRow[storeCountKey] ?? STORE_PAGE;
+                                          const visibleStoreGroups = storeGroupsSorted.slice(0, visibleStoreCount);
+                                          const hiddenStoreCount = Math.max(0, storeGroupsSorted.length - visibleStoreCount);
+                                          const loadOlderStores = () => {
+                                            setVisibleCountPerRow(prev => ({ ...prev, [storeCountKey]: (prev[storeCountKey] ?? STORE_PAGE) + STORE_PAGE }));
+                                          };
+                                          const expandedStoreSet = expandedStoresPerRow[rowKey] || new Set<string>();
+                                          const toggleStore = (storeName: string) => {
+                                            setExpandedStoresPerRow(curr => {
+                                              const prevSet = curr[rowKey] || new Set<string>();
+                                              const nextSet = new Set(prevSet);
+                                              if (nextSet.has(storeName)) nextSet.delete(storeName);
+                                              else nextSet.add(storeName);
+                                              return { ...curr, [rowKey]: nextSet };
+                                            });
+                                          };
+                                          // Date-bucket helper local to store visits (same buckets as Chain Discussion).
+                                          const getDateBucket = (iso: string) => {
+                                            const d = new Date(iso);
+                                            if (Number.isNaN(d.getTime())) return 'Earlier';
+                                            const now = new Date();
+                                            const toKey = (x: Date) => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;
+                                            if (toKey(d) === toKey(now)) return 'Today';
+                                            const y = new Date(now);
+                                            y.setDate(y.getDate() - 1);
+                                            if (toKey(d) === toKey(y)) return 'Yesterday';
+                                            const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+                                            if (diffDays < 7) return 'This week';
+                                            return 'Earlier';
+                                          };
+                                          return (
+                                            <div className="relative rounded-xl bg-slate-50/60 border border-slate-300 shadow-sm pl-4 pr-3 py-2.5 before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:rounded-full before:bg-teal-400/70">
+                                              {/* Section header with collapse */}
+                                              <div className="flex items-center gap-1.5 mb-2">
+                                                <svg className="w-3.5 h-3.5 text-teal-500/80 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                                </svg>
+                                                <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Store Visits</span>
+                                                <span className="text-[10px] font-medium text-slate-400">{totalStoreNotes} {totalStoreNotes === 1 ? 'note' : 'notes'} · {totalStoreCount} {totalStoreCount === 1 ? 'store' : 'stores'}</span>
+                                                <button
+                                                  type="button"
+                                                  onClick={toggleStoresSection}
+                                                  aria-expanded={true}
+                                                  className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 px-1.5 py-0.5 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                                  title="Collapse store visits"
+                                                >
+                                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                                  </svg>
+                                                  Collapse
+                                                </button>
+                                              </div>
+                                              {/* Read-only notice — comments happen on the Market Visits tab */}
+                                              <div className="flex items-start gap-1.5 mb-2 px-2 py-1.5 rounded-md bg-slate-100/70 border border-slate-200/80">
+                                                <svg className="w-3.5 h-3.5 text-slate-500 shrink-0 mt-[1px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                                                </svg>
+                                                <p className="text-[10.5px] text-slate-600 leading-snug">
+                                                  Store visit notes are read-only here. To add a comment on a store visit, open the <span className="font-semibold text-slate-700">Market Visits</span> tab.
+                                                </p>
+                                              </div>
+                                              <div className="flex flex-col gap-2">
+                                                {visibleStoreGroups.map(([storeName, items]) => {
+                                                  const storeExpanded = expandedStoreSet.has(storeName);
+                                                  // Visits sorted chronologically (oldest -> newest) for grouping.
+                                                  const sortedItems = items.slice().sort((a, b) => tsOf(a) - tsOf(b));
+                                                  const latestItem = sortedItems[sortedItems.length - 1];
+                                                  const latestDateIso = latestItem
+                                                    ? (latestItem.mvDate || latestItem.c.date)
+                                                    : null;
+                                                  // Per-store visit pagination (10 per page, newest tail).
+                                                  const VISIT_PAGE = 10;
+                                                  const visitKey = `${sc.id}:${r.rowId}:store:${storeName}`;
+                                                  const visibleVisitCount = visibleCountPerRow[visitKey] ?? VISIT_PAGE;
+                                                  const visitStart = Math.max(0, sortedItems.length - visibleVisitCount);
+                                                  const visitSlice = sortedItems.slice(visitStart);
+                                                  const hasOlderVisits = visitStart > 0;
+                                                  const loadOlderVisits = () => {
+                                                    setVisibleCountPerRow(prev => ({ ...prev, [visitKey]: (prev[visitKey] ?? VISIT_PAGE) + VISIT_PAGE }));
+                                                  };
+                                                  return (
+                                                    <div key={storeName} className="relative bg-white border border-slate-200 rounded-xl overflow-hidden">
+                                                      {/* Store header — clickable toggle */}
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => toggleStore(storeName)}
+                                                        aria-expanded={storeExpanded}
+                                                        className={`group/storehdr w-full flex items-center gap-2 pl-4 pr-3 py-2 bg-white hover:bg-slate-50 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${storeExpanded ? 'border-b border-slate-100' : ''}`}
+                                                      >
+                                                        <svg className="w-3.5 h-3.5 text-teal-500/80 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                                        </svg>
+                                                        <span className="text-xs font-semibold text-slate-800 uppercase tracking-wide truncate" title={storeName}>{storeName}</span>
+                                                        <span className="text-[10px] font-medium text-teal-700 bg-teal-50 border border-teal-100 px-1.5 py-0.5 rounded-md shrink-0 ml-auto">
+                                                          {items.length} {items.length === 1 ? 'visit note' : 'visit notes'}
                                                         </span>
-                                                      </div>
-                                                      {c.isOwn && c.id && !isEditing && (
-                                                        <div className="flex gap-0.5 opacity-0 group-hover/storenote:opacity-100 transition-opacity shrink-0">
-                                                          <button
-                                                            onClick={() => { setEditingComment({ id: c.id!, scorecardId: sc.id, rowId: r.rowId }); setEditText(c.text); }}
-                                                            className="text-slate-400 hover:text-blue-600 transition-colors p-0.5 rounded"
-                                                            title="Edit note"
-                                                          >
-                                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
-                                                          </button>
-                                                          <button
-                                                            onClick={() => handleDeleteComment(c.id!, sc.id, r.rowId)}
-                                                            className="text-slate-400 hover:text-red-600 transition-colors p-0.5 rounded"
-                                                            title="Delete note"
-                                                          >
-                                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
-                                                          </button>
+                                                        {latestDateIso && (
+                                                          <span className="hidden sm:inline text-[10px] text-slate-400 shrink-0">{relativeTime(latestDateIso)}</span>
+                                                        )}
+                                                        <svg
+                                                          className={`w-3.5 h-3.5 text-slate-400 group-hover/storehdr:text-slate-600 transition-transform shrink-0 ${storeExpanded ? 'rotate-90' : ''}`}
+                                                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                                                        >
+                                                          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                                        </svg>
+                                                      </button>
+                                                      {/* Store visit entries — read-only on Product Status.
+                                                          To edit/delete store notes, brand users go to the
+                                                          Market Visits tab where they can comment directly
+                                                          on the visit photo. Only rendered when store is expanded. */}
+                                                      {storeExpanded && (
+                                                        <div className="divide-y divide-slate-100">
+                                                          {hasOlderVisits && (
+                                                            <div className="flex justify-center py-1.5 bg-slate-50/60">
+                                                              <button
+                                                                type="button"
+                                                                onClick={loadOlderVisits}
+                                                                className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-700 hover:text-slate-900 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 px-2 py-0.5 rounded-full shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                                              >
+                                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                                                                </svg>
+                                                                Show {Math.min(VISIT_PAGE, visitStart)} older {Math.min(VISIT_PAGE, visitStart) === 1 ? 'visit' : 'visits'}
+                                                              </button>
+                                                            </div>
+                                                          )}
+                                                          {visitSlice.map((entry, idx) => {
+                                                            const { c, mvDate, displayText } = entry;
+                                                            const bucketIso = mvDate || c.date;
+                                                            const thisBucket = getDateBucket(bucketIso);
+                                                            const prevIso = idx > 0 ? (visitSlice[idx - 1].mvDate || visitSlice[idx - 1].c.date) : null;
+                                                            const prevBucket = prevIso ? getDateBucket(prevIso) : null;
+                                                            const showBucket = idx === 0 || thisBucket !== prevBucket;
+                                                            return (
+                                                              <Fragment key={c.id || `${storeName}-${idx}`}>
+                                                                {showBucket && (
+                                                                  <div className="flex items-center gap-2 px-4 pt-2 pb-1 bg-slate-50/40 select-none">
+                                                                    <div className="flex-1 h-px bg-slate-200" aria-hidden="true" />
+                                                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full shadow-sm">
+                                                                      {thisBucket}
+                                                                    </span>
+                                                                    <div className="flex-1 h-px bg-slate-200" aria-hidden="true" />
+                                                                  </div>
+                                                                )}
+                                                                <div className="pl-4 pr-3 py-2.5">
+                                                                  <div className="flex items-center gap-1.5 mb-1 min-w-0">
+                                                                    <span className="text-[11px] font-semibold text-slate-700 truncate">{c.author}</span>
+                                                                    <span className="text-[10px] text-slate-400 shrink-0">
+                                                                      {mvDate
+                                                                        ? new Date(mvDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+                                                                        : `${new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${new Date(c.date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+                                                                      }
+                                                                    </span>
+                                                                    <span
+                                                                      className="ml-auto inline-flex items-center gap-1 text-[9px] font-semibold text-slate-400 uppercase tracking-wider shrink-0"
+                                                                      title="Read-only here — edit on the Market Visits tab"
+                                                                    >
+                                                                      <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                                                                      </svg>
+                                                                      Read-only
+                                                                    </span>
+                                                                  </div>
+                                                                  <p className="text-sm text-slate-700 leading-relaxed">{displayText}</p>
+                                                                </div>
+                                                              </Fragment>
+                                                            );
+                                                          })}
                                                         </div>
                                                       )}
                                                     </div>
-                                                    {isEditing ? (
-                                                      <div className="flex flex-col gap-1.5 mt-1">
-                                                        <input
-                                                          type="text"
-                                                          value={editText}
-                                                          onChange={e => setEditText(e.target.value)}
-                                                          className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white"
-                                                          autoFocus
-                                                          onKeyDown={e => {
-                                                            if (e.key === 'Enter') handleEditComment(c.id!, sc.id, r.rowId);
-                                                            if (e.key === 'Escape') { setEditingComment(null); setEditText(''); }
-                                                          }}
-                                                        />
-                                                        <div className="flex items-center gap-1.5">
-                                                          <button onClick={() => handleEditComment(c.id!, sc.id, r.rowId)} className="text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded transition-colors">Save</button>
-                                                          <button onClick={() => { setEditingComment(null); setEditText(''); }} className="text-xs font-medium text-slate-400 hover:text-slate-600 px-2 py-0.5 rounded transition-colors">Cancel</button>
-                                                        </div>
-                                                      </div>
-                                                    ) : (
-                                                      <p className="text-sm text-slate-700 leading-relaxed">{displayText}</p>
-                                                    )}
-                                                  </div>
-                                                );
-                                              })}
+                                                  );
+                                                })}
+                                                {hiddenStoreCount > 0 && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={loadOlderStores}
+                                                    className="inline-flex items-center justify-center gap-1 text-[11px] font-medium text-slate-700 hover:text-slate-900 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 px-2.5 py-1 rounded-full shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 self-center"
+                                                  >
+                                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                                    </svg>
+                                                    Show {Math.min(STORE_PAGE, hiddenStoreCount)} older {Math.min(STORE_PAGE, hiddenStoreCount) === 1 ? 'store' : 'stores'}
+                                                  </button>
+                                                )}
+                                              </div>
                                             </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </>
-                                  )}
+                                          );
+                                        })()}
+                                      </>
+                                    );
+                                  })()}
 
                                   {/* 3. Broker Note — persistent summary, reference at the bottom */}
                                   {r.notes && (
@@ -1035,11 +1510,14 @@ export default function PortalDashboard() {
                       })}
                     </tbody>
                   </table>
+                  )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
-        )}
+          );
+        })()}
 
         {/* Master Scorecard Tab */}
         {activeTab === 'scorecard' && (
@@ -1060,8 +1538,48 @@ export default function PortalDashboard() {
                 <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">When your broker visits a store carrying <span className="font-medium text-slate-700">{brand}</span> products, photos and notes will show up here.</p>
               </div>
             ) : (
+              <>
+                <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="relative flex-1 max-w-md">
+                    <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                    </svg>
+                    <input
+                      type="search"
+                      value={visitsQuery}
+                      onChange={e => setVisitsQuery(e.target.value)}
+                      placeholder="Filter by store name, address, or note…"
+                      className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-8 py-2 text-sm text-slate-700 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                      aria-label="Filter market visits"
+                    />
+                    {visitsQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setVisitsQuery('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                        aria-label="Clear filter"
+                        title="Clear filter"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {trimmedVisitsQuery
+                      ? `${filteredVisits.length} of ${sortedVisits.length} ${sortedVisits.length === 1 ? 'visit' : 'visits'}`
+                      : `${sortedVisits.length} ${sortedVisits.length === 1 ? 'visit' : 'visits'}`}
+                  </p>
+                </div>
+                {filteredVisits.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center">
+                    <h3 className="text-sm font-semibold text-slate-800">No visits match &ldquo;{visitsQuery}&rdquo;</h3>
+                    <p className="text-xs text-slate-500 mt-1">Try a different search term or clear the filter.</p>
+                  </div>
+                ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {sortedVisits.map(v => {
+                {filteredVisits.map(v => {
                   const visitComments = v.comments || [];
                   const isSending = submittingPhotoComment === v.id;
                   const pendingText = photoCommentText[v.id] || '';
@@ -1160,13 +1678,23 @@ export default function PortalDashboard() {
                                           className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white"
                                           autoFocus
                                           onKeyDown={e => {
-                                            if (e.key === 'Enter') handleEditVisitComment(c.id!, v.id);
-                                            if (e.key === 'Escape') { setEditingVisitCommentId(null); setEditVisitText(''); }
+                                            if (e.key === 'Enter' && !savingVisitCommentEdit) handleEditVisitComment(c.id!, v.id);
+                                            if (e.key === 'Escape' && !savingVisitCommentEdit) { setEditingVisitCommentId(null); setEditVisitText(''); }
                                           }}
+                                          disabled={savingVisitCommentEdit}
                                         />
                                         <div className="flex items-center gap-1.5 justify-end">
-                                          <button onClick={() => handleEditVisitComment(c.id!, v.id)} className="text-[10px] font-medium text-white bg-blue-800/60 hover:bg-blue-900/70 px-2 py-0.5 rounded transition-colors">Save</button>
-                                          <button onClick={() => { setEditingVisitCommentId(null); setEditVisitText(''); }} className="text-[10px] font-medium text-blue-100 hover:text-white px-2 py-0.5 rounded transition-colors">Cancel</button>
+                                          <button
+                                            onClick={() => handleEditVisitComment(c.id!, v.id)}
+                                            disabled={savingVisitCommentEdit || !editVisitText.trim()}
+                                            aria-busy={savingVisitCommentEdit}
+                                            className="text-[10px] font-medium text-white bg-blue-800/60 hover:bg-blue-900/70 px-2 py-0.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                          >{savingVisitCommentEdit ? 'Saving…' : 'Save'}</button>
+                                          <button
+                                            onClick={() => { setEditingVisitCommentId(null); setEditVisitText(''); }}
+                                            disabled={savingVisitCommentEdit}
+                                            className="text-[10px] font-medium text-blue-100 hover:text-white px-2 py-0.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                          >Cancel</button>
                                         </div>
                                       </div>
                                     ) : (
@@ -1240,6 +1768,8 @@ export default function PortalDashboard() {
                   );
                 })}
               </div>
+                )}
+              </>
             )}
           </div>
         )}

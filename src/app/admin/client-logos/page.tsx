@@ -24,6 +24,9 @@ export default function ClientLogosPage() {
   const [preview, setPreview] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [savingEditId, setSavingEditId] = useState<string | null>(null);
+  const [reorderingId, setReorderingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -105,8 +108,10 @@ export default function ClientLogosPage() {
   };
 
   const handleDelete = async (id: string, label: string) => {
+    if (deletingId) return;
     if (!confirm(`Delete "${label}" logo?`)) return;
 
+    setDeletingId(id);
     try {
       const res = await fetch(`/api/client-logos/${id}`, {
         method: 'DELETE',
@@ -120,11 +125,15 @@ export default function ClientLogosPage() {
       await fetchLogos();
     } catch {
       toast.error('Delete failed');
+    } finally {
+      setDeletingId(null);
     }
   };
 
   const handleEditSave = async (id: string) => {
+    if (savingEditId) return;
     if (!editLabel.trim()) return;
+    setSavingEditId(id);
     try {
       const res = await fetch(`/api/client-logos/${id}`, {
         method: 'PUT',
@@ -141,15 +150,19 @@ export default function ClientLogosPage() {
       await fetchLogos();
     } catch {
       toast.error('Update failed');
+    } finally {
+      setSavingEditId(null);
     }
   };
 
   const handleReorder = async (id: string, direction: 'up' | 'down') => {
+    if (reorderingId) return;
     const idx = logos.findIndex(l => l.id === id);
     if (idx === -1) return;
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (swapIdx < 0 || swapIdx >= logos.length) return;
 
+    setReorderingId(id);
     try {
       await Promise.all([
         fetch(`/api/client-logos/${logos[idx].id}`, {
@@ -168,6 +181,8 @@ export default function ClientLogosPage() {
       await fetchLogos();
     } catch {
       toast.error('Reorder failed');
+    } finally {
+      setReorderingId(null);
     }
   };
 
@@ -282,7 +297,7 @@ export default function ClientLogosPage() {
                   <div className="flex flex-col gap-0.5 flex-shrink-0">
                     <button
                       onClick={() => handleReorder(logo.id, 'up')}
-                      disabled={idx === 0}
+                      disabled={idx === 0 || reorderingId !== null}
                       className="text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
                       title="Move up"
                     >
@@ -293,7 +308,7 @@ export default function ClientLogosPage() {
                     <FiMoreVertical className="w-4 h-4 text-slate-300" />
                     <button
                       onClick={() => handleReorder(logo.id, 'down')}
-                      disabled={idx === logos.length - 1}
+                      disabled={idx === logos.length - 1 || reorderingId !== null}
                       className="text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
                       title="Move down"
                     >
@@ -330,13 +345,16 @@ export default function ClientLogosPage() {
                         />
                         <button
                           onClick={() => handleEditSave(logo.id)}
-                          className="text-xs text-blue-600 font-medium hover:text-blue-700"
+                          disabled={savingEditId === logo.id || !editLabel.trim()}
+                          aria-busy={savingEditId === logo.id}
+                          className="text-xs text-blue-600 font-medium hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          Save
+                          {savingEditId === logo.id ? 'Saving…' : 'Save'}
                         </button>
                         <button
                           onClick={() => setEditingId(null)}
-                          className="text-xs text-slate-400 font-medium hover:text-slate-600"
+                          disabled={savingEditId === logo.id}
+                          className="text-xs text-slate-400 font-medium hover:text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Cancel
                         </button>
@@ -361,10 +379,16 @@ export default function ClientLogosPage() {
                   {/* Delete */}
                   <button
                     onClick={() => handleDelete(logo.id, logo.label)}
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                    disabled={deletingId === logo.id}
+                    aria-busy={deletingId === logo.id}
+                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Delete logo"
                   >
-                    <FiTrash2 className="w-4 h-4" />
+                    {deletingId === logo.id ? (
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-400" />
+                    ) : (
+                      <FiTrash2 className="w-4 h-4" />
+                    )}
                   </button>
                 </li>
               ))}

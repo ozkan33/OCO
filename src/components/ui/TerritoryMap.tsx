@@ -41,9 +41,9 @@ export default function TerritoryMap() {
   const [hovered, setHovered] = useState<string | null>(null);
 
   return (
-    <div className="flex flex-col md:flex-row items-center gap-8 md:gap-12">
+    <div className="flex flex-col lg:flex-row items-center gap-8 lg:gap-12">
       {/* Map */}
-      <div className="flex-shrink-0 w-full md:w-[700px]">
+      <div className="flex-shrink-0 w-full lg:w-[700px]">
         <svg viewBox="200 20 520 280" className="w-full max-w-[700px] mx-auto h-auto" role="img" aria-label="Territory coverage map showing MN, WI, ND, SD, and MI">
           {/* Neighbor states (muted background) */}
           {neighborStates.map(s => (

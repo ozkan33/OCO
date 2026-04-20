@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -9,7 +9,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<unknown>;
   onCancel: () => void;
 }
 
@@ -32,12 +32,26 @@ export default function ConfirmDialog({
   const titleId = 'confirm-dialog-title';
   const descId = 'confirm-dialog-desc';
 
+  // Tracks the in-flight promise returned by onConfirm so the confirm button
+  // disables itself for the full request, blocking duplicate writes from
+  // double-taps.
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+
+  // Reset busy state whenever the dialog reopens.
+  useEffect(() => {
+    if (!open) {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  }, [open]);
+
   // Autofocus the confirm button + handle Escape to cancel
   useEffect(() => {
     if (!open) return;
     const t = window.setTimeout(() => confirmBtnRef.current?.focus(), 0);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !submittingRef.current) {
         e.stopPropagation();
         onCancel();
       }
@@ -63,11 +77,23 @@ export default function ConfirmDialog({
     ? 'bg-red-50 text-red-600'
     : 'bg-blue-50 text-blue-600';
 
+  const handleConfirmClick = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      await Promise.resolve(onConfirm());
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-sm modal-backdrop sm:p-4"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onCancel();
+        if (e.target === e.currentTarget && !submitting) onCancel();
       }}
     >
       <div
@@ -111,17 +137,20 @@ export default function ConfirmDialog({
           <button
             type="button"
             onClick={onCancel}
-            className="min-h-[44px] sm:min-h-0 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg [@media(hover:hover)]:hover:bg-slate-100 active:bg-slate-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+            disabled={submitting}
+            className="min-h-[44px] sm:min-h-0 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg [@media(hover:hover)]:hover:bg-slate-100 active:bg-slate-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {cancelLabel}
           </button>
           <button
             ref={confirmBtnRef}
             type="button"
-            onClick={onConfirm}
-            className={`min-h-[44px] sm:min-h-0 px-4 py-2 text-sm font-semibold text-white rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 ${confirmClasses}`}
+            onClick={handleConfirmClick}
+            disabled={submitting}
+            aria-busy={submitting}
+            className={`min-h-[44px] sm:min-h-0 px-4 py-2 text-sm font-semibold text-white rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 disabled:opacity-70 disabled:cursor-not-allowed ${confirmClasses}`}
           >
-            {confirmLabel}
+            {submitting ? 'Working…' : confirmLabel}
           </button>
         </div>
       </div>

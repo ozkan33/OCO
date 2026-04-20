@@ -25,6 +25,10 @@ interface PortalNotificationBellProps {
   }) => void;
 }
 
+function capitalizeName(name: string): string {
+  return name.replace(/\b\p{L}/gu, c => c.toUpperCase());
+}
+
 function timeAgo(dateStr: string): string {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
@@ -136,7 +140,7 @@ export default function PortalNotificationBell({ onNotificationClick }: PortalNo
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative flex items-center justify-center w-9 h-9 rounded-lg hover:bg-slate-100 transition-colors"
+        className="relative flex items-center justify-center w-11 h-11 sm:w-9 sm:h-9 rounded-lg [@media(hover:hover)]:hover:bg-slate-100 active:bg-slate-100 transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
         aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
         aria-expanded={isOpen}
         aria-haspopup="true"
@@ -155,28 +159,28 @@ export default function PortalNotificationBell({ onNotificationClick }: PortalNo
           />
         </svg>
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-red-500 rounded-full leading-none">
+          <span className="absolute top-1 right-1 sm:-top-0.5 sm:-right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-red-500 rounded-full leading-none">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
+        <div className="fixed sm:absolute inset-x-2 sm:inset-auto sm:right-0 top-[calc(env(safe-area-inset-top)+56px)] sm:top-full mt-0 sm:mt-2 sm:w-96 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
             <h3 className="text-sm font-semibold text-slate-800">Notifications</h3>
             {unreadCount > 0 && (
               <button
                 onClick={markAllRead}
                 disabled={loading}
-                className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors disabled:opacity-50"
+                className="text-xs font-medium text-blue-600 [@media(hover:hover)]:hover:text-blue-800 active:text-blue-800 transition-colors disabled:opacity-50 min-h-[36px] px-2 -mr-2 rounded-md active:bg-blue-50"
               >
                 Mark all as read
               </button>
             )}
           </div>
 
-          <div className="max-h-[400px] overflow-y-auto">
+          <div className="max-h-[70vh] sm:max-h-[400px] overflow-y-auto touch-scroll">
             {notifications.length === 0 ? (
               <div className="px-4 py-8 text-center">
                 <svg className="w-8 h-8 text-slate-300 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -202,14 +206,18 @@ export default function PortalNotificationBell({ onNotificationClick }: PortalNo
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-slate-700 leading-snug">
-                      <span className="font-semibold text-slate-900">{notif.actor_name}</span>
+                      <span className="font-semibold text-slate-900">{capitalizeName(notif.actor_name)}</span>
                       {notif.action_type === 'market_visit_comment_added'
                         ? <> added a market-visit note on </>
-                        : notif.action_type === 'comment_updated'
-                          ? <> edited a note on </>
-                          : <> added a note on </>}
+                        : notif.action_type === 'market_visit_comment_updated'
+                          ? <> edited a market-visit note on </>
+                          : notif.action_type === 'comment_updated'
+                            ? <> edited a note on </>
+                            : <> added a note on </>}
                       <span className="font-medium text-slate-800">
-                        {notif.action_type === 'market_visit_comment_added' && notif.store_name
+                        {(notif.action_type === 'market_visit_comment_added' ||
+                          notif.action_type === 'market_visit_comment_updated') &&
+                        notif.store_name
                           ? notif.store_name
                           : notif.row_name}
                       </span>
