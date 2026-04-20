@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 interface ProductDetail {
   name: string;
   status: string;
+  inherited?: boolean;
 }
 
 interface StoreDetail {
@@ -13,7 +14,7 @@ interface StoreDetail {
   products: ProductDetail[];
   authorized: number;
   total: number;
-  percentage: number;
+  percentage: number | null;
 }
 
 interface BrandCell {
@@ -349,20 +350,37 @@ export default function MasterScorecard({ apiUrl = '/api/master-scorecard', onCu
                                               <div className="text-[10px] text-slate-400 truncate">{s.location}</div>
                                             )}
                                           </div>
-                                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 ${getCellColor(s.percentage)}`}>
-                                            {s.percentage}%
-                                            <span className="ml-1 font-normal opacity-75">({s.authorized}/{s.total})</span>
-                                          </span>
+                                          {s.percentage === null ? (
+                                            <span
+                                              className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 bg-slate-50 text-slate-400 border border-dashed border-slate-300"
+                                              title="No per-store authorizations recorded. Product statuses shown below are inherited from the chain."
+                                            >
+                                              &mdash;
+                                            </span>
+                                          ) : (
+                                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 ${getCellColor(s.percentage)}`}>
+                                              {s.percentage}%
+                                              <span className="ml-1 font-normal opacity-75">({s.authorized}/{s.total})</span>
+                                            </span>
+                                          )}
                                         </div>
                                         <div className="flex flex-wrap gap-1 mt-1">
                                           {s.products.map((p, j) => {
                                             const sc = STATUS_COLORS[p.status] || { bg: '#f3f4f6', text: '#374151', dot: '#6b7280' };
+                                            // Inherited chips render as outline-only with a dashed border
+                                            // so the admin can tell at a glance which statuses are real
+                                            // per-store data vs. guessed from the chain row.
+                                            const inheritedStyle = p.inherited
+                                              ? { background: 'transparent', color: sc.text, borderColor: sc.dot }
+                                              : { background: sc.bg, color: sc.text, borderColor: 'transparent' };
                                             return (
                                               <span
                                                 key={j}
-                                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
-                                                style={{ background: sc.bg, color: sc.text }}
-                                                title={`${p.name}: ${p.status}`}
+                                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border ${p.inherited ? 'border-dashed opacity-80' : ''}`}
+                                                style={inheritedStyle}
+                                                title={p.inherited
+                                                  ? `${p.name}: ${p.status} (inherited from chain — no per-store status set)`
+                                                  : `${p.name}: ${p.status}`}
                                               >
                                                 <span className="w-1 h-1 rounded-full" style={{ background: sc.dot }} />
                                                 {p.name}
@@ -406,6 +424,10 @@ export default function MasterScorecard({ apiUrl = '/api/master-scorecard', onCu
           <div className="flex items-center gap-2">
             <span className="text-slate-300 text-sm">&mdash;</span>
             <span className="text-sm text-slate-600">Not carried</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border border-dashed border-slate-400 text-slate-600 bg-transparent">dashed</span>
+            <span className="text-sm text-slate-600">Inherited from chain (no per-store status set)</span>
           </div>
         </div>
       </div>

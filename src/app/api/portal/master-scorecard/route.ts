@@ -8,14 +8,14 @@ const SYSTEM_COLUMNS = new Set([
   'cmg', 'brand_lead', 'comments', '_delete_row',
 ]);
 
-interface ProductDetail { name: string; status: string }
+interface ProductDetail { name: string; status: string; inherited?: boolean }
 interface StoreDetail {
   name: string;
   location?: string;
   products: ProductDetail[];
   authorized: number;
   total: number;
-  percentage: number;
+  percentage: number | null;
 }
 
 function isAuthorized(status: unknown): boolean {
@@ -31,35 +31,33 @@ function summarizeStores(parentRow: any, productCols: any[]) {
     const name = String(sr.store_name || sr.name || '').trim();
     if (!name) continue;
     const products: ProductDetail[] = [];
-    // Per-store badge counts every displayed product (explicit + inherited);
-    // aggregate cell counts only include explicit per-store values so the
-    // chain-level badge doesn't inflate when stores simply inherit the parent.
-    let displayAuth = 0;
-    let displayTot = 0;
+    // Inherited statuses are shown for context but excluded from the per-store
+    // percentage — otherwise a store with no explicit entries would falsely
+    // display 100% just because the chain is fully authorized.
     let explicitAuth = 0;
     let explicitTot = 0;
+    let anyDisplayed = false;
     for (const pc of productCols) {
       const raw = sr[`product_${pc.key}`] ?? sr[pc.key];
       const hasExplicit = raw !== undefined && raw !== null && raw !== '';
       const status = hasExplicit ? raw : parentRow?.[pc.key];
       if (status === undefined || status === null || status === '') continue;
-      products.push({ name: pc.name, status: String(status) });
-      displayTot++;
-      if (isAuthorized(status)) displayAuth++;
+      products.push({ name: pc.name, status: String(status), inherited: !hasExplicit });
+      anyDisplayed = true;
       if (hasExplicit) {
         explicitTot++;
         if (isAuthorized(status)) explicitAuth++;
       }
     }
-    if (displayTot === 0) continue;
+    if (!anyDisplayed) continue;
     const locParts = [sr.city, sr.state].filter(Boolean).map(String);
     stores.push({
       name,
       location: locParts.length ? locParts.join(', ') : undefined,
       products,
-      authorized: displayAuth,
-      total: displayTot,
-      percentage: Math.round((displayAuth / displayTot) * 100),
+      authorized: explicitAuth,
+      total: explicitTot,
+      percentage: explicitTot > 0 ? Math.round((explicitAuth / explicitTot) * 100) : null,
     });
     storeAuthorized += explicitAuth;
     storeTotal += explicitTot;

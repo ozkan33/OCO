@@ -13,15 +13,21 @@ const SYSTEM_COLUMNS = new Set([
 interface ProductDetail {
   name: string;
   status: string;
+  // True when the status was pulled from the chain row because the store sub-row
+  // had no explicit entry. UI should visually distinguish these from verified ones.
+  inherited?: boolean;
 }
 
 interface StoreDetail {
   name: string;
   location?: string;
   products: ProductDetail[];
+  // authorized/total/percentage reflect EXPLICIT per-store statuses only.
+  // When no explicit statuses exist, total is 0 and percentage is null so the
+  // UI can render "—" instead of a misleading 0% or 100%.
   authorized: number;
   total: number;
-  percentage: number;
+  percentage: number | null;
 }
 
 interface BrandCell {
@@ -56,35 +62,34 @@ function summarizeStores(
     const name = String(sr.store_name || sr.name || '').trim();
     if (!name) continue;
     const products: ProductDetail[] = [];
-    // Per-store badge counts every displayed product (explicit + inherited);
-    // aggregate cell counts only include explicit per-store values so the
-    // chain-level badge doesn't inflate when stores simply inherit the parent.
-    let displayAuth = 0;
-    let displayTot = 0;
+    // Inherited statuses keep the store's product list visually complete, but
+    // never contribute to the per-store percentage — otherwise a store with
+    // zero real data would inherit every "Authorized" chain status and falsely
+    // display 100%. Only explicit per-store entries count toward the pill.
     let explicitAuth = 0;
     let explicitTot = 0;
+    let anyDisplayed = false;
     for (const pc of productCols) {
       const raw = sr[`product_${pc.key}`] ?? sr[pc.key];
       const hasExplicit = raw !== undefined && raw !== null && raw !== '';
       const status = hasExplicit ? raw : parentRow?.[pc.key];
       if (status === undefined || status === null || status === '') continue;
-      products.push({ name: pc.name, status: String(status) });
-      displayTot++;
-      if (isAuthorized(status)) displayAuth++;
+      products.push({ name: pc.name, status: String(status), inherited: !hasExplicit });
+      anyDisplayed = true;
       if (hasExplicit) {
         explicitTot++;
         if (isAuthorized(status)) explicitAuth++;
       }
     }
-    if (displayTot === 0) continue;
+    if (!anyDisplayed) continue;
     const locParts = [sr.city, sr.state].filter(Boolean).map(String);
     stores.push({
       name,
       location: locParts.length ? locParts.join(', ') : undefined,
       products,
-      authorized: displayAuth,
-      total: displayTot,
-      percentage: Math.round((displayAuth / displayTot) * 100),
+      authorized: explicitAuth,
+      total: explicitTot,
+      percentage: explicitTot > 0 ? Math.round((explicitAuth / explicitTot) * 100) : null,
     });
     storeAuthorized += explicitAuth;
     storeTotal += explicitTot;
