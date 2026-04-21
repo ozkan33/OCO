@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 export const metadata = {
-  title: 'OCO Admin requires a larger device',
+  title: '3Brothers Marketing requires a larger device',
 };
 
 /**
@@ -30,7 +30,7 @@ export default function MobileUnavailablePage() {
         </div>
 
         <h1 className="text-xl sm:text-2xl font-semibold text-slate-900 text-center mb-3">
-          OCO Admin requires a tablet or desktop
+          3Brothers Marketing requires a tablet or desktop
         </h1>
 
         <p className="text-sm text-slate-600 text-center leading-relaxed mb-6">

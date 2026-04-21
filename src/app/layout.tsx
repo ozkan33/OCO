@@ -117,7 +117,7 @@ const SURFACE_META: Record<'admin' | 'portal' | 'marketing', {
   admin: {
     manifest: '/manifest-admin.webmanifest',
     themeColor: '#0f172a',
-    appleTitle: 'OCO Admin',
+    appleTitle: '3Brothers Marketing',
     appleIcon: '/icons/admin-192.png',
   },
   portal: {

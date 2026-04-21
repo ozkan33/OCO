@@ -82,8 +82,8 @@ export default function AdminInstallBanner() {
   return (
     <InstallBanner
       surface="admin"
-      title="Install OCO Admin"
-      description="Add OCO Admin to your iPad home screen for one-tap access. Runs in its own window with no Safari chrome."
+      title="Install 3Brothers Marketing"
+      description="Add 3Brothers Marketing to your iPad home screen for one-tap access. Runs in its own window with no Safari chrome."
       onDismiss={() => setVisible(false)}
     />
   );
