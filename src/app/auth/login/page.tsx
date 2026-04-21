@@ -6,6 +6,11 @@ import Image from 'next/image';
 import { createClient } from '@supabase/supabase-js';
 import { handleMobileRedirect, getMobileBrowserInfo } from '@/utils/mobileDetection';
 import { Role, getLandingPath, isRole } from '../../../../lib/rbac';
+import {
+  isBiometricSupported,
+  hasPasskeyFor,
+  signInWithPasskey,
+} from '@/lib/webauthn/client';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -27,11 +32,37 @@ export default function LoginPage() {
   const [totpUnreadable, setTotpUnreadable] = useState(false);
   const [resetPassword, setResetPassword] = useState('');
 
+  // Biometric (WebAuthn / Face ID / Touch ID / Windows Hello) login.
+  // Shown only when (a) the platform has a built-in authenticator AND
+  // (b) the typed email actually has a passkey on this server — otherwise
+  // offering it would fail in a user-hostile way.
+  const [biometricReady, setBiometricReady] = useState(false);
+  const [biometricHas, setBiometricHas] = useState(false);
+  const [biometricBusy, setBiometricBusy] = useState(false);
+
   // Detect Safari on mount
   useEffect(() => {
     const mobileInfo = getMobileBrowserInfo();
     if (mobileInfo?.isSafari) setIsSafari(true);
+    isBiometricSupported().then(setBiometricReady);
   }, []);
+
+  // Debounce: check for a passkey 450ms after the user stops typing their
+  // email. The `has-credentials` endpoint rate-limits and time-pads so it
+  // can't be used for enumeration — we can call it freely from here.
+  useEffect(() => {
+    if (!biometricReady) { setBiometricHas(false); return; }
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setBiometricHas(false);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const has = await hasPasskeyFor(email);
+      if (!cancelled) setBiometricHas(has);
+    }, 450);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [email, biometricReady]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,6 +236,23 @@ export default function LoginPage() {
       try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
       window.location.href = pendingRedirect;
     } catch { setError('Reset failed. Please try again.'); setLoading(false); }
+  };
+
+  const handleBiometricLogin = async () => {
+    if (!email) { setError('Enter your email first.'); return; }
+    setError(null);
+    setBiometricBusy(true);
+    try {
+      const { redirect } = await signInWithPasskey(email);
+      try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
+      // WebAuthn issues a fresh session AND sets 2fa_verified server-side, so
+      // we just navigate. No separate log-session call here — the server has
+      // all the context it needs from the verify route.
+      window.location.href = redirect;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Face ID sign-in failed.');
+      setBiometricBusy(false);
+    }
   };
 
   const handleBackClick = () => {
@@ -487,6 +535,20 @@ export default function LoginPage() {
               )}
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
+
+            {biometricReady && biometricHas && (
+              <button
+                type="button"
+                onClick={handleBiometricLogin}
+                disabled={biometricBusy || loading}
+                className="w-full py-3.5 min-h-[48px] mt-2 bg-white border border-slate-200 text-slate-700 font-semibold rounded-xl hover:bg-slate-50 active:bg-slate-100 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 flex items-center justify-center gap-2 text-sm"
+              >
+                <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M7.864 4.243A10.48 10.48 0 0112 3.75c1.51 0 2.947.317 4.243.867M4.243 7.864A10.48 10.48 0 003.75 12c0 1.51.317 2.947.867 4.243M20.25 12c0-1.51-.317-2.947-.867-4.243M7.864 19.757A10.48 10.48 0 0012 20.25c1.51 0 2.947-.317 4.243-.867M9.75 9.75a2.25 2.25 0 014.5 0v4.5a2.25 2.25 0 01-4.5 0v-4.5z" />
+                </svg>
+                {biometricBusy ? 'Waiting for Face ID…' : 'Sign in with Face ID'}
+              </button>
+            )}
           </form>
           )}
 
