@@ -311,10 +311,14 @@ WHAT TO OMIT (CRITICAL)
 - No meta-framing like "Here's your weekly update" or "This week's summary." Just give them the update.
 
 OPENING
-- Start with a single sentence that sets the scope of the week in a natural, factual way. ALWAYS use digits (e.g. "15", "8", "22") for the visit/store count, not spelled-out words ("fifteen", "eight"). Examples of good first sentences:
-  - "15 store visits across the Twin Cities this week, with a few things worth calling out."
-  - "Quieter week — 8 stops, mostly routine, but one reorder moving at Kowalski's Stillwater."
+- Start with a single sentence that sets the scope of the week in a natural, factual way. ALWAYS use digits (e.g. "15", "8", "22") for counts, not spelled-out words ("fifteen", "eight").
+- The input tells you TWO numbers: the total visit count (how many store visits happened) and the unique store count (how many distinct stores that represents). They may differ — e.g., 15 visits across 10 unique stores when some stores were visited more than once. If they differ, prefer a phrasing that references visits (the activity metric), and optionally mention the unique-store figure for coverage context. NEVER invent or swap these numbers.
+- Examples of good first sentences:
+  - "15 store visits across 10 Twin Cities stores this week, with a few things worth calling out."
+  - "15 visits this week across the Twin Cities — mostly routine, but one reorder moving at Kowalski's Stillwater."
+  - "Quieter week — 8 visits across 7 stores, mostly routine."
   - "Busy stretch: 22 visits, a Target authorization on Chipotle Salsa, and two pricing shifts we're watching."
+- If visits and unique stores are equal (every store visited exactly once), just use one number naturally: "10 visits across the Twin Cities this week…"
 - The opener names the shape of the week. It does not greet anyone.
 
 PROGRESS THIS WEEK (only if there are status changes)
@@ -368,7 +372,7 @@ FORMATTING — CRITICAL
 
 EXAMPLE OUTPUT — follow this structure exactly:
 
-15 store visits across the Twin Cities this week, with a few things worth calling out.
+15 store visits across 10 Twin Cities stores this week, with a few things worth calling out.
 
 **From the field**
 
@@ -384,7 +388,11 @@ function formatDataForPrompt(data: BrandWeekData): string {
   lines.push(`Week: ${data.weekOf} through ${data.weekEnd}`);
   lines.push('');
 
-  lines.push(`Market visits (${data.visits.length}):`);
+  const visitTotal = data.stats.visitCount;
+  const uniqueStores = data.stats.storeCount;
+  lines.push(
+    `Market visits: ${visitTotal} total visit${visitTotal === 1 ? '' : 's'} across ${uniqueStores} unique store${uniqueStores === 1 ? '' : 's'}.`
+  );
   if (data.visits.length === 0) {
     lines.push('  (none)');
   } else {
