@@ -102,6 +102,12 @@ async function tryRefresh(
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Forward the pathname to RSC so the root layout can pick the right
+  // PWA manifest (one per scope: /admin, /portal, marketing). Without
+  // this header the layout can't tell the surface during SSR.
+  const rscHeaders = new Headers(request.headers);
+  rscHeaders.set('x-pathname', pathname);
+
   // ── Rate-limit the login endpoint ──────────────────────────────────────────
   if (pathname === '/api/auth/set-session' && request.method === 'POST') {
     const ip =
@@ -135,7 +141,7 @@ export async function middleware(request: NextRequest) {
         );
       }
     }
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: rscHeaders } });
   }
 
   // ── Phone UA gate for /admin (Phase 2 PWA) ─────────────────────────────────
@@ -166,7 +172,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/vendor') ||
     pathname.startsWith('/portal');
   if (!isProtected) {
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: rscHeaders } });
   }
 
   const accessToken  = request.cookies.get('supabase-access-token')?.value;
@@ -233,7 +239,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/auth/login', request.url));
     }
 
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: rscHeaders } });
   }
 
   // ── Access token missing or expired — try refresh ──────────────────────────
@@ -276,7 +282,7 @@ export async function middleware(request: NextRequest) {
         }
       }
 
-      const response = NextResponse.next();
+      const response = NextResponse.next({ request: { headers: rscHeaders } });
       const opts = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',

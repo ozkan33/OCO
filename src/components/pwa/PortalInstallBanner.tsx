@@ -5,30 +5,24 @@ import { getDeviceKind } from '@/lib/pwa/deviceDetection';
 import InstallBanner from './InstallBanner';
 
 /**
- * Admin install banner.
+ * Portal install banner.
  *
- * Self-gates visibility. Safe to always mount from the admin layout.
- * Renders only when ALL are true:
- *   - Authenticated admin user (GET /api/auth/me → role ADMIN)
- *   - Device kind is 'ipad' (iPadOS 13+ Mac-UA case handled by
- *     deviceDetection via maxTouchPoints; desktop banner is deferred per
- *     spec until iPad path is proven)
- *   - sessionStorage 'oco:just-logged-in' flag is set (consumed on mount;
- *     one-shot — a reload does not re-trigger this banner)
- *   - Not already running in standalone PWA mode (handled inside
- *     InstallBanner)
- *   - No active 14-day dismissal cooldown (key
- *     `oco:install-dismissed-until:admin`)
+ * Same gating pattern as AdminInstallBanner but tuned for the brand-user
+ * surface:
+ *   - Role gate: BRAND (the only role with PORTAL_ACCESS as primary
+ *     home; admins see /portal occasionally but their install affordance
+ *     is the admin one).
+ *   - Allowed device kinds: every form factor — phone, tablet, desktop.
+ *     The portal is mobile-first and works everywhere.
  *
- * The actual banner UI (iOS Share-to-Home-Screen instructions vs.
- * Chromium install button) lives in <InstallBanner />, which Phase 1
- * introduced. This component is the gating shell only.
+ * Mounted from src/app/portal/page.tsx (the portal is a single page;
+ * there's no shared layout to attach to).
  */
 
-const DISMISS_KEY = 'oco:install-dismissed-until:admin';
+const DISMISS_KEY = 'oco:install-dismissed-until:portal';
 const JUST_LOGGED_IN_KEY = 'oco:just-logged-in';
 
-export default function AdminInstallBanner() {
+export default function PortalInstallBanner() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -41,7 +35,8 @@ export default function AdminInstallBanner() {
       window.matchMedia('(display-mode: standalone)').matches;
     if (isStandalone) return;
 
-    if (getDeviceKind() !== 'ipad') return;
+    const kind = getDeviceKind();
+    if (kind === 'unknown') return;
 
     let justLoggedIn = false;
     try {
@@ -65,7 +60,9 @@ export default function AdminInstallBanner() {
         if (!res.ok) return;
         const data = await res.json();
         const role = (data?.user?.role || data?.role || '').toString().toUpperCase();
-        if (role !== 'ADMIN') return;
+        // Admins use the admin install banner; everyone else with portal access
+        // (BRAND, KEY_ACCOUNT_MANAGER, FIELD_SALES_REP) sees the portal one.
+        if (!role || role === 'ADMIN') return;
         if (!cancelled) setVisible(true);
       } catch {
         // Network error — do not surface the banner.
@@ -81,9 +78,9 @@ export default function AdminInstallBanner() {
 
   return (
     <InstallBanner
-      surface="admin"
-      title="Install OCO Admin"
-      description="Add OCO Admin to your iPad home screen for one-tap access. Runs in its own window with no Safari chrome."
+      surface="portal"
+      title="Install 3Brothers Portal"
+      description="Add the portal to your home screen for fast, full-screen access to your product status and store visits."
       onDismiss={() => setVisible(false)}
     />
   );

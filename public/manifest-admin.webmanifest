@@ -1,0 +1,33 @@
+{
+  "name": "OCO Admin",
+  "short_name": "OCO Admin",
+  "description": "3Brothers Marketing internal admin console — scorecards, market visits, and account ops.",
+  "id": "/admin",
+  "scope": "/admin",
+  "start_url": "/auth/login?from=pwa&target=admin",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/icons/admin-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/admin-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/admin-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["business", "productivity"]
+}

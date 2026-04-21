@@ -127,6 +127,7 @@ pnpm-lock.yaml
 .AppleDouble
 .LSOverride
 Icon?
+!public/icons/
 
 # Linux system files
 .Trash-*

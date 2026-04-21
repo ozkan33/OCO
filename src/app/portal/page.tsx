@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { toast, Toaster } from 'sonner';
 import PortalNotificationBell from '@/components/portal/PortalNotificationBell';
+import PortalInstallBanner from '@/components/pwa/PortalInstallBanner';
 import { LogoMark } from '@/components/layout/Logo';
 import PhotoLightbox from '@/components/admin/PhotoLightbox';
 import MasterScorecard from '@/components/admin/MasterScorecard';
@@ -684,6 +685,7 @@ export default function PortalDashboard() {
         className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6"
         style={{ paddingBottom: 'max(1.5rem, calc(1.5rem + env(safe-area-inset-bottom)))' }}
       >
+        <PortalInstallBanner />
         {/* Summary Cards — only meaningful for roles with scorecard access */}
         {canSeeScorecard && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
