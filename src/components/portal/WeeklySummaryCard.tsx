@@ -91,7 +91,7 @@ function renderMarkdown(md: string) {
 
 export default function WeeklySummaryCard({ summary }: { summary: WeeklySummary | null }) {
   if (!summary) return null;
-  const { storeCount = 0, statusChangeCount = 0 } = summary.stats;
+  const { visitCount = 0, storeCount = 0, statusChangeCount = 0 } = summary.stats;
 
   return (
     <section className="rounded-2xl border border-blue-100 bg-gradient-to-br from-white to-blue-50/40 shadow-sm overflow-hidden">
@@ -112,12 +112,15 @@ export default function WeeklySummaryCard({ summary }: { summary: WeeklySummary 
           <h3 className="text-lg font-bold text-slate-900 mt-0.5">{formatWeekRange(summary.weekOf)}</h3>
         </div>
         <div className="hidden sm:flex items-center gap-3 text-center">
+          <Stat value={visitCount} label={visitCount === 1 ? 'visit' : 'visits'} />
+          <div className="h-8 w-px bg-blue-100" />
           <Stat value={storeCount} label={storeCount === 1 ? 'store' : 'stores'} />
           <div className="h-8 w-px bg-blue-100" />
           <Stat value={statusChangeCount} label="status updates" />
         </div>
       </div>
       <div className="px-5 py-5 sm:hidden flex items-center justify-around border-b border-blue-100/80">
+        <Stat value={visitCount} label={visitCount === 1 ? 'visit' : 'visits'} />
         <Stat value={storeCount} label={storeCount === 1 ? 'store' : 'stores'} />
         <Stat value={statusChangeCount} label="status updates" />
       </div>
