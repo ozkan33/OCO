@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useBrands } from '@/hooks/useBrands';
 import { extractExifFromFile } from '@/utils/extractExif';
+import { compressImageForUpload } from '@/utils/compressImage';
 import { reverseGeocode } from '@/utils/reverseGeocode';
 import { findNearbyStore } from '@/utils/findNearbyStore';
 import AddressAutocomplete from './AddressAutocomplete';
@@ -219,8 +220,14 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
     setSubmitting(true);
 
     try {
+      // Downscale before upload so we stay under Vercel's ~4.5MB serverless
+      // payload limit. Mac Chrome saved images and Retina screenshots
+      // regularly exceed that and previously failed with a bare "Upload
+      // failed" (413 HTML → JSON parse failed on the client).
+      const uploadFile = await compressImageForUpload(file);
+
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', uploadFile);
       fd.append('visit_date', visitDate);
       fd.append('brands', JSON.stringify(selectedBrands));
       if (latitude !== null) fd.append('latitude', String(latitude));
@@ -240,7 +247,17 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
 
       if (!res.ok) {
         let msg = 'Upload failed';
-        try { const data = await res.json(); msg = data.error || msg; } catch { /* non-JSON response */ }
+        let jsonOk = false;
+        try {
+          const data = await res.json();
+          if (data?.error) { msg = data.error; jsonOk = true; }
+        } catch { /* non-JSON response */ }
+        // 413 / Vercel gateway errors return HTML, not JSON. Give the user
+        // a hint about the cause rather than a bare "Upload failed".
+        if (!jsonOk) {
+          if (res.status === 413) msg = 'Photo is too large to upload. Try a smaller image.';
+          else if (res.status >= 500) msg = 'Server error — please try again.';
+        }
         throw new Error(msg);
       }
 
@@ -336,7 +353,7 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
             <svg className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
             </svg>
-            <span>No location data found in this photo. Use your device's location, or enter the store address manually below.</span>
+            <span>No location data found in this photo. Use your device&apos;s location, or enter the store address manually below.</span>
           </div>
           <button
             type="button"
