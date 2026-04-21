@@ -158,7 +158,13 @@ export async function middleware(request: NextRequest) {
   }
 
   // ── Only protect /admin, /vendor, and /portal routes ───────────────────────
-  const isProtected = pathname.startsWith('/admin') || pathname.startsWith('/vendor') || pathname.startsWith('/portal');
+  // /admin/mobile-unavailable is an informational page for phone users who were
+  // redirected here before login — it must be publicly viewable, or the phone
+  // UA gate above chains into /auth/login and the user never sees the message.
+  const isProtected =
+    (pathname.startsWith('/admin') && !pathname.startsWith('/admin/mobile-unavailable')) ||
+    pathname.startsWith('/vendor') ||
+    pathname.startsWith('/portal');
   if (!isProtected) {
     return NextResponse.next();
   }
