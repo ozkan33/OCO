@@ -107,10 +107,17 @@ body {
   p {
     line-height: 1.6;
   }
+}
 
-  /* Improve form inputs on mobile */
-  input, textarea, select {
-    font-size: 16px !important; /* Prevents zoom on iOS */
+/* Prevent iOS Safari auto-zoom on input focus. Fires on any touch-capable
+   viewport OR small screen so it catches iPhones regardless of which rule
+   the browser honors first. Excludes checkbox/radio/range so those aren't
+   forced to 16px. */
+@media (max-width: 768px), (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: 16px !important;
   }
 }
 

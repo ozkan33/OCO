@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
 import { Logo } from './Logo';
 import { AuthButtons } from '../auth/AuthButtons';
 import { getMobileBrowserInfo } from '@/utils/mobileDetection';
@@ -90,7 +91,7 @@ export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps)
             <a
               key={l.href}
               href={resolveNavHref(l.href)}
-              className={`text-sm font-medium transition-colors duration-300 ${
+              className={`inline-flex items-center min-h-[44px] px-2 text-sm font-medium transition-colors duration-300 ${
                 useLight
                   ? 'text-white/80 hover:text-white'
                   : 'text-slate-600 hover:text-slate-900'
@@ -108,7 +109,7 @@ export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps)
           <button
             ref={btnRef}
             onClick={() => setMenuOpen(o => !o)}
-            className={`p-2 rounded-lg transition-colors duration-300 ${
+            className={`inline-flex items-center justify-center w-11 h-11 rounded-lg transition-colors duration-300 ${
               useLight
                 ? 'text-white hover:bg-white/10'
                 : 'text-slate-700 hover:bg-slate-100'
@@ -133,12 +134,29 @@ export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps)
         }`}
       >
         <div className="px-5 py-4 flex flex-col gap-1">
+          {user && (() => {
+            const dashboardHref = user.role === 'BRAND' ? '/portal' : '/admin/dashboard';
+            const dashboardLabel = user.role === 'BRAND' ? 'Portal' : 'Dashboard';
+            return (
+              <Link
+                href={dashboardHref}
+                prefetch={true}
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-2 text-[#0f172a] hover:text-slate-700 font-semibold text-sm min-h-[44px] py-2.5 border-b border-slate-50"
+              >
+                <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+                </svg>
+                {dashboardLabel}
+              </Link>
+            );
+          })()}
           {navLinks.map(l => (
             <a
               key={l.href}
               href={resolveNavHref(l.href)}
               onClick={() => setMenuOpen(false)}
-              className="text-slate-700 hover:text-[#0f172a] font-medium text-sm py-2.5 border-b border-slate-50 last:border-0"
+              className="flex items-center text-slate-700 hover:text-[#0f172a] font-medium text-sm min-h-[44px] py-2.5 border-b border-slate-50 last:border-0"
             >
               {l.label}
             </a>
@@ -147,7 +165,7 @@ export function Header({ user, loading, onAccountClick, onLogout }: HeaderProps)
             {!user ? (
               <button
                 onClick={handleLoginClick}
-                className="w-full py-2.5 bg-[#0f172a] text-white text-sm font-semibold rounded-lg hover:bg-[#1e293b] transition"
+                className="inline-flex items-center justify-center w-full min-h-[48px] py-2.5 bg-[#0f172a] text-white text-sm font-semibold rounded-lg hover:bg-[#1e293b] transition"
               >
                 Partner Portal Login
               </button>
