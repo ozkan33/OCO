@@ -110,14 +110,17 @@ export function useCommentHandlers({
       const updatedComment = await response.json();
       setComments(prev => {
         const updated = { ...prev };
-        const scorecardComments = updated[selectedCategory] || {};
-        Object.keys(scorecardComments).forEach(rowId => {
-          const rowIdNum = parseInt(rowId);
-          const commentIndex = scorecardComments[rowIdNum]?.findIndex((c: any) => c.id === commentId);
-          if (commentIndex !== -1) {
-            scorecardComments[rowIdNum][commentIndex] = updatedComment;
-          }
+        const scorecardComments = { ...(updated[selectedCategory] || {}) };
+        Object.keys(scorecardComments).forEach(rowKey => {
+          const list = scorecardComments[rowKey];
+          if (!Array.isArray(list)) return;
+          const idx = list.findIndex((c: any) => c.id === commentId);
+          if (idx === -1) return;
+          const nextList = list.slice();
+          nextList[idx] = updatedComment;
+          scorecardComments[rowKey] = nextList;
         });
+        updated[selectedCategory] = scorecardComments;
         return updated;
       });
       return updatedComment;

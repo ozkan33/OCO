@@ -96,6 +96,7 @@ export default function PortalDashboard() {
   const [submittingPhotoComment, setSubmittingPhotoComment] = useState<string | null>(null);
   const [editingVisitCommentId, setEditingVisitCommentId] = useState<string | null>(null);
   const [editVisitText, setEditVisitText] = useState('');
+  const [expandedVisitComments, setExpandedVisitComments] = useState<Set<string>>(new Set());
   const [confirmState, setConfirmState] = useState<{
     title: string;
     description?: string;
@@ -134,6 +135,16 @@ export default function PortalDashboard() {
   // or store-related, so open both so the user sees the full context immediately.
   // We leave the row expanded after the highlight clears — the user is reading.
   useEffect(() => {
+    if (highlight?.kind === 'visit') {
+      const vid = highlight.visitId;
+      setExpandedVisitComments(prev => {
+        if (prev.has(vid)) return prev;
+        const next = new Set(prev);
+        next.add(vid);
+        return next;
+      });
+      return;
+    }
     if (highlight?.kind !== 'row') return;
     const key = `${highlight.scorecardId}:${highlight.rowId}`;
     const storesKey = `${key}:stores`;
@@ -396,6 +407,12 @@ export default function PortalDashboard() {
         };
       }));
       setPhotoCommentText(prev => ({ ...prev, [visitId]: '' }));
+      setExpandedVisitComments(prev => {
+        if (prev.has(visitId)) return prev;
+        const next = new Set(prev);
+        next.add(visitId);
+        return next;
+      });
       toast.success('Comment sent');
     } catch {
       toast.error('Could not send comment. Please try again.');
@@ -1872,6 +1889,16 @@ export default function PortalDashboard() {
                   const visitComments = v.comments || [];
                   const isSending = submittingPhotoComment === v.id;
                   const pendingText = photoCommentText[v.id] || '';
+                  const commentsExpanded = expandedVisitComments.has(v.id);
+                  const latestComment = visitComments.length > 0 ? visitComments[visitComments.length - 1] : null;
+                  const toggleVisitComments = () => {
+                    setExpandedVisitComments(prev => {
+                      const next = new Set(prev);
+                      if (next.has(v.id)) next.delete(v.id);
+                      else next.add(v.id);
+                      return next;
+                    });
+                  };
                   return (
                   <div
                     key={v.id}
@@ -1979,9 +2006,37 @@ export default function PortalDashboard() {
                         </div>
                       )}
 
-                      {/* Comment thread */}
+                      {/* Comment thread — collapsed by default; click to expand */}
                       {visitComments.length > 0 && (
-                        <div className="mt-1 space-y-1.5 border-t border-slate-100 pt-2.5">
+                        <div className="mt-1 border-t border-slate-100 pt-2.5">
+                          <button
+                            type="button"
+                            onClick={toggleVisitComments}
+                            aria-expanded={commentsExpanded}
+                            aria-controls={`visit-${v.id}-comments`}
+                            className="w-full flex items-center gap-1.5 text-left text-[11px] font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md px-1.5 py-1 -mx-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                            title={commentsExpanded ? 'Hide comments' : 'Show comments'}
+                          >
+                            <svg className="w-3.5 h-3.5 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+                            </svg>
+                            <span className="font-semibold text-slate-700 shrink-0">
+                              {visitComments.length} {visitComments.length === 1 ? 'comment' : 'comments'}
+                            </span>
+                            {!commentsExpanded && latestComment && (
+                              <span className="text-slate-500 truncate min-w-0 flex-1 italic font-normal">
+                                · &ldquo;{latestComment.text.length > 50 ? latestComment.text.slice(0, 49).trimEnd() + '…' : latestComment.text}&rdquo;
+                              </span>
+                            )}
+                            <svg
+                              className={`w-3 h-3 text-slate-400 shrink-0 transition-transform ml-auto ${commentsExpanded ? 'rotate-90' : ''}`}
+                              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                            </svg>
+                          </button>
+                          {commentsExpanded && (
+                          <div id={`visit-${v.id}-comments`} className="mt-2 space-y-1.5">
                           {visitComments.map((c, ci) => {
                             const initial = (c.author || '?')[0].toUpperCase();
                             const isEditing = !!c.id && editingVisitCommentId === c.id;
@@ -2068,6 +2123,8 @@ export default function PortalDashboard() {
                               </div>
                             );
                           })}
+                          </div>
+                          )}
                         </div>
                       )}
 

@@ -99,6 +99,7 @@ export function buildWeeklyEmailHtml(params: {
 }): { html: string; text: string; subject: string } {
   const { brandName, contactName, weekOf, summaryMd, stats, portalUrl } = params;
   const weekRange = formatWeekRange(weekOf);
+  const visitCount = stats.visitCount || 0;
   const storeCount = stats.storeCount || 0;
   const statusChangeCount = stats.statusChangeCount || 0;
 
@@ -150,6 +151,10 @@ export function buildWeeklyEmailHtml(params: {
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px">
                   <tr>
                     <td align="center" style="padding:14px 8px">
+                      <div style="font-size:20px;font-weight:700;color:#0f172a;line-height:1">${visitCount}</div>
+                      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-top:4px">${visitCount === 1 ? 'visit' : 'visits'}</div>
+                    </td>
+                    <td align="center" style="padding:14px 8px;border-left:1px solid #e2e8f0">
                       <div style="font-size:20px;font-weight:700;color:#0f172a;line-height:1">${storeCount}</div>
                       <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-top:4px">${storeCount === 1 ? 'store' : 'stores'}</div>
                     </td>

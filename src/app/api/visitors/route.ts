@@ -200,8 +200,16 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const days = Math.max(1, Math.min(parseInt(searchParams.get('days') || '30', 10) || 30, 365));
 
+    // IANA timezone from the client (e.g. "America/Chicago"). Whitelist by
+    // format so a malformed value can't propagate to Postgres as-is. We still
+    // pass it through as an RPC argument (parameterized), but cheap to guard.
+    const rawTz = (searchParams.get('tz') || '').trim();
+    const tz = /^[A-Za-z_+-]+(?:\/[A-Za-z_+-]+){0,2}$/.test(rawTz) && rawTz.length <= 64
+      ? rawTz
+      : 'UTC';
+
     // Aggregation happens entirely in Postgres — no 500-row JS undercount.
-    const { data, error } = await supabaseAdmin.rpc('get_visitor_analytics', { days_back: days });
+    const { data, error } = await supabaseAdmin.rpc('get_visitor_analytics', { days_back: days, tz });
 
     if (error) {
       logger.error('Visitor analytics RPC failed:', error);

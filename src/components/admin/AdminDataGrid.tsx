@@ -1410,6 +1410,11 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
       delete newRow[colKey];
       return newRow;
     });
+    // Column delete changes row shape — force a full PUT so the server drops
+    // the orphaned row[colKey] values. Without this, a cell-delta PATCH can't
+    // express the deletion and the orphan values get adopted by any future
+    // column re-added with the same name.
+    deltaTracker.markStructuralChange();
     updateCurrentData({ columns: updatedColumns, rows: updatedRows });
   }
   // Normalize function
