@@ -12,6 +12,7 @@ import {
   canEnrollBiometricOnThisDevice,
   shouldSuggestInstallForBiometric,
 } from '@/lib/webauthn/client';
+import { isHandheldDevice } from '@/lib/pwa/deviceDetection';
 import PasskeyEnrollModal, { shouldSkipPasskeyPrompt } from '@/components/auth/PasskeyEnrollModal';
 import PasskeyInstallPromptModal, { shouldSkipInstallPrompt } from '@/components/auth/PasskeyInstallPromptModal';
 
@@ -91,9 +92,16 @@ export default function LoginPage() {
       return false;
     }
 
-    // Path 1: device can actually enroll right now (desktop, Android Chrome,
-    // iOS Safari-in-tab, or installed iOS PWA).
-    if (biometricReady && !shouldSkipPasskeyPrompt(emailForPrompt)) {
+    // Path 1: device can actually enroll right now AND is a handheld
+    // (phone or tablet). Product direction is to only surface the "enable
+    // biometric sign-in" upsell on devices where typing a password is
+    // actually painful — MacBooks with Touch ID and Windows laptops with
+    // Hello are technically capable of enrolling but the nag is unwanted.
+    // Desktop users who already have a synced passkey still see the
+    // Face ID / Touch ID sign-in BUTTON (gated separately on
+    // biometricReady + biometricHas), so this only hides the enrollment
+    // upsell, not the sign-in affordance.
+    if (biometricReady && isHandheldDevice() && !shouldSkipPasskeyPrompt(emailForPrompt)) {
       let canEnroll = false;
       try { canEnroll = await canEnrollBiometricOnThisDevice(); } catch { canEnroll = false; }
       if (canEnroll) {

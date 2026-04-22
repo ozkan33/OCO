@@ -85,6 +85,48 @@ export function isIOS(): boolean {
 }
 
 /**
+ * True ONLY for handheld devices — iPhone, iPad, Android phone, Android
+ * tablet. False for desktop (Windows, Linux, macOS — including MacBooks
+ * with Touch ID) and 'unknown' (SSR / pre-hydration).
+ *
+ * Used to gate the post-login "enable biometric sign-in" enrollment prompt:
+ * modern MacBooks have Touch ID via WebAuthn and will happily complete an
+ * enrollment, but product direction is that the upsell modal only belongs
+ * on phones/tablets where biometrics replace typing a password on a tiny
+ * keyboard. Desktop users who already have a synced passkey (via iCloud
+ * Keychain, Windows Hello profile, etc.) still see the Face ID / Touch ID
+ * sign-in BUTTON — this helper only hides the nag to enroll.
+ *
+ * Combines the existing UA-based device kind with a touch+coarse-pointer
+ * media query so we don't offer the prompt to a desktop user who happens
+ * to have a touchscreen monitor plugged in (rare, but they generally also
+ * have a mouse — coarse-pointer rules them out).
+ *
+ * SSR-safe: returns false when `window`/`navigator` are unavailable.
+ */
+export function isHandheldDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  const kind = getDeviceKind();
+  const isHandheldByUA =
+    kind === 'iphone' ||
+    kind === 'ipad' ||
+    kind === 'android-phone' ||
+    kind === 'android-tablet';
+  if (!isHandheldByUA) return false;
+  // Belt-and-suspenders: confirm touch-primary input. A phone/tablet UA
+  // with (pointer: fine) is almost certainly a spoofed desktop dev-tools
+  // emulation or a niche convertible — treat as not-handheld so we don't
+  // surface the prompt to a reviewer poking at the site in Chrome DevTools
+  // without mobile emulation enabled.
+  if (typeof window.matchMedia !== 'function') return true;
+  const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  const anyHover = window.matchMedia('(any-hover: none)').matches;
+  // Either signal is sufficient — some Android tablets in desktop mode
+  // report `any-hover: none` while flipping pointer to fine.
+  return coarsePointer || anyHover;
+}
+
+/**
  * Unified "is this page already running inside an installed PWA?" check.
  *
  * Chromium/Edge/Android Chrome expose `(display-mode: standalone)` via
