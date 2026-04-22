@@ -173,14 +173,13 @@ export async function middleware(request: NextRequest) {
 
     const mustEnroll2FA = payload?.user_metadata?.must_enroll_2fa;
 
-    // Any non-admin portal user must change password and/or enroll 2FA before
-    // accessing the portal. The /auth/change-password page owns both the
-    // password step and the 2FA enrollment step (scan QR → verify), so
-    // redirect there for either flag.
-    const needsOnboarding = caps?.has(Capability.PORTAL_ACCESS) && !caps.has(Capability.ADMIN_ACCESS);
+    // Any user still carrying must_change_password or must_enroll_2fa flags
+    // must finish onboarding (/auth/change-password handles both steps) before
+    // reaching any protected route. Seed admins are provisioned without these
+    // flags so they skip the redirect naturally.
+    const needsOnboarding = !!(mustChangePassword || mustEnroll2FA);
     if (
       needsOnboarding &&
-      (mustChangePassword || mustEnroll2FA) &&
       !pathname.startsWith('/auth/change-password') &&
       !pathname.startsWith('/api/auth/change-password') &&
       !pathname.startsWith('/api/auth/2fa') &&
@@ -214,6 +213,30 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL(dest, request.url));
     }
 
+    // Internal-employee admin-page restrictions: KAM sees scorecards + market
+    // visits; FSR sees market visits only. Anything else under /admin (except
+    // the publicly viewable mobile-unavailable page and per-user settings)
+    // bounces to their landing.
+    if (pathname.startsWith('/admin') && caps?.has(Capability.ADMIN_ACCESS) && !caps.has(Capability.ADMIN_FULL)) {
+      const alwaysAllowed =
+        pathname.startsWith('/admin/mobile-unavailable') ||
+        pathname.startsWith('/admin/settings');
+      if (!alwaysAllowed) {
+        if (role === 'FIELD_SALES_REP') {
+          if (!pathname.startsWith('/admin/market-visits')) {
+            return NextResponse.redirect(new URL('/admin/market-visits', request.url));
+          }
+        } else if (role === 'KEY_ACCOUNT_MANAGER') {
+          const allowed =
+            pathname.startsWith('/admin/dashboard') ||
+            pathname.startsWith('/admin/market-visits');
+          if (!allowed) {
+            return NextResponse.redirect(new URL('/admin/dashboard', request.url));
+          }
+        }
+      }
+    }
+
     // /portal requires portal:access capability
     if (pathname.startsWith('/portal') && !caps?.has(Capability.PORTAL_ACCESS)) {
       return NextResponse.redirect(new URL('/auth/login', request.url));
@@ -242,10 +265,9 @@ export async function middleware(request: NextRequest) {
       const refreshedHasTrusted = refreshedTrustedCookie ? await verifyDeviceTokenEdge(refreshedTrustedCookie) : false;
 
       // Same onboarding redirect as the fast path above.
-      const refreshedNeedsOnboarding = refreshedCaps?.has(Capability.PORTAL_ACCESS) && !refreshedCaps.has(Capability.ADMIN_ACCESS);
+      const refreshedNeedsOnboarding = !!(refreshedMustChange || refreshedMustEnroll);
       if (
         refreshedNeedsOnboarding &&
-        (refreshedMustChange || refreshedMustEnroll) &&
         !pathname.startsWith('/auth/change-password') &&
         !pathname.startsWith('/api/auth/change-password') &&
         !pathname.startsWith('/api/auth/2fa') &&
@@ -260,6 +282,30 @@ export async function middleware(request: NextRequest) {
         if (!allowed) {
           return NextResponse.redirect(new URL('/auth/login', request.url));
         }
+      }
+
+      // Mirror the fast-path /admin restrictions so an expired-token hop
+      // doesn't sneak KAM/FSR into pages they shouldn't see.
+      if (pathname.startsWith('/admin') && !refreshedCaps?.has(Capability.ADMIN_ACCESS)) {
+        const dest = refreshedCaps?.has(Capability.PORTAL_ACCESS) ? '/portal' : '/auth/login';
+        return NextResponse.redirect(new URL(dest, request.url));
+      }
+      if (pathname.startsWith('/admin') && refreshedCaps?.has(Capability.ADMIN_ACCESS) && !refreshedCaps.has(Capability.ADMIN_FULL)) {
+        const alwaysAllowed =
+          pathname.startsWith('/admin/mobile-unavailable') ||
+          pathname.startsWith('/admin/settings');
+        if (!alwaysAllowed) {
+          if (refreshedRole === 'FIELD_SALES_REP' && !pathname.startsWith('/admin/market-visits')) {
+            return NextResponse.redirect(new URL('/admin/market-visits', request.url));
+          }
+          if (refreshedRole === 'KEY_ACCOUNT_MANAGER') {
+            const allowed = pathname.startsWith('/admin/dashboard') || pathname.startsWith('/admin/market-visits');
+            if (!allowed) return NextResponse.redirect(new URL('/admin/dashboard', request.url));
+          }
+        }
+      }
+      if (pathname.startsWith('/portal') && !refreshedCaps?.has(Capability.PORTAL_ACCESS)) {
+        return NextResponse.redirect(new URL('/auth/login', request.url));
       }
 
       const response = NextResponse.next({ request: { headers: rscHeaders } });

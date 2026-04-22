@@ -4,7 +4,20 @@ import { getUserFromToken } from '../../../../../lib/apiAuth';
 
 const BUCKET = 'client-logos';
 
-// PUT /api/client-logos/:id — update label or sort order
+function normalizeUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const u = new URL(trimmed);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+// PUT /api/client-logos/:id — update label, sort order, or website URL
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -18,8 +31,20 @@ export async function PUT(
     const body = await request.json();
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (body.label !== undefined) updates.label = body.label.trim();
+    if (body.label !== undefined) updates.label = String(body.label).trim();
     if (body.sort_order !== undefined) updates.sort_order = parseInt(body.sort_order, 10);
+    if (body.website_url !== undefined) {
+      // Empty string / null → clear the URL; otherwise validate.
+      if (body.website_url === null || body.website_url === '') {
+        updates.website_url = null;
+      } else {
+        const normalized = normalizeUrl(body.website_url);
+        if (!normalized) {
+          return NextResponse.json({ error: 'Invalid website URL' }, { status: 400 });
+        }
+        updates.website_url = normalized;
+      }
+    }
 
     const { data, error } = await supabaseAdmin
       .from('client_logos')

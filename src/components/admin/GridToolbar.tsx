@@ -40,10 +40,11 @@ export default function GridToolbar({
   onForceSave,
   onFetchTemplates,
 }: GridToolbarProps) {
+  const canEdit = userRole === 'ADMIN' || userRole === 'KEY_ACCOUNT_MANAGER';
   return (
     <div className="flex items-center justify-between gap-2 pb-3 flex-wrap sticky top-0 bg-slate-50/95 backdrop-blur-sm z-10 -mx-3 sm:-mx-6 px-3 sm:px-6 pt-2 border-b border-slate-100">
       <div className="flex items-center gap-2">
-        <button onClick={onAddColumn} className="grid-toolbar-btn primary" disabled={userRole !== 'ADMIN'}>
+        <button onClick={onAddColumn} className="grid-toolbar-btn primary" disabled={!canEdit}>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
           Add Column
         </button>
@@ -60,7 +61,7 @@ export default function GridToolbar({
         <input id="main-import-excel" type="file" accept=".xlsx,.csv" style={{ display: 'none' }} onChange={onImportExcel} />
         <Link
           href="/admin/stores"
-          className="grid-toolbar-btn"
+          className={`grid-toolbar-btn ${userRole !== 'ADMIN' ? 'hidden' : ''}`}
           title="Open the Store Directory — add, edit, or remove individual stores. The master chain↔store data used across market visits, scorecards, and comments."
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 .75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349M3.75 21V9.349m0 0a3.001 3.001 0 0 0 3.75-.615A2.993 2.993 0 0 0 9.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 0 0 2.25 1.016c.896 0 1.7-.393 2.25-1.015a3.001 3.001 0 0 0 3.75.614m-16.5 0a3.004 3.004 0 0 1-.621-4.72l1.189-1.19A1.5 1.5 0 0 1 5.378 3h13.243a1.5 1.5 0 0 1 1.06.44l1.19 1.189a3 3 0 0 1-.621 4.72M6.75 18h3.75a.75.75 0 0 0 .75-.75V13.5a.75.75 0 0 0-.75-.75H6.75a.75.75 0 0 0-.75.75v3.75c0 .414.336.75.75.75Z" /></svg>
@@ -83,7 +84,7 @@ export default function GridToolbar({
           />
         )}
         <div className="w-px h-5 bg-slate-200" />
-        <button onClick={onSaveTemplate} className="grid-toolbar-btn" disabled={userRole !== 'ADMIN'}>
+        <button onClick={onSaveTemplate} className="grid-toolbar-btn" disabled={!canEdit}>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
           Save Template
         </button>
@@ -97,7 +98,7 @@ export default function GridToolbar({
             onImportTemplateClick();
           }}
           className="grid-toolbar-btn"
-          disabled={userRole !== 'ADMIN'}
+          disabled={!canEdit}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m6.75 12-3-3m0 0-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
           Load Template

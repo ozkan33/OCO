@@ -44,6 +44,9 @@ export default function ScorecardSidebar({
   onExpand,
 }: ScorecardSidebarProps) {
   const [sidebarSearch, setSidebarSearch] = useState('');
+  // KAMs share write access with admins; only admins may delete scorecards.
+  const canEdit = userRole === 'ADMIN' || userRole === 'KEY_ACCOUNT_MANAGER';
+  const canDelete = userRole === 'ADMIN';
 
   if (sidebarCollapsed) {
     return (
@@ -106,7 +109,7 @@ export default function ScorecardSidebar({
       <div className="px-4 mb-2">
         <div className="flex items-center justify-between">
           <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">ScoreCards</h4>
-          {userRole === 'ADMIN' && (
+          {canEdit && (
             <button onClick={onCreateScoreCard} className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Create New ScoreCard">
               <FaPlus size={12} />
             </button>
@@ -156,14 +159,16 @@ export default function ScorecardSidebar({
                   )}
                 </div>
               </button>
-              {userRole === 'ADMIN' && (
+              {canEdit && (
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity shrink-0">
                   <button onClick={() => onEditScoreCard(scorecard)} className="p-1 text-slate-400 hover:text-blue-600 rounded transition-colors" title="Edit ScoreCard">
                     <FaEdit size={11} />
                   </button>
-                  <button onClick={() => onDeleteScoreCard(scorecard.id)} className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors" title="Delete ScoreCard">
-                    <FaTrash size={11} />
-                  </button>
+                  {canDelete && (
+                    <button onClick={() => onDeleteScoreCard(scorecard.id)} className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors" title="Delete ScoreCard">
+                      <FaTrash size={11} />
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -172,7 +177,7 @@ export default function ScorecardSidebar({
 
         {scorecards.length === 0 && (
           <p className="text-xs text-slate-400 italic px-3 py-3">
-            No scorecards yet.{userRole === 'ADMIN' && ' Click + to create one.'}
+            No scorecards yet.{canEdit && ' Click + to create one.'}
           </p>
         )}
 

@@ -275,7 +275,8 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
   // (e.g. "COBORNS" vs "COBORN'S"). Fetched once when admin opens the grid.
   const [knownChains, setKnownChains] = useState<string[]>([]);
   useEffect(() => {
-    if (userRole !== 'ADMIN') return;
+    // KAMs edit scorecards too, so they also need the chain autocomplete list.
+    if (userRole !== 'ADMIN' && userRole !== 'KEY_ACCOUNT_MANAGER') return;
     let cancelled = false;
     (async () => {
       try {
@@ -774,7 +775,8 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
     if (!currentData) return;
 
     const updatedColumns = currentData.columns.map(col => {
-      const editable = userRole === 'ADMIN' && col.key !== 'id' && col.key !== 'delete';
+      const canEdit = userRole === 'ADMIN' || userRole === 'KEY_ACCOUNT_MANAGER';
+      const editable = canEdit && col.key !== 'id' && col.key !== 'delete';
       //   userRole,
       //   isId: col.key === 'id',
       //   isDelete: col.key === 'delete',
@@ -1103,7 +1105,7 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
     const newColumn = {
       key,
       name: newColName, // Ensure name is always set
-      editable: userRole === 'ADMIN',
+      editable: userRole === 'ADMIN' || userRole === 'KEY_ACCOUNT_MANAGER',
       sortable: true,
       isDefault: false, // Mark as user-added
       renderHeaderCell: undefined // Let columnsWithDelete logic handle header rendering

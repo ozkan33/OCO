@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../../lib/apiAuth';
+import { Capability, getRoleFromUser, hasCapability } from '../../../../../../lib/rbac';
 
 // GET /api/scorecards/[id]/history?rowId=123&limit=50
 // Returns the change history for a row (or whole scorecard if rowId omitted).
@@ -10,6 +11,10 @@ export async function GET(
 ) {
   try {
     const user = await getUserFromToken(request);
+    const role = getRoleFromUser(user);
+    if (!hasCapability(role, Capability.SCORECARD_READ)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     const { id: scorecardId } = await params;
     const { searchParams } = new URL(request.url);
     const rowId = searchParams.get('rowId');
@@ -19,7 +24,6 @@ export async function GET(
       .from('user_scorecards')
       .select('id')
       .eq('id', scorecardId)
-      .eq('user_id', user.id)
       .single();
 
     if (scErr || !sc) {

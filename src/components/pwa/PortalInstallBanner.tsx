@@ -12,8 +12,11 @@ import InstallBanner from './InstallBanner';
  *   - Role gate: BRAND (the only role with PORTAL_ACCESS as primary
  *     home; admins see /portal occasionally but their install affordance
  *     is the admin one).
- *   - Allowed device kinds: every form factor — phone, tablet, desktop.
- *     The portal is mobile-first and works everywhere.
+ *   - Allowed device kinds: phones and tablets only (iPhone, iPad,
+ *     Android phone, Android tablet). The portal runs in a browser on
+ *     desktop fine, but there's no value in installing it there — desktop
+ *     users aren't on the go, and the "add to home screen" affordance is
+ *     a noisy distraction on laptops.
  *
  * Mounted from src/app/portal/page.tsx (the portal is a single page;
  * there's no shared layout to attach to).
@@ -33,7 +36,7 @@ export default function PortalInstallBanner() {
     if (isStandalone()) return;
 
     const kind = getDeviceKind();
-    if (kind === 'unknown') return;
+    if (kind === 'unknown' || kind === 'desktop') return;
 
     let justLoggedIn = false;
     try {

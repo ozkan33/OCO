@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
 import { logger } from '../../../../lib/logger';
+import { Capability, getRoleFromUser, hasCapability } from '../../../../lib/rbac';
 
 // Strict match key — case-insensitive + whitespace-tolerant, but preserves
 // apostrophes and punctuation. Intentionally NOT using normalizeChain here:
@@ -142,15 +143,18 @@ export async function GET(request: Request) {
   logger.debug('📊 GET /api/master-scorecard called');
   try {
     const user = await getUserFromToken(request);
+    const role = getRoleFromUser(user);
+    if (!hasCapability(role, Capability.MASTER_SCORECARD_READ)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     const { searchParams } = new URL(request.url);
     const selectedScorecardId = searchParams.get('scorecardId');
 
-    // Fetch all scorecards for the user
+    // Shared pool — ADMIN and KAM see every scorecard in the master view.
     const { data: scorecards, error } = await supabaseAdmin
       .from('user_scorecards')
       .select('*')
-      .eq('user_id', user.id)
       .order('title', { ascending: true });
 
     if (error) {

@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     let query = supabaseAdmin
       .from('market_visits')
       .select('id, user_id, photo_url, photo_storage_path, visit_date, store_name, address, note, brands, latitude, longitude, accuracy_m, location_source, photo_taken_at, created_at')
-      .order('visit_date', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(50);
 
     if (role === Role.BRAND) {

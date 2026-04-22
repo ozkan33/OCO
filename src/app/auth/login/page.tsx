@@ -7,11 +7,24 @@ import { createClient } from '@supabase/supabase-js';
 import { handleMobileRedirect, getMobileBrowserInfo } from '@/utils/mobileDetection';
 import { Role, getLandingPath, isRole } from '../../../../lib/rbac';
 import {
-  isBiometricSupported,
   hasPasskeyFor,
   signInWithPasskey,
+  canEnrollBiometricOnThisDevice,
+  shouldSuggestInstallForBiometric,
 } from '@/lib/webauthn/client';
 import PasskeyEnrollModal, { shouldSkipPasskeyPrompt } from '@/components/auth/PasskeyEnrollModal';
+import PasskeyInstallPromptModal, { shouldSkipInstallPrompt } from '@/components/auth/PasskeyInstallPromptModal';
+
+// Phone viewports can't fit the admin dashboard grid. When a role's landing
+// path would be /admin/dashboard, reroute to /admin/market-visits instead so
+// admins/KAMs see something usable on login. Threshold matches Tailwind's
+// `sm` breakpoint — anything below is a phone.
+const coerceLandingForPhone = (dest: string): string => {
+  if (typeof window === 'undefined') return dest;
+  if (dest !== '/admin/dashboard') return dest;
+  if (window.innerWidth >= 640) return dest;
+  return '/admin/market-visits';
+};
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -51,31 +64,67 @@ export default function LoginPage() {
   // rendered and final navigation is deferred until the user enrolls,
   // skips, or chooses "don't ask again" — onClose kicks off the redirect.
   const [passkeyPromptRedirect, setPasskeyPromptRedirect] = useState<string | null>(null);
+  // Separate "install the app first" prompt shown on iOS browsers that
+  // cannot enroll a platform authenticator (iOS Chrome/Firefox/Edge, or
+  // Safari users who haven't installed). Mutually exclusive with the
+  // enrollment modal above.
+  const [installPromptRedirect, setInstallPromptRedirect] = useState<string | null>(null);
 
-  // Decide whether to show the post-login passkey prompt. Returns true if
-  // the caller should stop and wait for the modal to resolve; false means
-  // proceed with the redirect immediately.
+  // Decide which (if any) post-login prompt to show. Returns true when a
+  // modal was mounted and the caller should wait for its onClose to
+  // kick off the redirect; false means navigate immediately.
+  //
+  // Priority:
+  //   1. If the account already has a passkey → no prompt.
+  //   2. If this device CAN enroll → enrollment modal.
+  //   3. If this device cannot enroll but the user is on iOS non-standalone
+  //      → install prompt ("Add to Home Screen for Face ID").
+  //   4. Otherwise → no prompt (e.g., Android browser without platform auth).
   const maybeShowPasskeyPrompt = async (emailForPrompt: string, redirectTo: string): Promise<boolean> => {
     if (!emailForPrompt) return false;
-    if (!biometricReady) return false;
     // Don't interrupt onboarding (password/2FA enrollment flows) with a
     // passkey upsell — the user hasn't finished setting up the account yet.
     if (redirectTo.startsWith('/auth/')) return false;
-    if (shouldSkipPasskeyPrompt(emailForPrompt)) return false;
     try {
       if (await hasPasskeyFor(emailForPrompt)) return false;
     } catch {
       return false;
     }
-    setPasskeyPromptRedirect(redirectTo);
-    return true;
+
+    // Path 1: device can actually enroll right now (desktop, Android Chrome,
+    // iOS Safari-in-tab, or installed iOS PWA).
+    if (biometricReady && !shouldSkipPasskeyPrompt(emailForPrompt)) {
+      let canEnroll = false;
+      try { canEnroll = await canEnrollBiometricOnThisDevice(); } catch { canEnroll = false; }
+      if (canEnroll) {
+        setPasskeyPromptRedirect(redirectTo);
+        return true;
+      }
+    }
+
+    // Path 2: iOS non-standalone browser that can't enroll. Offer the
+    // install affordance instead so the user understands the prerequisite.
+    // Use a separate dismissal key so a user who passed on enrollment
+    // elsewhere still gets told about the install path here (and vice
+    // versa).
+    if (shouldSuggestInstallForBiometric() && !shouldSkipInstallPrompt(emailForPrompt)) {
+      setInstallPromptRedirect(redirectTo);
+      return true;
+    }
+
+    return false;
   };
 
   // Detect Safari on mount
   useEffect(() => {
     const mobileInfo = getMobileBrowserInfo();
     if (mobileInfo?.isSafari) setIsSafari(true);
-    isBiometricSupported().then(setBiometricReady);
+    // Stricter than isBiometricSupported(): iOS Chrome/Firefox report the
+    // capability but cannot actually use it (WKWebView). We only flip
+    // biometricReady when the current browser can run a real WebAuthn
+    // ceremony — that both hides the "Sign in with Face ID" button on
+    // iOS Chrome and gates the post-login enrollment modal upstream.
+    canEnrollBiometricOnThisDevice().then(setBiometricReady);
   }, []);
 
   // Debounce: check for a passkey 450ms after the user stops typing their
@@ -145,7 +194,7 @@ export default function LoginPage() {
       const mustChangePassword = data.user?.user_metadata?.must_change_password;
       const mustEnroll2FA = data.user?.user_metadata?.must_enroll_2fa;
       const totpEnabled = data.user?.user_metadata?.totp_enabled;
-      let redirectTo = getLandingPath(role);
+      let redirectTo = coerceLandingForPhone(getLandingPath(role));
 
       // /auth/change-password owns both onboarding steps (password + 2FA enroll)
       // for any non-admin portal user. If either flag is set, route there —
@@ -286,7 +335,7 @@ export default function LoginPage() {
       // WebAuthn issues a fresh session AND sets 2fa_verified server-side, so
       // we just navigate. No separate log-session call here — the server has
       // all the context it needs from the verify route.
-      window.location.href = redirect;
+      window.location.href = coerceLandingForPhone(redirect);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Face ID sign-in failed.');
       setBiometricBusy(false);
@@ -318,6 +367,16 @@ export default function LoginPage() {
           onClose={() => {
             const dest = passkeyPromptRedirect;
             setPasskeyPromptRedirect(null);
+            window.location.href = dest;
+          }}
+        />
+      )}
+      {installPromptRedirect && (
+        <PasskeyInstallPromptModal
+          email={email}
+          onClose={() => {
+            const dest = installPromptRedirect;
+            setInstallPromptRedirect(null);
             window.location.href = dest;
           }}
         />

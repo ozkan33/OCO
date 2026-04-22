@@ -22,6 +22,8 @@ export function hasCapability(role: Role | null | undefined, cap: Capability): b
 
 export function getLandingPath(role: Role | null | undefined): string {
   if (role === Role.ADMIN) return '/admin/dashboard';
+  if (role === Role.KEY_ACCOUNT_MANAGER) return '/admin/dashboard';
+  if (role === Role.FIELD_SALES_REP) return '/admin/market-visits';
   if (role && hasCapability(role, Capability.PORTAL_ACCESS)) return '/portal';
   return '/auth/login';
 }

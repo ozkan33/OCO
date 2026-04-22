@@ -317,8 +317,9 @@ export async function POST(request: Request) {
   }
 }
 
-// GET /api/market-visits — list visits with optional filters (admin only,
-// cross-admin visibility so all admins see team-wide market visits)
+// GET /api/market-visits — list visits with optional filters. Team-wide
+// visibility for everyone with MARKET_VISITS_READ (ADMIN, KAM, FSR) so each
+// role sees every visit the team has logged.
 export async function GET(request: Request) {
   let user;
   try {
@@ -326,7 +327,8 @@ export async function GET(request: Request) {
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  if (user.user_metadata?.role !== 'ADMIN') {
+  const readerRole = getRoleFromUser(user);
+  if (!hasCapability(readerRole, Capability.MARKET_VISITS_READ)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -344,7 +346,6 @@ export async function GET(request: Request) {
     let query = supabaseAdmin
       .from('market_visits')
       .select('*', { count: 'exact' })
-      .order('visit_date', { ascending: false })
       .order('created_at', { ascending: false });
 
     if (brand) {

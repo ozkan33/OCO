@@ -658,10 +658,11 @@ export function useColumnDefinitions({
       };
     }
     // Default: fallback to text input
+    const canEditDefault = (userRole === 'ADMIN' || userRole === 'KEY_ACCOUNT_MANAGER') && col.key !== 'id' && col.key !== 'delete';
     return {
       ...col,
-      editable: userRole === 'ADMIN' && col.key !== 'id' && col.key !== 'delete',
-      renderEditCell: col.renderEditCell || (userRole === 'ADMIN' && col.key !== 'id' && col.key !== 'delete'
+      editable: canEditDefault,
+      renderEditCell: col.renderEditCell || (canEditDefault
         ? ({ row, column, onRowChange }: RenderEditCellProps<Row>) => (
           <input
             defaultValue={row[column.key] !== undefined ? String(row[column.key]) : ''}

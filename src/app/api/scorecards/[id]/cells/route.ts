@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../../lib/apiAuth';
+import { Capability, getRoleFromUser, hasCapability } from '../../../../../../lib/rbac';
 
 // PATCH /api/scorecards/[id]/cells
 // Granular cell-level save: applies deltas to the JSONB data blob.
@@ -14,6 +15,10 @@ export async function PATCH(
 ) {
   try {
     const user = await getUserFromToken(request);
+    const role = getRoleFromUser(user);
+    if (!hasCapability(role, Capability.SCORECARD_WRITE)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     const { id: scorecardId } = await params;
     const body = await request.json();
     const changes: {
@@ -28,12 +33,11 @@ export async function PATCH(
       return NextResponse.json({ updated: 0 });
     }
 
-    // Read current scorecard (verify ownership)
+    // Read current scorecard — shared across ADMIN+KAM, no per-user filter.
     const { data: sc, error: scErr } = await supabaseAdmin
       .from('user_scorecards')
       .select('id, data, last_modified')
       .eq('id', scorecardId)
-      .eq('user_id', user.id)
       .single();
 
     if (scErr || !sc) {
@@ -93,8 +97,7 @@ export async function PATCH(
     const { error: updateErr } = await supabaseAdmin
       .from('user_scorecards')
       .update({ data: { ...data, rows }, last_modified: now })
-      .eq('id', scorecardId)
-      .eq('user_id', user.id);
+      .eq('id', scorecardId);
 
     if (updateErr) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });

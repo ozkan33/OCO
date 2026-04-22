@@ -16,7 +16,7 @@ import {
   browserSupportsWebAuthn,
   platformAuthenticatorIsAvailable,
 } from '@simplewebauthn/browser';
-import { getDeviceKind } from '@/lib/pwa/deviceDetection';
+import { getDeviceKind, isIOS, isStandalone } from '@/lib/pwa/deviceDetection';
 
 export async function isBiometricSupported(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
@@ -26,6 +26,77 @@ export async function isBiometricSupported(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Can this device actually complete a platform-authenticator enrollment
+ * RIGHT NOW? This is stricter than `isBiometricSupported()` because iOS
+ * lies: `PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()`
+ * returns true inside iOS Chrome (a WKWebView), but the real `create()` call
+ * will reject with NotAllowedError. Face ID/Touch ID enrollment on iOS is
+ * only usable from:
+ *   - Safari (regular tab, iOS 16+)
+ *   - An installed PWA running in standalone display mode
+ *   - SFSafariViewController (we don't ship one)
+ *
+ * On Android and desktop the capability check is sufficient — Chrome, Edge,
+ * Firefox, and desktop Safari all honor the platform authenticator in a
+ * regular browser tab.
+ *
+ * Callers that ask "should I offer the enrollment modal?" must use this
+ * instead of `isBiometricSupported()` — otherwise iOS Chrome users see a
+ * prompt that cannot succeed. Separate affordance
+ * (`shouldSuggestInstallForBiometric`) handles the iOS-non-standalone case.
+ */
+export async function canEnrollBiometricOnThisDevice(): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  if (!browserSupportsWebAuthn()) return false;
+  let hasPlatformAuth = false;
+  try {
+    hasPlatformAuth = await platformAuthenticatorIsAvailable();
+  } catch {
+    return false;
+  }
+  if (!hasPlatformAuth) return false;
+  // iOS gate: Safari-in-tab and installed PWAs can enroll. Chrome/Firefox/
+  // Edge on iOS all route through WKWebView and cannot use platform
+  // authenticators. Standalone mode covers the installed-PWA case across
+  // every iOS browser the user may have installed it from.
+  if (isIOS()) {
+    if (isStandalone()) return true;
+    if (isIOSSafari()) return true;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * True when the user is on iOS in a browser that cannot enroll a passkey
+ * (iOS Chrome, Firefox, Edge — or Safari-in-tab users who chose not to
+ * install and want Face ID sign-in). For these users we offer "Add to Home
+ * Screen" guidance instead of the enrollment modal. Returns false outside
+ * iOS (Android / desktop handle enrollment in-tab without installing).
+ */
+export function shouldSuggestInstallForBiometric(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (!('PublicKeyCredential' in window)) return false;
+  if (!isIOS()) return false;
+  if (isStandalone()) return false;
+  return true;
+}
+
+/**
+ * Best-effort iOS Safari detection. iOS Safari UA contains "Safari" and
+ * "Version/"; in-app browsers (Chrome "CriOS", Firefox "FxiOS", Edge "EdgiOS",
+ * embedded webviews) do NOT include "Version/" alongside "Safari". This is
+ * only consulted on iOS (after `isIOS()` gate), so we don't need to handle
+ * desktop Safari here.
+ */
+function isIOSSafari(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  if (/CriOS|FxiOS|EdgiOS|OPiOS|mercury|GSA\//i.test(ua)) return false;
+  return /Safari/.test(ua) && /Version\//.test(ua);
 }
 
 export async function hasPasskeyFor(email: string): Promise<boolean> {

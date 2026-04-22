@@ -4,9 +4,13 @@ import { getUserFromToken } from '../../../../lib/apiAuth';
 import { logger } from '../../../../lib/logger';
 import { createCommentSchema } from '../../../../lib/schemas';
 import { resolveAuthorInfo } from '../../../../lib/commentAuthors';
+import { Capability, getRoleFromUser, hasCapability } from '../../../../lib/rbac';
 import { z } from 'zod';
 
-// Helper: verify or migrate a scorecard, returns { id, title }
+// Helper: verify or migrate a scorecard, returns { id, title }.
+// Scorecards live in a team-wide pool shared across ADMIN and KAM — the
+// capability check happens in the caller, so this helper no longer filters by
+// user_id when resolving an existing scorecard.
 async function resolveScorecard(
   scorecardId: string,
   userId: string,
@@ -30,12 +34,10 @@ async function resolveScorecard(
     return data;
   }
 
-  // Database scorecard — only select id for ownership verification
   const { data, error } = await supabaseAdmin
     .from('user_scorecards')
     .select('id, title')
     .eq('id', scorecardId)
-    .eq('user_id', userId)
     .single();
 
   if (error || !data) throw new Error('Scorecard not found or access denied');
@@ -46,6 +48,10 @@ async function resolveScorecard(
 export async function GET(request: Request) {
   try {
     const user = await getUserFromToken(request);
+    const role = getRoleFromUser(user);
+    if (!hasCapability(role, Capability.SCORECARD_READ)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     const { searchParams } = new URL(request.url);
     const scorecardId = searchParams.get('scorecard_id');
 
@@ -58,12 +64,11 @@ export async function GET(request: Request) {
       return NextResponse.json([]);
     }
 
-    // Verify ownership
+    // Confirm the scorecard exists (ADMIN+KAM share the pool, so no user_id filter).
     const { error: scErr } = await supabaseAdmin
       .from('user_scorecards')
       .select('id')
       .eq('id', scorecardId)
-      .eq('user_id', user.id)
       .single();
 
     if (scErr) {
@@ -149,6 +154,10 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const user = await getUserFromToken(request);
+    const role = getRoleFromUser(user);
+    if (!hasCapability(role, Capability.SCORECARD_WRITE)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     const body = await request.json();
 
     // Validate input

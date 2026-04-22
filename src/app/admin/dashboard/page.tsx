@@ -13,6 +13,21 @@ export default function AdminDashboard() {
   const navigateToRef = useRef<((payload: NavigateToPayload) => void) | null>(null);
   const refreshCommentsRef = useRef<((scorecardId: string) => void) | null>(null);
 
+  // Phone viewports can't render the scorecard grid — bounce to market visits
+  // before any dashboard shell paints so the user never sees a flash of the
+  // unusable layout. Runs synchronously on first render to avoid a flicker.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const redirectIfPhone = () => {
+      if (window.innerWidth < 640) {
+        window.location.replace('/admin/market-visits');
+      }
+    };
+    redirectIfPhone();
+    window.addEventListener('resize', redirectIfPhone);
+    return () => window.removeEventListener('resize', redirectIfPhone);
+  }, []);
+
   useEffect(() => {
     const fetchUser = async () => {
       setLoadingUser(true);
@@ -84,23 +99,18 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Hide dense admin nav on phones — it doesn't fit alongside the grid.
-          Tablet/desktop (md+) keeps the normal header. Other admin pages are
-          unaffected; this is a dashboard-only concession. */}
-      <div className="hidden md:block">
-        <AdminHeader
-          rightContent={
-            <NotificationBell
-              onNotificationClick={(payload) => {
-                navigateToRef.current?.(payload);
-              }}
-              onNewActivity={(scorecardIds) => {
-                scorecardIds.forEach(id => refreshCommentsRef.current?.(id));
-              }}
-            />
-          }
-        />
-      </div>
+      <AdminHeader
+        rightContent={
+          <NotificationBell
+            onNotificationClick={(payload) => {
+              navigateToRef.current?.(payload);
+            }}
+            onNewActivity={(scorecardIds) => {
+              scorecardIds.forEach(id => refreshCommentsRef.current?.(id));
+            }}
+          />
+        }
+      />
       <main className="w-full max-w-none px-0 py-0 flex justify-center">
         <div className="w-full">
           <SafariErrorBoundary>
