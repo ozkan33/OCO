@@ -6,6 +6,25 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const BUCKET = 'client-logos';
 
+// Normalize a user-entered site URL. Accepts bare hosts ("example.com"),
+// rejects obviously bad input, returns null for empty. Returns the string
+// on success or throws on invalid.
+function normalizeWebsiteUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const withProto = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const u = new URL(withProto);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      throw new Error('invalid protocol');
+    }
+    return u.toString();
+  } catch {
+    throw new Error('Invalid website URL');
+  }
+}
+
 // GET /api/client-logos — list all logos (public, no auth needed)
 export async function GET() {
   const { data, error } = await supabaseAdmin
@@ -32,9 +51,17 @@ export async function POST(request: Request) {
     const file = formData.get('file') as File | null;
     const label = formData.get('label') as string | null;
     const sortOrder = formData.get('sort_order') as string | null;
+    const websiteUrlRaw = formData.get('website_url') as string | null;
 
     if (!label || !label.trim()) {
       return NextResponse.json({ error: 'Label is required' }, { status: 400 });
+    }
+
+    let websiteUrl: string | null;
+    try {
+      websiteUrl = normalizeWebsiteUrl(websiteUrlRaw);
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 400 });
     }
 
     if (!file || !(file instanceof File)) {
@@ -78,6 +105,7 @@ export async function POST(request: Request) {
         image_url: urlData.publicUrl,
         storage_path: storagePath,
         sort_order: sortOrder ? parseInt(sortOrder, 10) : 0,
+        website_url: websiteUrl,
       })
       .select()
       .single();

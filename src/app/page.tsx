@@ -170,7 +170,7 @@ export default function LandingPage() {
   const [form, setForm] = useState({ name: '', email: '', product: '', category: '', distribution: '', challenge: '', heardAbout: '', message: '' });
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
-  const [clientLogos, setClientLogos] = useState<{ src: string; alt: string }[]>([]);
+  const [clientLogos, setClientLogos] = useState<{ src: string; alt: string; url: string }[]>([]);
 
   const handlePortalClick = async () => {
     try {
@@ -189,7 +189,13 @@ export default function LandingPage() {
     fetch('/api/client-logos')
       .then(res => res.ok ? res.json() : [])
       .then(data => {
-        setClientLogos((data || []).map((l: any) => ({ src: l.image_url, alt: l.label })));
+        setClientLogos((data || []).map((l: any) => ({
+          src: l.image_url,
+          alt: l.label,
+          // Prefer admin-configured website_url; fall back to the bundled
+          // brandLinks map for logos uploaded before the field existed.
+          url: l.website_url || getBrandUrl(l.label),
+        })));
       })
       .catch(() => setClientLogos([]));
   }, []);
@@ -465,7 +471,7 @@ export default function LandingPage() {
             <div className="flex items-center gap-8 logo-marquee" style={{ width: 'max-content' }}>
               {/* Double the logos for seamless loop */}
               {[...clientLogos, ...clientLogos].map((logo, idx) => {
-                const url = getBrandUrl(logo.alt);
+                const url = logo.url;
                 const Wrapper = url ? 'a' : 'div';
                 const linkProps = url ? { href: url, target: '_blank', rel: 'noopener noreferrer' } : {};
                 return (

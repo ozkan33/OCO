@@ -4,6 +4,22 @@ import { getUserFromToken } from '../../../../../lib/apiAuth';
 
 const BUCKET = 'client-logos';
 
+function normalizeWebsiteUrl(raw: string | null | undefined): string | null {
+  if (raw === null || raw === undefined) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  const withProto = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const u = new URL(withProto);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      throw new Error('invalid protocol');
+    }
+    return u.toString();
+  } catch {
+    throw new Error('Invalid website URL');
+  }
+}
+
 // PUT /api/client-logos/:id — update label or sort order
 export async function PUT(
   request: Request,
@@ -20,6 +36,13 @@ export async function PUT(
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (body.label !== undefined) updates.label = body.label.trim();
     if (body.sort_order !== undefined) updates.sort_order = parseInt(body.sort_order, 10);
+    if (body.website_url !== undefined) {
+      try {
+        updates.website_url = normalizeWebsiteUrl(body.website_url);
+      } catch (e) {
+        return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+      }
+    }
 
     const { data, error } = await supabaseAdmin
       .from('client_logos')

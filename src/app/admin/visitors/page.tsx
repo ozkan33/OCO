@@ -49,7 +49,8 @@ export default function VisitorTrackerPage() {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/visitors?days=${days}`, { credentials: 'include' })
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    fetch(`/api/visitors?days=${days}&tz=${encodeURIComponent(tz)}`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
@@ -449,7 +450,10 @@ function DailyTrafficChart({ dailyVisits }: { dailyVisits: { date: string; total
   // "Nice" round axis max so gridlines land on even numbers
   const niceMax = niceCeil(max);
   const peak = Math.max(...dailyVisits.map(v => v.total), 0);
-  const todayISO = new Date().toISOString().slice(0, 10);
+  // Buckets come back keyed by the viewer's local date (server aggregates
+  // with their tz). Use local date here too — toISOString() would give UTC
+  // and cause the "today" ring to land on the wrong bar around midnight.
+  const todayISO = localDateISO(new Date());
 
   const CHART_H = 160;
   const Y_STEPS = 4;
@@ -498,8 +502,10 @@ function DailyTrafficChart({ dailyVisits }: { dailyVisits: { date: string; total
             {dailyVisits.map(d => {
               const totalH = (d.total / niceMax) * CHART_H;
               const uniqueH = (d.unique / niceMax) * CHART_H;
-              const dt = new Date(d.date + 'T00:00:00Z');
-              const dow = dt.getUTCDay(); // 0=Sun 6=Sat
+              // Parse as local midnight so weekend shading / day-of-week
+              // aligns with the viewer's calendar (matches server tz bucketing).
+              const dt = new Date(d.date + 'T00:00:00');
+              const dow = dt.getDay(); // 0=Sun 6=Sat
               const isWeekend = dow === 0 || dow === 6;
               const isToday = d.date === todayISO;
               return (
@@ -556,8 +562,15 @@ function niceCeil(n: number): number {
 }
 
 function formatShortDate(iso: string): string {
-  const d = new Date(iso + 'T00:00:00Z');
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function localDateISO(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function ListCard({

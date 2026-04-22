@@ -11,6 +11,7 @@ interface ClientLogo {
   image_url: string;
   storage_path: string | null;
   sort_order: number;
+  website_url: string | null;
   created_at: string;
 }
 
@@ -20,10 +21,12 @@ export default function ClientLogosPage() {
   const [logos, setLogos] = useState<ClientLogo[]>([]);
   const [uploading, setUploading] = useState(false);
   const [newLabel, setNewLabel] = useState('');
+  const [newWebsiteUrl, setNewWebsiteUrl] = useState('');
   const [newFile, setNewFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState('');
+  const [editWebsiteUrl, setEditWebsiteUrl] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [savingEditId, setSavingEditId] = useState<string | null>(null);
   const [reorderingId, setReorderingId] = useState<string | null>(null);
@@ -81,6 +84,7 @@ export default function ClientLogosPage() {
       formData.append('file', newFile);
       formData.append('label', newLabel.trim());
       formData.append('sort_order', String(logos.length));
+      if (newWebsiteUrl.trim()) formData.append('website_url', newWebsiteUrl.trim());
 
       const res = await fetch('/api/client-logos', {
         method: 'POST',
@@ -96,6 +100,7 @@ export default function ClientLogosPage() {
 
       toast.success('Logo added successfully');
       setNewLabel('');
+      setNewWebsiteUrl('');
       setNewFile(null);
       setPreview(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -139,13 +144,17 @@ export default function ClientLogosPage() {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: editLabel.trim() }),
+        body: JSON.stringify({
+          label: editLabel.trim(),
+          website_url: editWebsiteUrl.trim() || null,
+        }),
       });
       if (!res.ok) {
-        toast.error('Update failed');
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || 'Update failed');
         return;
       }
-      toast.success('Label updated');
+      toast.success('Logo updated');
       setEditingId(null);
       await fetchLogos();
     } catch {
@@ -255,25 +264,35 @@ export default function ClientLogosPage() {
               className="hidden"
             />
 
-            <div className="flex-1 flex flex-col sm:flex-row gap-3 w-full">
+            <div className="flex-1 flex flex-col gap-3 w-full">
               <input
                 type="text"
                 placeholder="Brand name (e.g. JoMomma's)"
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
-                className="flex-1 border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
-              <button
-                type="submit"
-                disabled={uploading || !newFile || !newLabel.trim()}
-                className="px-6 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-              >
-                {uploading ? 'Uploading...' : 'Add Logo'}
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input
+                  type="url"
+                  placeholder="Website URL (e.g. https://jomommas.com)"
+                  value={newWebsiteUrl}
+                  onChange={(e) => setNewWebsiteUrl(e.target.value)}
+                  className="flex-1 border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <button
+                  type="submit"
+                  disabled={uploading || !newFile || !newLabel.trim()}
+                  className="px-6 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {uploading ? 'Uploading...' : 'Add Logo'}
+                </button>
+              </div>
             </div>
           </div>
           <p className="text-xs text-slate-400 mt-3">
             Accepted formats: JPEG, PNG, WebP. Max 5MB. Recommended: transparent PNG, at least 200px wide.
+            Website URL is optional — when set, the logo on the landing page links to it.
           </p>
         </form>
 
@@ -328,52 +347,82 @@ export default function ClientLogosPage() {
                     />
                   </div>
 
-                  {/* Label */}
+                  {/* Label + URL */}
                   <div className="flex-1 min-w-0">
                     {editingId === logo.id ? (
-                      <div className="flex gap-2">
+                      <div className="flex flex-col gap-2">
                         <input
                           type="text"
+                          placeholder="Brand name"
                           value={editLabel}
                           onChange={(e) => setEditLabel(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') handleEditSave(logo.id);
                             if (e.key === 'Escape') setEditingId(null);
                           }}
-                          className="flex-1 border border-slate-200 rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-full border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           autoFocus
                         />
-                        <button
-                          onClick={() => handleEditSave(logo.id)}
-                          disabled={savingEditId === logo.id || !editLabel.trim()}
-                          aria-busy={savingEditId === logo.id}
-                          className="text-xs text-blue-600 font-medium hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {savingEditId === logo.id ? 'Saving…' : 'Save'}
-                        </button>
-                        <button
-                          onClick={() => setEditingId(null)}
-                          disabled={savingEditId === logo.id}
-                          className="text-xs text-slate-400 font-medium hover:text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Cancel
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <input
+                            type="url"
+                            placeholder="Website URL (optional)"
+                            value={editWebsiteUrl}
+                            onChange={(e) => setEditWebsiteUrl(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleEditSave(logo.id);
+                              if (e.key === 'Escape') setEditingId(null);
+                            }}
+                            className="flex-1 min-w-[180px] border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <button
+                            onClick={() => handleEditSave(logo.id)}
+                            disabled={savingEditId === logo.id || !editLabel.trim()}
+                            aria-busy={savingEditId === logo.id}
+                            className="text-xs text-blue-600 font-medium hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed px-2"
+                          >
+                            {savingEditId === logo.id ? 'Saving…' : 'Save'}
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            disabled={savingEditId === logo.id}
+                            className="text-xs text-slate-400 font-medium hover:text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed px-2"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => {
-                          setEditingId(logo.id);
-                          setEditLabel(logo.label);
-                        }}
-                        className="text-sm font-medium text-slate-800 hover:text-blue-600 transition-colors text-left"
-                        title="Click to edit label"
-                      >
-                        {logo.label}
-                      </button>
+                      <>
+                        <button
+                          onClick={() => {
+                            setEditingId(logo.id);
+                            setEditLabel(logo.label);
+                            setEditWebsiteUrl(logo.website_url ?? '');
+                          }}
+                          className="text-sm font-medium text-slate-800 hover:text-blue-600 transition-colors text-left"
+                          title="Click to edit"
+                        >
+                          {logo.label}
+                        </button>
+                        {logo.website_url ? (
+                          <a
+                            href={logo.website_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block text-xs text-blue-600 hover:text-blue-700 truncate mt-0.5"
+                            title={logo.website_url}
+                          >
+                            {logo.website_url}
+                          </a>
+                        ) : (
+                          <p className="text-xs text-slate-300 mt-0.5 italic">No website URL</p>
+                        )}
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Order: {logo.sort_order}
+                        </p>
+                      </>
                     )}
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Order: {logo.sort_order}
-                    </p>
                   </div>
 
                   {/* Delete */}
