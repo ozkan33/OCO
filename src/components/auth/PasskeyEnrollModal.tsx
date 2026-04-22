@@ -69,9 +69,19 @@ export default function PasskeyEnrollModal({ email, onClose }: PasskeyEnrollModa
       // user still gets a useful next step instead of a dead-end.
       if (isIOS() && !isStandalone()) {
         setErrorMsg('Face ID sign-in requires installing this app to your Home Screen first. In Safari, tap Share then Add to Home Screen.');
-      } else {
-        setErrorMsg(msg);
+        setBusy(false);
+        return;
       }
+      // Server-side failure (e.g. "Could not start enrollment" 500) means the
+      // passkey backend isn't ready for this account. Suppress the prompt for
+      // this email so the user isn't nagged on every login with an error they
+      // can't resolve, and surface a friendlier message as we dismiss.
+      if (/could not start enrollment|passkey (registration|enrollment)/i.test(msg)) {
+        markPasskeyPromptSkipped(email);
+        onClose();
+        return;
+      }
+      setErrorMsg(msg);
       setBusy(false);
     }
   };

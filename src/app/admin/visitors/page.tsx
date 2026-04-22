@@ -154,15 +154,15 @@ export default function VisitorTrackerPage() {
   const sortArrow = (key: SortKey) => sortKey === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 overflow-x-hidden">
       <AdminHeader />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <div>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 w-full">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold text-slate-900">Visitor Tracker</h1>
             <p className="text-sm text-slate-500 mt-1">See who is landing on your site and where they come from.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {[7, 30, 90].map(d => (
               <button
                 key={d}

@@ -33,7 +33,7 @@ export function AuthButtons({ user, loading, onAccountClick, onLogout, variant =
     return (
       <button
         onClick={() => router.push('/auth/login')}
-        className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition shadow text-sm w-full md:w-auto"
+        className="inline-flex items-center justify-center px-4 py-2 min-h-[44px] bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition shadow text-sm w-full md:w-auto"
       >
         Login
       </button>

@@ -24,7 +24,7 @@ export function Logo({ variant = 'dark' }: LogoProps) {
   const isLight = variant === 'light';
 
   return (
-    <Link href="/" className="flex items-center gap-2">
+    <Link href="/" className="flex items-center gap-2 min-h-[44px]">
       <LogoMark size={32} />
       <div className="flex flex-col">
         <span className={`text-lg md:text-xl font-bold leading-tight transition-colors ${isLight ? 'text-white' : 'text-slate-800'}`}>3Brothers</span>
