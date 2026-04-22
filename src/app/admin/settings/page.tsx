@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import AdminHeader from '@/components/admin/AdminHeader';
 import { FiShield, FiSmartphone, FiCheck, FiX, FiInfo, FiKey, FiTrash2 } from 'react-icons/fi';
 import { toast, Toaster } from 'sonner';
@@ -30,6 +30,9 @@ export default function AdminSettingsPage() {
   const [passkeySupported, setPasskeySupported] = useState(false);
   const [passkeys, setPasskeys] = useState<PasskeyRow[]>([]);
   const [enrollingPasskey, setEnrollingPasskey] = useState(false);
+  // Ref guard: setEnrollingPasskey won't flush before a rapid double-click
+  // can re-enter the handler and issue a second register/challenge request.
+  const enrollingPasskeyRef = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -58,7 +61,8 @@ export default function AdminSettingsPage() {
   }, []);
 
   const handleEnrollPasskey = async () => {
-    if (enrollingPasskey) return;
+    if (enrollingPasskeyRef.current) return;
+    enrollingPasskeyRef.current = true;
     setEnrollingPasskey(true);
     try {
       await enrollPasskey();
@@ -68,6 +72,7 @@ export default function AdminSettingsPage() {
       toast.error(err instanceof Error ? err.message : 'Could not add passkey');
     } finally {
       setEnrollingPasskey(false);
+      enrollingPasskeyRef.current = false;
     }
   };
 

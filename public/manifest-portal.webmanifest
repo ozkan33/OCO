@@ -4,7 +4,7 @@
   "description": "Brand-client portal for 3Brothers Marketing — product status, scorecards, and store visits.",
   "id": "/portal",
   "scope": "/portal",
-  "start_url": "/auth/login?from=pwa&target=portal",
+  "start_url": "/portal?from=pwa",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#ffffff",

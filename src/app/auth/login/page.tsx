@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { createClient } from '@supabase/supabase-js';
@@ -39,6 +39,12 @@ export default function LoginPage() {
   const [biometricReady, setBiometricReady] = useState(false);
   const [biometricHas, setBiometricHas] = useState(false);
   const [biometricBusy, setBiometricBusy] = useState(false);
+  // Synchronous guard for the biometric handler. `biometricBusy` is React
+  // state and won't flush before a rapid second click can re-enter
+  // handleBiometricLogin. A ref blocks the re-entry atomically so the
+  // second request can't overwrite the challenge cookie before the first
+  // authenticator prompt finishes.
+  const biometricBusyRef = useRef(false);
 
   // Detect Safari on mount
   useEffect(() => {
@@ -239,7 +245,9 @@ export default function LoginPage() {
   };
 
   const handleBiometricLogin = async () => {
+    if (biometricBusyRef.current) return;
     if (!email) { setError('Enter your email first.'); return; }
+    biometricBusyRef.current = true;
     setError(null);
     setBiometricBusy(true);
     try {
@@ -252,6 +260,7 @@ export default function LoginPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Face ID sign-in failed.');
       setBiometricBusy(false);
+      biometricBusyRef.current = false;
     }
   };
 

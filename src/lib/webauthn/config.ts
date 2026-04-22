@@ -32,15 +32,33 @@ export const RP_ID = (() => {
 
 // Coarse, UA-derived label written to the credential row. No PII (no IP, no
 // hostname, no model number). Pattern: "<OS-family> <browser>".
-export function deriveDeviceLabel(ua: string): string {
+//
+// `clientKindHint` (when supplied) overrides UA parsing for OS detection.
+// Needed because iPadOS 13+ sends a "Macintosh" UA with no Mobile token —
+// server can't distinguish iPad from Mac without navigator.maxTouchPoints,
+// which only exists in the browser. The enroll route forwards the client's
+// own getDeviceKind() result via X-Client-Device-Kind to fix the label.
+export function deriveDeviceLabel(ua: string, clientKindHint?: string): string {
   const u = ua || '';
   let os = 'Unknown';
-  if (/iPad/.test(u) || (/Macintosh/.test(u) && /Mobile/.test(u))) os = 'iPad';
-  else if (/iPhone|iPod/.test(u)) os = 'iPhone';
-  else if (/Android/.test(u)) os = 'Android';
-  else if (/Macintosh|Mac OS X/.test(u)) os = 'macOS';
-  else if (/Windows/.test(u)) os = 'Windows';
-  else if (/Linux/.test(u)) os = 'Linux';
+
+  const hint = (clientKindHint ?? '').toLowerCase();
+  if (hint === 'ipad') os = 'iPad';
+  else if (hint === 'iphone') os = 'iPhone';
+  else if (hint === 'android-phone' || hint === 'android-tablet') os = 'Android';
+  else if (hint === 'desktop') {
+    // Desktop hint — still need UA to pick between macOS / Windows / Linux.
+    if (/Macintosh|Mac OS X/.test(u)) os = 'macOS';
+    else if (/Windows/.test(u)) os = 'Windows';
+    else if (/Linux/.test(u)) os = 'Linux';
+  } else {
+    if (/iPad/.test(u) || (/Macintosh/.test(u) && /Mobile/.test(u))) os = 'iPad';
+    else if (/iPhone|iPod/.test(u)) os = 'iPhone';
+    else if (/Android/.test(u)) os = 'Android';
+    else if (/Macintosh|Mac OS X/.test(u)) os = 'macOS';
+    else if (/Windows/.test(u)) os = 'Windows';
+    else if (/Linux/.test(u)) os = 'Linux';
+  }
 
   let browser = 'Browser';
   if (/Edg\//.test(u)) browser = 'Edge';

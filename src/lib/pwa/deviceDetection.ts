@@ -83,3 +83,23 @@ export function isIOS(): boolean {
   const kind = getDeviceKind();
   return kind === 'iphone' || kind === 'ipad';
 }
+
+/**
+ * Unified "is this page already running inside an installed PWA?" check.
+ *
+ * Chromium/Edge/Android Chrome expose `(display-mode: standalone)` via
+ * matchMedia. iOS Safari instead sets `navigator.standalone = true` on
+ * standalone windows and ignores the media query. All install banners and
+ * the install-prompt hook must agree on this check, or a parent gate can
+ * mount the banner inside a PWA shell where the child would otherwise
+ * hide it. Call from useEffect on the client.
+ */
+export function isStandalone(): boolean {
+  if (typeof window === 'undefined') return false;
+  const mmStandalone =
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(display-mode: standalone)').matches;
+  const iosStandalone =
+    (navigator as unknown as { standalone?: boolean }).standalone === true;
+  return mmStandalone || iosStandalone;
+}

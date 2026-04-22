@@ -4,7 +4,7 @@
   "description": "3Brothers Marketing internal admin console — scorecards, market visits, and account ops.",
   "id": "/admin",
   "scope": "/admin",
-  "start_url": "/auth/login?from=pwa&target=admin",
+  "start_url": "/admin/dashboard?from=pwa",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0f172a",

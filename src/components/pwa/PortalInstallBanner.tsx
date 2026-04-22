@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getDeviceKind } from '@/lib/pwa/deviceDetection';
+import { getDeviceKind, isStandalone } from '@/lib/pwa/deviceDetection';
 import InstallBanner from './InstallBanner';
 
 /**
@@ -30,10 +30,7 @@ export default function PortalInstallBanner() {
 
     let cancelled = false;
 
-    const isStandalone =
-      typeof window.matchMedia === 'function' &&
-      window.matchMedia('(display-mode: standalone)').matches;
-    if (isStandalone) return;
+    if (isStandalone()) return;
 
     const kind = getDeviceKind();
     if (kind === 'unknown') return;

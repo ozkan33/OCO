@@ -11,6 +11,7 @@
 // secret material requirement.
 
 import crypto from 'crypto';
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
 const COOKIE_NAME_REGISTER = 'webauthn_chal_register';
 const COOKIE_NAME_LOGIN = 'webauthn_chal_login';
@@ -106,3 +107,23 @@ export const challengeCookieOptions = {
   path: '/',
   maxAge: TTL_SECONDS,
 };
+
+// Single-use consumption. Verify routes MUST call this after verifyChallenge
+// and before issuing a session. Returns true when the challenge had not been
+// seen before (i.e. this is the first and only legitimate use). A unique-key
+// violation from the insert is the replay-detection signal.
+//
+// expires_at mirrors the cookie TTL so the table can be pruned lazily.
+export async function consumeChallenge(challenge: string, expiresAt: number): Promise<boolean> {
+  if (!challenge || typeof challenge !== 'string') return false;
+  const hash = crypto.createHash('sha256').update(challenge, 'utf8').digest('hex');
+  const expiresIso = new Date(expiresAt).toISOString();
+  const { error } = await supabaseAdmin
+    .from('webauthn_used_challenges')
+    .insert({ challenge_hash: hash, expires_at: expiresIso });
+  if (!error) return true;
+  // 23505 = unique_violation → challenge already consumed → replay.
+  // Any other error is treated as a fail-closed rejection rather than risk
+  // skipping replay protection on a transient DB fault.
+  return false;
+}

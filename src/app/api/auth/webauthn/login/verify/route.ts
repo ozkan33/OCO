@@ -7,6 +7,7 @@ import { getLandingPath, getRoleFromUser } from '../../../../../../../lib/rbac';
 import { RP_ID, RP_ORIGIN } from '@/lib/webauthn/config';
 import {
   challengeCookieOptions,
+  consumeChallenge,
   cookieNameFor,
   verifyChallenge,
 } from '@/lib/webauthn/challengeCookie';
@@ -22,6 +23,18 @@ export async function POST(request: Request) {
 
   const payload = verifyChallenge(challengeCookie, 'login');
   if (!payload || !payload.userId) {
+    const res = NextResponse.json({ error: 'Authentication failed' }, { status: 400 });
+    clearCookie(res);
+    return res;
+  }
+
+  // Spec non-negotiable #2: challenges are single-use. The cookie HMAC + TTL
+  // alone can't prevent a replay of a captured authenticator response within
+  // the 5-minute window (counter check doesn't help for Apple authenticators
+  // which always return 0). Mark the challenge as consumed before touching
+  // the credential row — unique-key violation means replay, reject.
+  const freshChallenge = await consumeChallenge(payload.challenge, payload.expiresAt);
+  if (!freshChallenge) {
     const res = NextResponse.json({ error: 'Authentication failed' }, { status: 400 });
     clearCookie(res);
     return res;

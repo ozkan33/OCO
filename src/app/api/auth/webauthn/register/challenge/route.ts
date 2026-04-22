@@ -27,6 +27,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Could not start enrollment' }, { status: 500 });
   }
 
+  // Hard cap to bound per-user data: 10 passkeys is well above what any real
+  // user needs (one per device typically) and keeps runaway enrollment from a
+  // compromised session bounded. Surface a clear message so the UI can tell
+  // the user to revoke something rather than retry.
+  const MAX_PASSKEYS_PER_USER = 10;
+  if ((existing?.length ?? 0) >= MAX_PASSKEYS_PER_USER) {
+    return NextResponse.json(
+      { error: `Passkey limit reached (${MAX_PASSKEYS_PER_USER}). Remove one before adding a new passkey.` },
+      { status: 400 },
+    );
+  }
+
   const excludeCredentials = (existing ?? []).map((row: { credential_id: string; transports: string[] | null }) => ({
     id: row.credential_id,
     transports: (row.transports ?? undefined) as AuthenticatorTransportLike[] | undefined,

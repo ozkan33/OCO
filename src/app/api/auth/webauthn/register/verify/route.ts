@@ -6,6 +6,7 @@ import { logger } from '../../../../../../../lib/logger';
 import { RP_ID, RP_ORIGIN, deriveDeviceLabel } from '@/lib/webauthn/config';
 import {
   challengeCookieOptions,
+  consumeChallenge,
   cookieNameFor,
   verifyChallenge,
 } from '@/lib/webauthn/challengeCookie';
@@ -28,6 +29,16 @@ export async function POST(request: Request) {
 
   const payload = verifyChallenge(challengeCookie, 'register');
   if (!payload || payload.userId !== user.id) {
+    const res = NextResponse.json({ error: 'Challenge expired or invalid' }, { status: 400 });
+    clearCookie(res);
+    return res;
+  }
+
+  // Single-use: same contract as login/verify — mark the challenge consumed
+  // before saving the credential so a replay of the attestation response can't
+  // produce a second row.
+  const freshChallenge = await consumeChallenge(payload.challenge, payload.expiresAt);
+  if (!freshChallenge) {
     const res = NextResponse.json({ error: 'Challenge expired or invalid' }, { status: 400 });
     clearCookie(res);
     return res;
@@ -71,7 +82,10 @@ export async function POST(request: Request) {
   // Uint8Array that we encode here.
   const publicKeyB64 = Buffer.from(credential.publicKey).toString('base64url');
   const transports = credential.transports ?? null;
-  const deviceLabel = deriveDeviceLabel(request.headers.get('user-agent') ?? '');
+  const deviceLabel = deriveDeviceLabel(
+    request.headers.get('user-agent') ?? '',
+    request.headers.get('x-client-device-kind') ?? undefined,
+  );
 
   const { error: insertErr } = await supabaseAdmin
     .from('webauthn_credentials')

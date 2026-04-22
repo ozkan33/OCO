@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { isStandalone as detectStandalone } from './deviceDetection';
 
 /**
  * BeforeInstallPromptEvent shape per WHATWG. Not present in lib.dom.d.ts in
@@ -38,11 +39,7 @@ export function InstallPromptProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const standalone =
-      (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) ||
-      // iOS Safari uses navigator.standalone instead of the media query
-      (navigator as unknown as { standalone?: boolean }).standalone === true;
-    if (standalone) setIsStandalone(true);
+    if (detectStandalone()) setIsStandalone(true);
 
     const handler = (e: Event) => {
       e.preventDefault();

@@ -11,6 +11,31 @@ import {
 
 const MIN_RESPONSE_MS = 220;
 
+// Per-IP rate limit. Same budget as /has-credentials — the two endpoints
+// share an enumeration risk and attacker economy, so keeping them aligned
+// avoids the weaker one becoming the bypass. In-memory by design; Edge/
+// serverless instances each keep their own bucket, which is acceptable at
+// the current scale.
+const ipBuckets = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_MAX = 30;
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000;
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  if (ipBuckets.size > 100 && Math.random() < 0.02) {
+    ipBuckets.forEach((rec, k) => {
+      if (now > rec.resetAt) ipBuckets.delete(k);
+    });
+  }
+  const rec = ipBuckets.get(ip);
+  if (!rec || now > rec.resetAt) {
+    ipBuckets.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+    return false;
+  }
+  rec.count += 1;
+  return rec.count > RATE_LIMIT_MAX;
+}
+
 async function pad(start: number) {
   const elapsed = Date.now() - start;
   const wait = MIN_RESPONSE_MS - elapsed;
@@ -50,6 +75,19 @@ async function buildDecoyOptions() {
 export async function POST(request: Request) {
   const start = Date.now();
 
+  const ip =
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    request.headers.get('x-real-ip') ??
+    'unknown';
+
+  if (isRateLimited(ip)) {
+    // Return the same 429 shape has-credentials does. No decoy cookie on
+    // rate-limit — a 429 already tells the caller to back off, and setting
+    // a cookie here would just be noise.
+    await pad(start);
+    return NextResponse.json({ error: 'Too many attempts' }, { status: 429 });
+  }
+
   let email = '';
   try {
     const body = await request.json();
@@ -59,9 +97,17 @@ export async function POST(request: Request) {
   }
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    // Parse-fail case: match the unknown-user path below so the presence of
+    // a Set-Cookie header doesn't reveal whether the email format was valid.
     const decoy = await buildDecoyOptions();
+    const { cookieValue } = signChallenge({
+      challenge: decoy.challenge,
+      purpose: 'login',
+    });
+    const res = NextResponse.json(decoy);
+    res.cookies.set(cookieNameFor('login'), cookieValue, challengeCookieOptions);
     await pad(start);
-    return NextResponse.json(decoy);
+    return res;
   }
 
   const user = await lookupUserByEmail(email);

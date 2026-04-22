@@ -16,6 +16,7 @@ import {
   browserSupportsWebAuthn,
   platformAuthenticatorIsAvailable,
 } from '@simplewebauthn/browser';
+import { getDeviceKind } from '@/lib/pwa/deviceDetection';
 
 export async function isBiometricSupported(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
@@ -72,9 +73,16 @@ export async function enrollPasskey(): Promise<EnrollResult> {
     throw new Error(((err as Error)?.message) || 'Your device refused the passkey request.');
   }
 
+  // X-Client-Device-Kind lets the server pick the right device label for
+  // iPadOS 13+ (whose UA is "Macintosh" with no Mobile token — server-side
+  // UA parsing can't distinguish it from a real Mac). Falls through to UA
+  // parsing server-side if absent or unexpected.
   const verifyRes = await fetch('/api/auth/webauthn/register/verify', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Client-Device-Kind': getDeviceKind(),
+    },
     credentials: 'include',
     body: JSON.stringify(attResp),
   });

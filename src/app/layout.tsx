@@ -100,8 +100,10 @@ async function resolveSurface(): Promise<'admin' | 'portal' | 'marketing'> {
         if (!ref) return '';
         try { return new URL(ref).pathname; } catch { return ''; }
       })();
-    if (path.startsWith('/admin')) return 'admin';
-    if (path.startsWith('/portal')) return 'portal';
+    // Use exact-or-slash match so "/administration" or "/portal-something"
+    // can't accidentally adopt the admin/portal manifest.
+    if (path === '/admin' || path.startsWith('/admin/')) return 'admin';
+    if (path === '/portal' || path.startsWith('/portal/')) return 'portal';
     return 'marketing';
   } catch {
     return 'marketing';
