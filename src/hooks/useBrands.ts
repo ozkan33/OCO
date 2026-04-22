@@ -7,18 +7,24 @@ export function useBrands() {
   const [loading, setLoading] = useState(!cachedBrands);
 
   useEffect(() => {
-    if (cachedBrands) return;
+    // Always revalidate: brands are derived from user_scorecards.title, so
+    // creating/renaming a scorecard mid-session changes the list. Show the
+    // cached value immediately to avoid flicker, then refresh in the background.
+    let cancelled = false;
     (async () => {
       try {
         const res = await fetch('/api/brands', { credentials: 'include' });
         if (res.ok) {
           const data = await res.json();
-          cachedBrands = data;
-          setBrands(data);
+          if (!cancelled) {
+            cachedBrands = data;
+            setBrands(data);
+          }
         }
       } catch { /* silent */ }
-      setLoading(false);
+      if (!cancelled) setLoading(false);
     })();
+    return () => { cancelled = true; };
   }, []);
 
   return { brands, loading };

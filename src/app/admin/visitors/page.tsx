@@ -255,14 +255,27 @@ export default function VisitorTrackerPage() {
               {/* Campaigns + Browsers column */}
               <div className="space-y-6">
                 <ListCard
-                  title="Tagged Links"
-                  empty='Append "?utm_source=instagram_bio" (or email_signature, linkedin, etc.) to any link you share, and visits from that link will show up here grouped by source.'
+                  title="Traffic From Shared Links"
+                  subtitle="See which post, email, or partner link actually sent visitors."
+                  empty={
+                    'Nothing here yet — you haven\'t tagged any of your shared links.\n\n' +
+                    'What is this?\n' +
+                    'When you post your website link on Instagram, in an email, or on a partner\'s site, you usually can\'t tell which one actually got clicks. ' +
+                    'If you add a small tag to the end of the link before sharing, this card will show you.\n\n' +
+                    'How to tag a link:\n' +
+                    'Add "?utm_source=" and a short name to the end of your link before posting it.\n\n' +
+                    'Examples:\n' +
+                    '• 3brothersmarketing.com/?utm_source=instagram\n' +
+                    '• 3brothersmarketing.com/?utm_source=email\n' +
+                    '• 3brothersmarketing.com/?utm_source=newsletter\n\n' +
+                    'Pick any name you want. Clicks from each tagged link will appear here grouped by the name you chose.'
+                  }
                   items={(data.topCampaigns || []).length}
                   headerRight={
                     <span
                       className="text-slate-400 cursor-help select-none text-sm leading-none"
-                      title={'Shows where shared links were clicked from, when you tag them.\n\nExample: https://3brothersmarketing.com/?utm_source=instagram_bio\n\nAdd ?utm_source=… to a link before sharing it (Instagram bio, email signature, a partner\'s site). Anyone who clicks gets grouped here so you can see which channel actually sent people — without needing to "run a campaign".'}
-                      aria-label="What is a tagged link?"
+                      title={'When you share your website link in different places (Instagram, emails, a partner\'s site), you normally can\'t tell which one actually brought you visitors.\n\nFix: add a tag to the end of the link before you share it.\n\nExample: 3brothersmarketing.com/?utm_source=instagram\n\nPick any name for the source (instagram, email, linkedin, newsletter…). Everyone who clicks that tagged link will show up here grouped under that name — so you can see at a glance which place sends real traffic.'}
+                      aria-label="How does this work?"
                     >
                       ⓘ
                     </span>
@@ -271,7 +284,7 @@ export default function VisitorTrackerPage() {
                   {(data.topCampaigns || []).map(c => (
                     <ListRow
                       key={c.label}
-                      label={c.label}
+                      label={prettifyCampaignLabel(c.label)}
                       count={c.count}
                       max={(data.topCampaigns || [])[0]?.count ?? 0}
                     />
@@ -573,14 +586,53 @@ function localDateISO(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+// Expands common short codes people use as utm_source ("ig" → "Instagram") so the
+// admin sees readable names instead of abbreviations. Only affects display.
+const CAMPAIGN_LABEL_MAP: Record<string, string> = {
+  ig: 'Instagram',
+  insta: 'Instagram',
+  instagram: 'Instagram',
+  fb: 'Facebook',
+  facebook: 'Facebook',
+  li: 'LinkedIn',
+  linkedin: 'LinkedIn',
+  tw: 'Twitter / X',
+  twitter: 'Twitter / X',
+  x: 'Twitter / X',
+  yt: 'YouTube',
+  youtube: 'YouTube',
+  tt: 'TikTok',
+  tiktok: 'TikTok',
+  wa: 'WhatsApp',
+  whatsapp: 'WhatsApp',
+  email: 'Email',
+  newsletter: 'Newsletter',
+  google: 'Google',
+};
+
+function prettifyCampaignLabel(label: string): string {
+  if (!label) return label;
+  // Labels may come as "source" or "campaign / source" from the analytics RPC.
+  return label
+    .split('/')
+    .map(part => {
+      const trimmed = part.trim();
+      const key = trimmed.toLowerCase();
+      return CAMPAIGN_LABEL_MAP[key] ?? trimmed;
+    })
+    .join(' / ');
+}
+
 function ListCard({
   title,
+  subtitle,
   empty,
   children,
   headerRight,
   items,
 }: {
   title: string;
+  subtitle?: string;
   empty: string;
   children: React.ReactNode;
   headerRight?: React.ReactNode;
@@ -589,12 +641,17 @@ function ListCard({
   const isEmpty = (items ?? 0) === 0;
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+      <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+          {subtitle && (
+            <p className="text-xs text-slate-500 mt-0.5 leading-snug">{subtitle}</p>
+          )}
+        </div>
         {headerRight}
       </div>
       {isEmpty ? (
-        <p className="px-5 py-8 text-sm text-slate-400 text-center">{empty}</p>
+        <p className="px-5 py-6 text-sm text-slate-500 whitespace-pre-line leading-relaxed">{empty}</p>
       ) : (
         <ul className="divide-y divide-slate-50">{children}</ul>
       )}

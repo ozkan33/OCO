@@ -15,6 +15,7 @@
 
 import { useState } from 'react';
 import { enrollPasskey } from '@/lib/webauthn/client';
+import { isIOS, isStandalone } from '@/lib/pwa/deviceDetection';
 
 const SKIP_PREFIX = 'oco:passkey-prompt-skipped:';
 
@@ -60,7 +61,17 @@ export default function PasskeyEnrollModal({ email, onClose }: PasskeyEnrollModa
         onClose();
         return;
       }
-      setErrorMsg(msg);
+      // Belt-and-suspenders: if gating upstream ever regresses and we land
+      // on iOS in a non-standalone browser where enrollment can't succeed,
+      // swap the generic server error for something actionable. This path
+      // should be unreachable in steady state — canEnrollBiometricOnThisDevice
+      // in the login page must have returned false — but if it IS hit the
+      // user still gets a useful next step instead of a dead-end.
+      if (isIOS() && !isStandalone()) {
+        setErrorMsg('Face ID sign-in requires installing this app to your Home Screen first. In Safari, tap Share then Add to Home Screen.');
+      } else {
+        setErrorMsg(msg);
+      }
       setBusy(false);
     }
   };

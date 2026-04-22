@@ -4,23 +4,20 @@ import { getUserFromToken } from '../../../../../lib/apiAuth';
 
 const BUCKET = 'client-logos';
 
-function normalizeWebsiteUrl(raw: string | null | undefined): string | null {
-  if (raw === null || raw === undefined) return null;
-  const trimmed = String(raw).trim();
+function normalizeUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
   if (!trimmed) return null;
-  const withProto = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   try {
-    const u = new URL(withProto);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-      throw new Error('invalid protocol');
-    }
+    const u = new URL(trimmed);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
     return u.toString();
   } catch {
-    throw new Error('Invalid website URL');
+    return null;
   }
 }
 
-// PUT /api/client-logos/:id — update label or sort order
+// PUT /api/client-logos/:id — update label, sort order, or website URL
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -34,13 +31,18 @@ export async function PUT(
     const body = await request.json();
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (body.label !== undefined) updates.label = body.label.trim();
+    if (body.label !== undefined) updates.label = String(body.label).trim();
     if (body.sort_order !== undefined) updates.sort_order = parseInt(body.sort_order, 10);
     if (body.website_url !== undefined) {
-      try {
-        updates.website_url = normalizeWebsiteUrl(body.website_url);
-      } catch (e) {
-        return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+      // Empty string / null → clear the URL; otherwise validate.
+      if (body.website_url === null || body.website_url === '') {
+        updates.website_url = null;
+      } else {
+        const normalized = normalizeUrl(body.website_url);
+        if (!normalized) {
+          return NextResponse.json({ error: 'Invalid website URL' }, { status: 400 });
+        }
+        updates.website_url = normalized;
       }
     }
 
