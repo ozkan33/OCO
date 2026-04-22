@@ -147,7 +147,7 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <link rel="icon" href="/logo.png" type="image/png" />
         <link rel="apple-touch-icon" href={m.appleIcon} />
         <link rel="manifest" href={m.manifest} />

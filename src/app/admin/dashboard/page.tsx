@@ -84,18 +84,23 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <AdminHeader
-        rightContent={
-          <NotificationBell
-            onNotificationClick={(payload) => {
-              navigateToRef.current?.(payload);
-            }}
-            onNewActivity={(scorecardIds) => {
-              scorecardIds.forEach(id => refreshCommentsRef.current?.(id));
-            }}
-          />
-        }
-      />
+      {/* Hide dense admin nav on phones — it doesn't fit alongside the grid.
+          Tablet/desktop (md+) keeps the normal header. Other admin pages are
+          unaffected; this is a dashboard-only concession. */}
+      <div className="hidden md:block">
+        <AdminHeader
+          rightContent={
+            <NotificationBell
+              onNotificationClick={(payload) => {
+                navigateToRef.current?.(payload);
+              }}
+              onNewActivity={(scorecardIds) => {
+                scorecardIds.forEach(id => refreshCommentsRef.current?.(id));
+              }}
+            />
+          }
+        />
+      </div>
       <main className="w-full max-w-none px-0 py-0 flex justify-center">
         <div className="w-full">
           <SafariErrorBoundary>

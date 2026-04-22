@@ -159,14 +159,14 @@ export default function PortalNotificationBell({ onNotificationClick }: PortalNo
           />
         </svg>
         {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 sm:-top-0.5 sm:-right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-red-500 rounded-full leading-none">
+          <span className="absolute top-1 right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-red-500 rounded-full leading-none ring-2 ring-white pointer-events-none">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>
 
       {isOpen && (
-        <div className="fixed sm:absolute inset-x-2 sm:inset-auto sm:right-0 top-[calc(env(safe-area-inset-top)+56px)] sm:top-full mt-0 sm:mt-2 sm:w-96 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
+        <div className="fixed sm:absolute inset-x-2 sm:inset-auto sm:right-0 top-[calc(env(safe-area-inset-top)+56px)] sm:top-full mt-0 sm:mt-2 sm:w-96 bg-white rounded-xl shadow-xl border border-slate-200 z-[60] overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
             <h3 className="text-sm font-semibold text-slate-800">Notifications</h3>
             {unreadCount > 0 && (

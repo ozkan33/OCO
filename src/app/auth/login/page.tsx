@@ -11,6 +11,7 @@ import {
   hasPasskeyFor,
   signInWithPasskey,
 } from '@/lib/webauthn/client';
+import PasskeyEnrollModal, { shouldSkipPasskeyPrompt } from '@/components/auth/PasskeyEnrollModal';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -45,6 +46,30 @@ export default function LoginPage() {
   // second request can't overwrite the challenge cookie before the first
   // authenticator prompt finishes.
   const biometricBusyRef = useRef(false);
+
+  // Post-login passkey enrollment prompt. When non-null, the modal is
+  // rendered and final navigation is deferred until the user enrolls,
+  // skips, or chooses "don't ask again" — onClose kicks off the redirect.
+  const [passkeyPromptRedirect, setPasskeyPromptRedirect] = useState<string | null>(null);
+
+  // Decide whether to show the post-login passkey prompt. Returns true if
+  // the caller should stop and wait for the modal to resolve; false means
+  // proceed with the redirect immediately.
+  const maybeShowPasskeyPrompt = async (emailForPrompt: string, redirectTo: string): Promise<boolean> => {
+    if (!emailForPrompt) return false;
+    if (!biometricReady) return false;
+    // Don't interrupt onboarding (password/2FA enrollment flows) with a
+    // passkey upsell — the user hasn't finished setting up the account yet.
+    if (redirectTo.startsWith('/auth/')) return false;
+    if (shouldSkipPasskeyPrompt(emailForPrompt)) return false;
+    try {
+      if (await hasPasskeyFor(emailForPrompt)) return false;
+    } catch {
+      return false;
+    }
+    setPasskeyPromptRedirect(redirectTo);
+    return true;
+  };
 
   // Detect Safari on mount
   useEffect(() => {
@@ -147,6 +172,7 @@ export default function LoginPage() {
           // PWA Phase 2: flag the first authenticated page load so the admin
           // install banner can one-shot render. Cleared by the banner on read.
           try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
+          if (await maybeShowPasskeyPrompt(email, redirectTo)) { setLoading(false); return; }
           if (isSafari) { window.location.href = redirectTo; }
           else { try { await router.push(redirectTo); } catch { window.location.href = redirectTo; } }
           return;
@@ -173,6 +199,8 @@ export default function LoginPage() {
       // PWA Phase 2: flag the first authenticated page load so the admin
       // install banner can one-shot render.
       try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
+
+      if (await maybeShowPasskeyPrompt(email, redirectTo)) { setLoading(false); return; }
 
       // Navigate
       if (isSafari) {
@@ -215,6 +243,7 @@ export default function LoginPage() {
       // PWA Phase 2: flag the first authenticated page load so the admin
       // install banner can one-shot render.
       try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
+      if (await maybeShowPasskeyPrompt(email, pendingRedirect)) { setLoading(false); return; }
       window.location.href = pendingRedirect;
     } catch { setError('Verification failed.'); setLoading(false); }
   };
@@ -240,6 +269,7 @@ export default function LoginPage() {
       // PWA Phase 2: flag the first authenticated page load so the admin
       // install banner can one-shot render.
       try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
+      if (await maybeShowPasskeyPrompt(email, pendingRedirect)) { setLoading(false); return; }
       window.location.href = pendingRedirect;
     } catch { setError('Reset failed. Please try again.'); setLoading(false); }
   };
@@ -282,6 +312,16 @@ export default function LoginPage() {
       className="min-h-screen min-h-[100dvh] flex items-center justify-center relative overflow-hidden"
       style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
+      {passkeyPromptRedirect && (
+        <PasskeyEnrollModal
+          email={email}
+          onClose={() => {
+            const dest = passkeyPromptRedirect;
+            setPasskeyPromptRedirect(null);
+            window.location.href = dest;
+          }}
+        />
+      )}
       {/* Background — reuses the hero image from the landing page for brand continuity */}
       <div
         aria-hidden="true"

@@ -58,8 +58,12 @@ function StatusBadge({ status }: { status: string }) {
   if (!status) return <span className="text-slate-300 text-xs">—</span>;
   const s = statusStyles[status] || { bg: '#f3f4f6', color: '#374151', dot: '#6b7280' };
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium" style={{ background: s.bg, color: s.color }}>
-      <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.dot }} />
+    <span
+      className="inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap"
+      style={{ background: s.bg, color: s.color }}
+      title={status}
+    >
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.dot }} />
       {status}
     </span>
   );
@@ -117,6 +121,10 @@ export default function PortalDashboard() {
   // Per-store expansion inside an expanded Store Visits section.
   // Key: `${scorecardId}:${rowId}` -> Set of storeNames that are expanded.
   const [expandedStoresPerRow, setExpandedStoresPerRow] = useState<Record<string, Set<string>>>({});
+  // Client UX: Chain Discussion + Store Visits are hidden per row until the
+  // client opts in, so the landing is quiet. Key: `${scorecardId}:${rowId}`.
+  // Empty set = everything collapsed. Broker Notes remain visible always.
+  const [discussionsVisibleRows, setDiscussionsVisibleRows] = useState<Set<string>>(new Set());
   const [pulseThread, setPulseThread] = useState<string | null>(null);
   const threadRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -134,6 +142,14 @@ export default function PortalDashboard() {
       const next = new Set(prev);
       next.add(key);
       next.add(storesKey);
+      return next;
+    });
+    // Also reveal the row-level discussions wrapper so the deep-linked thread
+    // is visible without requiring a second tap.
+    setDiscussionsVisibleRows(prev => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
       return next;
     });
     // Brief ring pulse on the thread panel so the eye lands on the conversation.
@@ -655,24 +671,37 @@ export default function PortalDashboard() {
         className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40"
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
-        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-3.5 flex items-center justify-between gap-3">
-          <Link href="/" className="flex items-center gap-3 group min-w-0 flex-1" title="Go to 3Brothers Marketing">
+        <div className="max-w-7xl mx-auto w-full px-3 sm:px-6 py-3 sm:py-3.5 flex items-center gap-2 sm:gap-3">
+          <Link href="/" className="flex items-center gap-2 sm:gap-3 group min-w-0 flex-1" title="Go to 3Brothers Marketing">
             <div className="p-1.5 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 group-hover:border-blue-200 transition-colors flex-shrink-0">
               <LogoMark size={28} />
             </div>
             <div className="leading-tight min-w-0">
               <h1 className="text-[15px] font-semibold text-slate-900 tracking-tight truncate">{brand}</h1>
-              <p className="text-xs text-slate-500 truncate">Welcome back, <span className="text-slate-700 font-medium">{contactName}</span></p>
+              {/* Hide welcome line on mobile — narrow viewports would otherwise squeeze the right-side actions. */}
+              <p className="hidden sm:block text-xs text-slate-500 truncate">Welcome back, <span className="text-slate-700 font-medium">{contactName}</span></p>
             </div>
           </Link>
-          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 ml-auto">
+          <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0 ml-auto">
             <PortalNotificationBell onNotificationClick={handleNotificationClick} />
             <div className="h-5 w-px bg-slate-200 hidden sm:block" />
+            <Link
+              href="/portal/settings"
+              aria-label="Settings"
+              title="Settings"
+              className="inline-flex items-center justify-center text-slate-600 hover:text-slate-900 rounded-lg [@media(hover:hover)]:hover:bg-slate-100 active:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 flex-shrink-0 w-11 h-11 sm:w-9 sm:h-9"
+            >
+              <svg className="w-5 h-5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+              </svg>
+            </Link>
             <button
               onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 font-medium px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 flex-shrink-0"
+              aria-label="Sign out"
+              className="inline-flex items-center justify-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 font-medium rounded-lg [@media(hover:hover)]:hover:bg-slate-100 active:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 flex-shrink-0 w-11 h-11 sm:w-auto sm:h-auto sm:px-2.5 sm:py-1.5"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-5 h-5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
               </svg>
               <span className="hidden sm:inline">Sign out</span>
@@ -699,7 +728,8 @@ export default function PortalDashboard() {
         )}
 
         {/* Tab Nav */}
-        <div className="inline-flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+        <div className="overflow-x-auto no-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0">
+        <div className="inline-flex gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm whitespace-nowrap">
           {canSeeScorecard && (
           <button
             onClick={() => setActiveTab('overview')}
@@ -737,6 +767,7 @@ export default function PortalDashboard() {
             )}
           </button>
           )}
+        </div>
         </div>
 
         {/* Product Status Tab */}
@@ -886,12 +917,12 @@ export default function PortalDashboard() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-slate-100">
-                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Chain Name</th>
+                        <th className="text-left px-3 sm:px-4 py-2.5 text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wide">Chain</th>
                         {sc.retailers[0]?.products.map(p => (
-                          <th key={p.name} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">{p.name}</th>
+                          <th key={p.name} className="text-left px-2 sm:px-4 py-2.5 text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wide">{p.name}</th>
                         ))}
-                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Priority</th>
-                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Buyer</th>
+                        <th className="hidden sm:table-cell text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Priority</th>
+                        <th className="hidden sm:table-cell text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Buyer</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -906,6 +937,17 @@ export default function PortalDashboard() {
                           if (mvRegexRow.test(c.text)) storeNoteCount++;
                           else chainNoteCount++;
                         });
+                        const rowDiscussionsKey = `${sc.id}:${r.rowId}`;
+                        const rowDiscussionsOpen = discussionsVisibleRows.has(rowDiscussionsKey);
+                        const hasAnyDiscussions = chainNoteCount > 0 || storeNoteCount > 0;
+                        const toggleRowDiscussions = () => {
+                          setDiscussionsVisibleRows(prev => {
+                            const next = new Set(prev);
+                            if (next.has(rowDiscussionsKey)) next.delete(rowDiscussionsKey);
+                            else next.add(rowDiscussionsKey);
+                            return next;
+                          });
+                        };
                         return (
                         <Fragment key={i}>
                           <tr
@@ -916,31 +958,59 @@ export default function PortalDashboard() {
                                 : ''
                             }`}
                           >
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-medium text-slate-900">{r.retailerName}</span>
+                            <td className="px-3 sm:px-4 py-3 align-top">
+                              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                                <span className="font-semibold text-slate-900 text-sm sm:text-base leading-tight">{r.retailerName}</span>
                                 {chainNoteCount > 0 && (
-                                  <span
-                                    className="inline-flex items-center gap-1 text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.5 rounded-full"
+                                  <button
+                                    type="button"
+                                    onClick={toggleRowDiscussions}
+                                    aria-expanded={rowDiscussionsOpen}
+                                    aria-label={`${rowDiscussionsOpen ? 'Hide' : 'Show'} chain discussion (${chainNoteCount} ${chainNoteCount === 1 ? 'note' : 'notes'})`}
                                     title={`${chainNoteCount} chain ${chainNoteCount === 1 ? 'note' : 'notes'}`}
+                                    className={`inline-flex items-center gap-1 text-[11px] font-semibold border px-1.5 py-0.5 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:cursor-default bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200 hover:border-slate-300 sm:hover:bg-slate-100 sm:hover:border-slate-200 ${
+                                      rowDiscussionsOpen ? 'max-sm:bg-blue-100 max-sm:text-blue-800 max-sm:border-blue-300 max-sm:hover:bg-blue-200' : ''
+                                    }`}
                                   >
                                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
                                     </svg>
                                     {chainNoteCount}
-                                  </span>
+                                  </button>
                                 )}
                                 {storeNoteCount > 0 && (
-                                  <span
-                                    className="inline-flex items-center gap-1 text-[11px] font-semibold bg-teal-50 text-teal-700 border border-teal-200 px-1.5 py-0.5 rounded-full"
+                                  <button
+                                    type="button"
+                                    onClick={toggleRowDiscussions}
+                                    aria-expanded={rowDiscussionsOpen}
+                                    aria-label={`${rowDiscussionsOpen ? 'Hide' : 'Show'} store visits (${storeNoteCount} ${storeNoteCount === 1 ? 'note' : 'notes'})`}
                                     title={`${storeNoteCount} store visit ${storeNoteCount === 1 ? 'note' : 'notes'}`}
+                                    className={`inline-flex items-center gap-1 text-[11px] font-semibold border px-1.5 py-0.5 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 sm:cursor-default bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100 hover:border-teal-300 sm:hover:bg-teal-50 sm:hover:border-teal-200 ${
+                                      rowDiscussionsOpen ? 'max-sm:bg-teal-100 max-sm:text-teal-800 max-sm:border-teal-300 max-sm:hover:bg-teal-200' : ''
+                                    }`}
                                   >
                                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
                                     </svg>
                                     {storeNoteCount}
-                                  </span>
+                                  </button>
+                                )}
+                                {/* Mobile-only chevron: desktop keeps discussions always visible
+                                    below the row, so the chevron toggle is hidden on >=sm. */}
+                                {hasAnyDiscussions && (
+                                  <button
+                                    type="button"
+                                    onClick={toggleRowDiscussions}
+                                    aria-expanded={rowDiscussionsOpen}
+                                    aria-label={rowDiscussionsOpen ? 'Hide discussions' : 'Show discussions'}
+                                    title={rowDiscussionsOpen ? 'Hide discussions' : 'Show discussions'}
+                                    className="sm:hidden inline-flex items-center justify-center w-5 h-5 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                  >
+                                    <svg className={`w-3 h-3 transition-transform ${rowDiscussionsOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                    </svg>
+                                  </button>
                                 )}
                                 <button
                                   onClick={() => {
@@ -952,21 +1022,41 @@ export default function PortalDashboard() {
                                       setNoteText('');
                                     }
                                   }}
-                                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-blue-600 hover:bg-blue-50 px-2 py-0.5 rounded-md transition-colors ml-1"
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-blue-600 hover:bg-blue-50 active:bg-blue-100 px-2.5 py-1.5 min-h-[32px] rounded-md transition-colors ml-1 border border-transparent hover:border-blue-100"
                                   title="Add a note"
+                                  aria-label={isAddingNote ? 'Close add note' : 'Add a note'}
                                 >
-                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                                   </svg>
                                   <span>Add note</span>
                                 </button>
                               </div>
+                              {(r.retailerInfo.priority || r.retailerInfo.buyer) && (
+                                <div className="sm:hidden mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+                                  {r.retailerInfo.priority && (
+                                    <span className="inline-flex items-center gap-1">
+                                      <span className="text-slate-400 uppercase tracking-wider text-[9px] font-semibold">Pri</span>
+                                      <span className="text-slate-700 font-medium">{r.retailerInfo.priority}</span>
+                                    </span>
+                                  )}
+                                  {r.retailerInfo.priority && r.retailerInfo.buyer && (
+                                    <span className="text-slate-300" aria-hidden="true">·</span>
+                                  )}
+                                  {r.retailerInfo.buyer && (
+                                    <span className="inline-flex items-center gap-1 min-w-0">
+                                      <span className="text-slate-400 uppercase tracking-wider text-[9px] font-semibold shrink-0">Buyer</span>
+                                      <span className="text-slate-700 font-medium truncate">{r.retailerInfo.buyer}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </td>
                             {r.products.map(p => (
-                              <td key={p.name} className="px-4 py-3"><StatusBadge status={p.status} /></td>
+                              <td key={p.name} className="px-2 sm:px-4 py-3 align-top"><StatusBadge status={p.status} /></td>
                             ))}
-                            <td className="px-4 py-3 text-slate-600">{r.retailerInfo.priority}</td>
-                            <td className="px-4 py-3 text-slate-600">{r.retailerInfo.buyer}</td>
+                            <td className="hidden sm:table-cell px-4 py-3 text-slate-600 align-top">{r.retailerInfo.priority}</td>
+                            <td className="hidden sm:table-cell px-4 py-3 text-slate-600 align-top">{r.retailerInfo.buyer}</td>
                           </tr>
                           {/* Add note form */}
                           {isAddingNote && (
@@ -979,14 +1069,28 @@ export default function PortalDashboard() {
                                     </svg>
                                     <span className="text-xs font-medium text-slate-500">New note for {r.retailerName}</span>
                                   </div>
-                                  <div className="flex items-end gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all">
+                                  <div className="flex flex-col sm:flex-row sm:items-end gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all">
                                     <textarea
+                                      ref={(el) => {
+                                        if (el && noteText) {
+                                          el.style.height = 'auto';
+                                          el.style.height = Math.min(el.scrollHeight, 280) + 'px';
+                                        }
+                                      }}
                                       value={noteText}
-                                      onChange={(e) => setNoteText(e.target.value)}
+                                      onChange={(e) => {
+                                        setNoteText(e.target.value);
+                                        const el = e.currentTarget;
+                                        el.style.height = 'auto';
+                                        el.style.height = Math.min(el.scrollHeight, 280) + 'px';
+                                      }}
                                       placeholder="Type your note... (Enter to send, Shift+Enter for new line)"
-                                      className="flex-1 text-sm text-slate-700 placeholder-slate-400 resize-none focus:outline-none bg-transparent"
+                                      className="flex-1 text-sm text-slate-700 placeholder-slate-400 resize-none focus:outline-none bg-transparent min-h-[44px] max-h-72 leading-snug"
                                       rows={2}
                                       autoFocus
+                                      onFocus={(e) => {
+                                        try { e.currentTarget.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
+                                      }}
                                       onKeyDown={(e) => {
                                         if (e.key === 'Enter' && !e.shiftKey) {
                                           e.preventDefault();
@@ -998,27 +1102,27 @@ export default function PortalDashboard() {
                                         }
                                       }}
                                     />
-                                    <div className="flex items-center gap-1.5 shrink-0 pb-0.5">
+                                    <div className="flex items-center gap-2 shrink-0 justify-end sm:pb-0.5">
                                       <button
                                         onClick={() => { setAddingNoteFor(null); setNoteText(''); }}
-                                        className="px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 transition-colors"
+                                        className="px-4 py-2 min-h-[40px] text-sm sm:text-xs font-medium text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
                                       >
                                         Cancel
                                       </button>
                                       <button
                                         onClick={() => handleAddNote(sc.id, r.rowId)}
                                         disabled={!noteText.trim() || submittingNote}
-                                        className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                        className="inline-flex items-center gap-1.5 px-4 py-2 min-h-[40px] text-sm sm:text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                                       >
                                         {submittingNote ? (
                                           <>
-                                            <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                                             Sending
                                           </>
                                         ) : (
                                           <>
                                             Send
-                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                               <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
                                             </svg>
                                           </>
@@ -1030,7 +1134,11 @@ export default function PortalDashboard() {
                               </td>
                             </tr>
                           )}
-                          {/* Notes and comments row - differentiated by type */}
+                          {/* Notes and comments row - differentiated by type.
+                              Desktop (>=sm) behavior is unchanged. On mobile (<sm), when there
+                              are only chain/store comments (no Broker Notes) and the client
+                              hasn't toggled discussions open, the tr hides via `max-sm:hidden`
+                              below so the page stays clean. */}
                           {((r.comments?.length ?? 0) > 0 || r.notes) && (() => {
                             const mvRegex = /^\[Market Visit\s+[\u2014\u2013-]\s+(\d{4}-\d{2}-\d{2})(?:\s+[·\u00B7]\s+([^\]]+))?\]\s*([\s\S]*)$/;
                             type ParsedComment = { c: Comment; mvStore: string | null; mvDate: string | null; displayText: string };
@@ -1117,21 +1225,28 @@ export default function PortalDashboard() {
                             const loadOlder = () => {
                               setVisibleCountPerRow(prev => ({ ...prev, [expandKey]: (prev[expandKey] ?? PER_PAGE) + PER_PAGE }));
                             };
+                            // Mobile-only: hide the whole activity tr when there are no
+                            // Broker Notes and the client hasn't toggled discussions open,
+                            // so the landing stays quiet. Desktop (>=sm) is unaffected.
+                            const hideOnMobile = !r.notes && !rowDiscussionsOpen;
                             return (
                             <tr
-                              className={`transition-colors duration-500 ${
+                              className={`transition-colors duration-500 ${hideOnMobile ? 'max-sm:hidden' : ''} ${
                                 highlight?.kind === 'row' && highlight.scorecardId === sc.id && highlight.rowId === String(r.rowId)
                                   ? 'bg-amber-50'
                                   : 'bg-slate-50/80'
                               }`}
                             >
-                              {/* Indent the whole expanded payload (pl-10) so children visibly nest under the retailer name above.
-                                  A subtle vertical rail (border-l) ties these sub-sections to their parent retailer row. */}
-                              <td colSpan={r.products.length + 3} className="pl-10 pr-4 pt-2 pb-5">
-                                <div className="flex flex-col gap-2 max-w-2xl border-l-2 border-slate-200 pl-4 py-0.5">
-                                  {/* 1. Chain Discussion — TOP priority, collapsed by default */}
+                              {/* Indent the whole expanded payload so children visibly nest under the retailer name above.
+                                  A subtle vertical rail (border-l) ties these sub-sections to their parent retailer row.
+                                  Mobile uses a tighter inset to preserve bubble width. */}
+                              <td colSpan={r.products.length + 3} className="pl-3 pr-2 sm:pl-10 sm:pr-4 pt-2 pb-5">
+                                <div className="flex flex-col gap-2 max-w-2xl border-l-2 border-slate-200 pl-2 sm:pl-4 py-0.5">
+                                  {/* 1. Chain Discussion — TOP priority. Desktop: always visible
+                                      as before. Mobile (<sm): hidden until the client toggles
+                                      discussions open via the retailer row chevron/badge. */}
                                   {chainCount > 0 && (
-                                    <>
+                                    <div className={rowDiscussionsOpen ? 'contents' : 'hidden sm:contents'}>
                                       {showHeaders && <SectionHeader label="Chain Discussion" />}
                                       {!isExpanded ? (
                                         // Collapsed state: one-line header only. Do NOT render any bubbles.
@@ -1283,31 +1398,45 @@ export default function PortalDashboard() {
                                                                 </span>
                                                               </div>
                                                               {isEditing ? (
-                                                                <div className="flex flex-col gap-1.5 mt-1">
-                                                                  <input
-                                                                    type="text"
+                                                                <div className="flex flex-col gap-2 mt-1">
+                                                                  <textarea
+                                                                    ref={(el) => {
+                                                                      if (el) {
+                                                                        el.style.height = 'auto';
+                                                                        el.style.height = Math.min(el.scrollHeight, 280) + 'px';
+                                                                      }
+                                                                    }}
+                                                                    rows={2}
                                                                     value={editText}
-                                                                    onChange={e => setEditText(e.target.value)}
-                                                                    className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white"
+                                                                    onChange={e => {
+                                                                      setEditText(e.target.value);
+                                                                      const el = e.currentTarget;
+                                                                      el.style.height = 'auto';
+                                                                      el.style.height = Math.min(el.scrollHeight, 280) + 'px';
+                                                                    }}
+                                                                    className="text-sm border border-slate-200 rounded-lg px-2.5 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white resize-none min-h-[44px] max-h-72 leading-snug"
                                                                     autoFocus
                                                                     onKeyDown={e => {
-                                                                      if (e.key === 'Enter' && !savingCommentEdit) handleEditComment(c.id!, sc.id, r.rowId);
+                                                                      if (e.key === 'Enter' && !e.shiftKey && !savingCommentEdit) {
+                                                                        e.preventDefault();
+                                                                        handleEditComment(c.id!, sc.id, r.rowId);
+                                                                      }
                                                                       if (e.key === 'Escape' && !savingCommentEdit) { setEditingComment(null); setEditText(''); }
                                                                     }}
                                                                     disabled={savingCommentEdit}
                                                                   />
-                                                                  <div className="flex items-center gap-1.5">
+                                                                  <div className="flex items-center gap-2 justify-end">
+                                                                    <button
+                                                                      onClick={() => { setEditingComment(null); setEditText(''); }}
+                                                                      disabled={savingCommentEdit}
+                                                                      className={`text-xs font-medium px-3 py-1.5 min-h-[32px] rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${c.isOwn ? 'text-blue-100 hover:text-white' : 'text-slate-500 hover:text-slate-700'}`}
+                                                                    >Cancel</button>
                                                                     <button
                                                                       onClick={() => handleEditComment(c.id!, sc.id, r.rowId)}
                                                                       disabled={savingCommentEdit || !editText.trim()}
                                                                       aria-busy={savingCommentEdit}
-                                                                      className="text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-0.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                      className={`text-xs font-semibold px-3 py-1.5 min-h-[32px] rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${c.isOwn ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
                                                                     >{savingCommentEdit ? 'Saving…' : 'Save'}</button>
-                                                                    <button
-                                                                      onClick={() => { setEditingComment(null); setEditText(''); }}
-                                                                      disabled={savingCommentEdit}
-                                                                      className="text-xs font-medium text-slate-400 hover:text-slate-600 px-2 py-0.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                                    >Cancel</button>
                                                                   </div>
                                                                 </div>
                                                               ) : (
@@ -1315,20 +1444,22 @@ export default function PortalDashboard() {
                                                               )}
                                                             </div>
                                                             {c.isOwn && c.id && !isEditing && (
-                                                              <div className={`flex gap-1 mt-0.5 opacity-0 group-hover/comment:opacity-100 transition-opacity ${c.isOwn ? 'justify-end' : 'justify-start'}`}>
+                                                              <div className={`flex gap-2 mt-1 opacity-60 group-hover/comment:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity ${c.isOwn ? 'justify-end' : 'justify-start'}`}>
                                                                 <button
                                                                   onClick={() => { setEditingComment({ id: c.id!, scorecardId: sc.id, rowId: r.rowId }); setEditText(c.text); }}
-                                                                  className="text-slate-400 hover:text-blue-600 transition-colors p-0.5 rounded"
+                                                                  className="text-slate-500 hover:text-blue-600 transition-colors p-1.5 -m-1.5 rounded min-h-[32px] min-w-[32px] inline-flex items-center justify-center"
                                                                   title="Edit note"
+                                                                  aria-label="Edit note"
                                                                 >
-                                                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
+                                                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
                                                                 </button>
                                                                 <button
                                                                   onClick={() => handleDeleteComment(c.id!, sc.id, r.rowId)}
-                                                                  className="text-slate-400 hover:text-red-600 transition-colors p-0.5 rounded"
+                                                                  className="text-slate-500 hover:text-red-600 transition-colors p-1.5 -m-1.5 rounded min-h-[32px] min-w-[32px] inline-flex items-center justify-center"
                                                                   title="Delete note"
+                                                                  aria-label="Delete note"
                                                                 >
-                                                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+                                                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
                                                                 </button>
                                                               </div>
                                                             )}
@@ -1343,11 +1474,12 @@ export default function PortalDashboard() {
                                           );
                                         })()
                                       )}
-                                    </>
+                                    </div>
                                   )}
 
-                                  {/* 2. Store Visits — collapsed-by-default summary + two-tier expand.
-                                      Read-only on Product Status; edits happen on the Market Visits tab. */}
+                                  {/* 2. Store Visits — Desktop: always visible as before. Mobile
+                                      (<sm): hidden until the client toggles discussions open via
+                                      the retailer row chevron/badge. */}
                                   {storeNotes.length > 0 && (() => {
                                     // Keys are suffixed so they never collide with the chain-discussion key.
                                     const storesKey = `${sc.id}:${r.rowId}:stores`;
@@ -1392,7 +1524,7 @@ export default function PortalDashboard() {
                                       });
                                     };
                                     return (
-                                      <>
+                                      <div className={rowDiscussionsOpen ? 'contents' : 'hidden sm:contents'}>
                                         {showHeaders && <SectionHeader label="Store Visits" />}
                                         {!storesExpanded ? (
                                           // Collapsed: one compact summary button. Do NOT iterate storeGroups for rendering.
@@ -1615,7 +1747,7 @@ export default function PortalDashboard() {
                                             </div>
                                           );
                                         })()}
-                                      </>
+                                      </div>
                                     );
                                   })()}
 
@@ -1867,31 +1999,45 @@ export default function PortalDashboard() {
                                       </span>
                                     </div>
                                     {isEditing ? (
-                                      <div className="flex flex-col gap-1 mt-0.5">
-                                        <input
-                                          type="text"
+                                      <div className="flex flex-col gap-1.5 mt-0.5">
+                                        <textarea
+                                          ref={(el) => {
+                                            if (el) {
+                                              el.style.height = 'auto';
+                                              el.style.height = Math.min(el.scrollHeight, 240) + 'px';
+                                            }
+                                          }}
+                                          rows={2}
                                           value={editVisitText}
-                                          onChange={e => setEditVisitText(e.target.value)}
-                                          className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white"
+                                          onChange={e => {
+                                            setEditVisitText(e.target.value);
+                                            const el = e.currentTarget;
+                                            el.style.height = 'auto';
+                                            el.style.height = Math.min(el.scrollHeight, 240) + 'px';
+                                          }}
+                                          className="text-xs border border-slate-200 rounded-md px-2 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white resize-none min-h-[44px] max-h-60 leading-snug"
                                           autoFocus
                                           onKeyDown={e => {
-                                            if (e.key === 'Enter' && !savingVisitCommentEdit) handleEditVisitComment(c.id!, v.id);
+                                            if (e.key === 'Enter' && !e.shiftKey && !savingVisitCommentEdit) {
+                                              e.preventDefault();
+                                              handleEditVisitComment(c.id!, v.id);
+                                            }
                                             if (e.key === 'Escape' && !savingVisitCommentEdit) { setEditingVisitCommentId(null); setEditVisitText(''); }
                                           }}
                                           disabled={savingVisitCommentEdit}
                                         />
-                                        <div className="flex items-center gap-1.5 justify-end">
+                                        <div className="flex items-center gap-2 justify-end">
+                                          <button
+                                            onClick={() => { setEditingVisitCommentId(null); setEditVisitText(''); }}
+                                            disabled={savingVisitCommentEdit}
+                                            className="text-[11px] font-medium text-blue-100 hover:text-white px-3 py-1.5 min-h-[32px] rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                          >Cancel</button>
                                           <button
                                             onClick={() => handleEditVisitComment(c.id!, v.id)}
                                             disabled={savingVisitCommentEdit || !editVisitText.trim()}
                                             aria-busy={savingVisitCommentEdit}
-                                            className="text-[10px] font-medium text-white bg-blue-800/60 hover:bg-blue-900/70 px-2 py-0.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                            className="text-[11px] font-semibold text-white bg-blue-800/70 hover:bg-blue-900/80 px-3 py-1.5 min-h-[32px] rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                           >{savingVisitCommentEdit ? 'Saving…' : 'Save'}</button>
-                                          <button
-                                            onClick={() => { setEditingVisitCommentId(null); setEditVisitText(''); }}
-                                            disabled={savingVisitCommentEdit}
-                                            className="text-[10px] font-medium text-blue-100 hover:text-white px-2 py-0.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                          >Cancel</button>
                                         </div>
                                       </div>
                                     ) : (
@@ -1899,22 +2045,22 @@ export default function PortalDashboard() {
                                     )}
                                   </div>
                                   {c.isOwn && c.id && !isEditing && (
-                                    <div className="flex gap-1 mt-0.5 opacity-0 group-hover/vcomment:opacity-100 transition-opacity justify-end">
+                                    <div className="flex gap-2 mt-1 opacity-60 group-hover/vcomment:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity justify-end">
                                       <button
                                         onClick={() => { setEditingVisitCommentId(c.id!); setEditVisitText(c.text); }}
-                                        className="text-slate-400 hover:text-blue-600 transition-colors p-0.5 rounded"
+                                        className="text-slate-500 hover:text-blue-600 transition-colors p-1.5 -m-1.5 rounded min-h-[32px] min-w-[32px] inline-flex items-center justify-center"
                                         title="Edit comment"
                                         aria-label="Edit comment"
                                       >
-                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
                                       </button>
                                       <button
                                         onClick={() => handleDeleteVisitComment(c.id!, v.id)}
-                                        className="text-slate-400 hover:text-red-600 transition-colors p-0.5 rounded"
+                                        className="text-slate-500 hover:text-red-600 transition-colors p-1.5 -m-1.5 rounded min-h-[32px] min-w-[32px] inline-flex items-center justify-center"
                                         title="Delete comment"
                                         aria-label="Delete comment"
                                       >
-                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
                                       </button>
                                     </div>
                                   )}
@@ -1927,11 +2073,22 @@ export default function PortalDashboard() {
 
                       {/* Comment input */}
                       <div className="mt-auto pt-2">
-                        <div className="flex items-end gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent focus-within:bg-white transition-all">
-                          <input
-                            type="text"
+                        <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent focus-within:bg-white transition-all">
+                          <textarea
+                            ref={(el) => {
+                              if (el) {
+                                el.style.height = 'auto';
+                                el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+                              }
+                            }}
+                            rows={1}
                             value={pendingText}
-                            onChange={(e) => setPhotoCommentText(prev => ({ ...prev, [v.id]: e.target.value }))}
+                            onChange={(e) => {
+                              setPhotoCommentText(prev => ({ ...prev, [v.id]: e.target.value }));
+                              const el = e.currentTarget;
+                              el.style.height = 'auto';
+                              el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+                            }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !e.shiftKey) {
                                 e.preventDefault();
@@ -1939,21 +2096,21 @@ export default function PortalDashboard() {
                               }
                             }}
                             placeholder="Add a comment..."
-                            className="flex-1 bg-transparent text-sm text-slate-700 placeholder-slate-400 focus:outline-none py-0.5"
+                            className="flex-1 resize-none bg-transparent text-sm text-slate-700 placeholder-slate-400 focus:outline-none py-1.5 max-h-40 leading-snug"
                             disabled={isSending}
                             aria-label={`Add a comment to ${v.store_name || 'this visit'}`}
                           />
                           <button
                             onClick={() => handleAddPhotoComment(v.id, v.store_name || 'Store Visit')}
                             disabled={!pendingText.trim() || isSending}
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
+                            className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] w-11 h-11 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 shrink-0"
                             title="Send comment"
                             aria-label="Send comment"
                           >
                             {isSending ? (
-                              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                             ) : (
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.25}>
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.25}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
                               </svg>
                             )}
@@ -1973,15 +2130,32 @@ export default function PortalDashboard() {
       </main>
       {lightbox && <PhotoLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
       {showUploadModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 backdrop-blur-sm p-4 overflow-y-auto" onClick={() => setShowUploadModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mt-8 mb-8" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-start justify-center bg-black/40 backdrop-blur-sm sm:p-4 sm:overflow-y-auto"
+          onClick={() => setShowUploadModal(false)}
+        >
+          <div
+            className="bg-white shadow-xl w-full flex flex-col max-h-[100dvh] sm:max-h-[calc(100dvh-4rem)] sm:max-w-2xl sm:mt-8 sm:mb-8 sm:rounded-2xl rounded-t-2xl sheet-slide-up sm:animate-none"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="sm:hidden flex justify-center pt-2.5 pb-1" aria-hidden="true">
+              <span className="block w-10 h-1.5 rounded-full bg-slate-300" />
+            </div>
+            <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 sticky top-0 bg-white sm:rounded-t-2xl">
               <h3 className="text-base font-semibold text-slate-900">Add Market Visit</h3>
-              <button type="button" onClick={() => setShowUploadModal(false)} className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100" aria-label="Close">
+              <button
+                type="button"
+                onClick={() => setShowUploadModal(false)}
+                className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-md text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                aria-label="Close"
+              >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <div className="p-4 sm:p-6">
+            <div
+              className="p-4 sm:p-6 overflow-y-auto touch-scroll flex-1"
+              style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+            >
               <MarketVisitUpload
                 onUploaded={() => {
                   setShowUploadModal(false);
@@ -1993,34 +2167,51 @@ export default function PortalDashboard() {
         </div>
       )}
       {editingVisit && editVisitForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => { setEditingVisit(null); setEditVisitForm(null); }}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm sm:p-4"
+          onClick={() => { setEditingVisit(null); setEditVisitForm(null); }}
+        >
+          <div
+            className="bg-white shadow-xl w-full flex flex-col max-h-[100dvh] sm:max-h-[calc(100dvh-4rem)] sm:max-w-md sm:rounded-2xl rounded-t-2xl sheet-slide-up sm:animate-none"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="sm:hidden flex justify-center pt-2.5 pb-1" aria-hidden="true">
+              <span className="block w-10 h-1.5 rounded-full bg-slate-300" />
+            </div>
+            <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 sticky top-0 bg-white sm:rounded-t-2xl">
               <h3 className="text-base font-semibold text-slate-900">Edit Market Visit</h3>
-              <button type="button" onClick={() => { setEditingVisit(null); setEditVisitForm(null); }} className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100" aria-label="Close">
+              <button
+                type="button"
+                onClick={() => { setEditingVisit(null); setEditVisitForm(null); }}
+                className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-md text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                aria-label="Close"
+              >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <div className="px-6 py-5 space-y-4">
+            <div
+              className="px-4 sm:px-6 py-5 space-y-4 overflow-y-auto touch-scroll flex-1"
+              style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}
+            >
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Store name</label>
-                <input type="text" value={editVisitForm.store_name} onChange={e => setEditVisitForm(f => f ? { ...f, store_name: e.target.value } : f)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                <input type="text" value={editVisitForm.store_name} onChange={e => setEditVisitForm(f => f ? { ...f, store_name: e.target.value } : f)} className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-base sm:text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Address</label>
-                <input type="text" value={editVisitForm.address} onChange={e => setEditVisitForm(f => f ? { ...f, address: e.target.value } : f)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                <input type="text" value={editVisitForm.address} onChange={e => setEditVisitForm(f => f ? { ...f, address: e.target.value } : f)} className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-base sm:text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Visit date</label>
-                <input type="date" value={editVisitForm.visit_date} onChange={e => setEditVisitForm(f => f ? { ...f, visit_date: e.target.value } : f)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                <input type="date" value={editVisitForm.visit_date} onChange={e => setEditVisitForm(f => f ? { ...f, visit_date: e.target.value } : f)} className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-base sm:text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Note</label>
-                <textarea rows={3} value={editVisitForm.note} onChange={e => setEditVisitForm(f => f ? { ...f, note: e.target.value } : f)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none" />
+                <textarea rows={3} value={editVisitForm.note} onChange={e => setEditVisitForm(f => f ? { ...f, note: e.target.value } : f)} className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-base sm:text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none leading-snug" />
               </div>
-              <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => { setEditingVisit(null); setEditVisitForm(null); }} className="flex-1 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200">Cancel</button>
-                <button type="button" onClick={handleSaveVisitEdit} disabled={savingVisit} className="flex-1 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              <div className="flex gap-3 pt-1 sticky bottom-0 bg-white -mx-4 sm:mx-0 px-4 sm:px-0 py-3 sm:py-0 border-t sm:border-0 border-slate-100">
+                <button type="button" onClick={() => { setEditingVisit(null); setEditVisitForm(null); }} className="flex-1 py-3 sm:py-2.5 min-h-[44px] text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200">Cancel</button>
+                <button type="button" onClick={handleSaveVisitEdit} disabled={savingVisit} className="flex-1 py-3 sm:py-2.5 min-h-[44px] text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
                   {savingVisit ? 'Saving…' : 'Save changes'}
                 </button>
               </div>

@@ -400,9 +400,40 @@ aside::-webkit-scrollbar-thumb:hover,
 .sheet-slide-up {
   animation: sheetSlideUp 0.25s cubic-bezier(0.2, 0.9, 0.3, 1);
 }
+
+/* ── Install-banner pointer + glow animations ────────────────── */
+@keyframes ocoBounceDown {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(5px); }
+}
+@keyframes ocoBounceUp {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+@keyframes ocoShareGlowAdmin {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(15,23,42,0.35); }
+  50%      { box-shadow: 0 0 0 12px rgba(15,23,42,0); }
+}
+@keyframes ocoShareGlowPortal {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37,99,235,0.35); }
+  50%      { box-shadow: 0 0 0 12px rgba(37,99,235,0); }
+}
+.oco-install-bounce-down { animation: ocoBounceDown 1.5s ease-in-out infinite; }
+.oco-install-bounce-up   { animation: ocoBounceUp   1.5s ease-in-out infinite; }
+.oco-install-glow-admin  { animation: ocoShareGlowAdmin  2s ease-in-out infinite; }
+.oco-install-glow-portal { animation: ocoShareGlowPortal 2s ease-in-out infinite; }
 .touch-scroll {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+}
+
+/* ── Hide scrollbars for horizontal tab/chip strips on mobile ─── */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* ── Save Status Indicator animations ────────────────────────── */
