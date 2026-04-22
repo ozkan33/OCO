@@ -102,6 +102,12 @@ async function tryRefresh(
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Forward the pathname to RSC so the root layout can pick the right
+  // PWA manifest (one per scope: /admin, /portal, marketing). Without
+  // this header the layout can't tell the surface during SSR.
+  const rscHeaders = new Headers(request.headers);
+  rscHeaders.set('x-pathname', pathname);
+
   // ── Rate-limit the login endpoint ──────────────────────────────────────────
   if (pathname === '/api/auth/set-session' && request.method === 'POST') {
     const ip =
@@ -135,13 +141,38 @@ export async function middleware(request: NextRequest) {
         );
       }
     }
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: rscHeaders } });
+  }
+
+  // ── Phone UA gate for /admin (Phase 2 PWA) ─────────────────────────────────
+  // The admin surface is intentionally iPad+/desktop only. Redirect phone-class
+  // devices to an informational page BEFORE any auth or capability work — a
+  // bookmark-follower with a saved session on an iPhone shouldn't mount the
+  // 5700-line AdminDataGrid just to hit an unusable UI. iPad detection uses
+  // navigator.maxTouchPoints client-side; the server can only see UA, so here
+  // we match unambiguous phone tokens and leave iPad/tablet cases to render
+  // normally. `?force=desktop` is a documented escape hatch for edge cases.
+  if (pathname.startsWith('/admin') && !pathname.startsWith('/admin/mobile-unavailable')) {
+    const forceDesktop = request.nextUrl.searchParams.get('force') === 'desktop';
+    if (!forceDesktop) {
+      const ua = request.headers.get('user-agent') || '';
+      const isPhoneUA = /iPhone|iPod/.test(ua) || (/Android/.test(ua) && /Mobile/.test(ua));
+      if (isPhoneUA) {
+        return NextResponse.redirect(new URL('/admin/mobile-unavailable', request.url));
+      }
+    }
   }
 
   // ── Only protect /admin, /vendor, and /portal routes ───────────────────────
-  const isProtected = pathname.startsWith('/admin') || pathname.startsWith('/vendor') || pathname.startsWith('/portal');
+  // /admin/mobile-unavailable is an informational page for phone users who were
+  // redirected here before login — it must be publicly viewable, or the phone
+  // UA gate above chains into /auth/login and the user never sees the message.
+  const isProtected =
+    (pathname.startsWith('/admin') && !pathname.startsWith('/admin/mobile-unavailable')) ||
+    pathname.startsWith('/vendor') ||
+    pathname.startsWith('/portal');
   if (!isProtected) {
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: rscHeaders } });
   }
 
   const accessToken  = request.cookies.get('supabase-access-token')?.value;
@@ -208,7 +239,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/auth/login', request.url));
     }
 
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: rscHeaders } });
   }
 
   // ── Access token missing or expired — try refresh ──────────────────────────
@@ -251,7 +282,7 @@ export async function middleware(request: NextRequest) {
         }
       }
 
-      const response = NextResponse.next();
+      const response = NextResponse.next({ request: { headers: rscHeaders } });
       const opts = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',

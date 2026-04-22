@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import ClientLayout from './ClientLayout';
 import { MobileErrorBoundary } from '@/components/ui/MobileErrorBoundary';
 import { SafariErrorBoundary } from '@/components/ui/SafariErrorBoundary';
@@ -32,7 +33,6 @@ export const metadata: Metadata = {
       { url: '/logo.png', type: 'image/png' },
     ],
     shortcut: '/logo.png',
-    apple: '/logo.png',
   },
   openGraph: {
     title: '3Brothers Marketing | CPG Sales Brokerage — Midwest Food & Beverage',
@@ -82,19 +82,80 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+// Per-surface PWA wiring. The marketing site at "/" keeps the existing
+// /manifest.json. Admin and portal each get their own scoped manifest +
+// apple-touch-icon so installed PWAs land in the right surface with the
+// right launcher icon. Path is read from middleware-set x-pathname (not
+// in stock Next 15) with fallbacks to the standard `next-url` /
+// `x-invoke-path` headers and finally the referer.
+async function resolveSurface(): Promise<'admin' | 'portal' | 'marketing'> {
+  try {
+    const h = await headers();
+    const path =
+      h.get('x-pathname') ||
+      h.get('next-url') ||
+      h.get('x-invoke-path') ||
+      (() => {
+        const ref = h.get('referer');
+        if (!ref) return '';
+        try { return new URL(ref).pathname; } catch { return ''; }
+      })();
+    // Use exact-or-slash match so "/administration" or "/portal-something"
+    // can't accidentally adopt the admin/portal manifest.
+    if (path === '/admin' || path.startsWith('/admin/')) return 'admin';
+    if (path === '/portal' || path.startsWith('/portal/')) return 'portal';
+    return 'marketing';
+  } catch {
+    return 'marketing';
+  }
+}
+
+const SURFACE_META: Record<'admin' | 'portal' | 'marketing', {
+  manifest: string;
+  themeColor: string;
+  appleTitle: string;
+  appleIcon: string;
+}> = {
+  admin: {
+    manifest: '/manifest-admin.webmanifest',
+    themeColor: '#0f172a',
+    appleTitle: '3Brothers Marketing',
+    appleIcon: '/icons/admin-192.png',
+  },
+  portal: {
+    manifest: '/manifest-portal.webmanifest',
+    themeColor: '#2563eb',
+    appleTitle: '3Brothers Portal',
+    appleIcon: '/icons/portal-192.png',
+  },
+  marketing: {
+    manifest: '/manifest.json',
+    themeColor: '#3b82f6',
+    appleTitle: '3Brothers Marketing',
+    appleIcon: '/logo.png',
+  },
+};
+
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const surface = await resolveSurface();
+  const m = SURFACE_META[surface];
+
   return (
     <html lang="en">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/logo.png" type="image/png" />
-        <link rel="apple-touch-icon" href="/logo.png" />
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#3b82f6" />
+        <link rel="apple-touch-icon" href={m.appleIcon} />
+        <link rel="manifest" href={m.manifest} />
+        <meta name="theme-color" content={m.themeColor} />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content={m.appleTitle} />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>
       <body>
         <SafariErrorBoundary>
@@ -105,4 +166,4 @@ export default function RootLayout({
       </body>
     </html>
   );
-} 
+}

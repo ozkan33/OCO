@@ -7,6 +7,7 @@ import { getMobileBrowserInfo } from '@/utils/mobileDetection';
 import { Suspense } from 'react';
 import VisitorTracker from '@/components/VisitorTracker';
 import { getLandingPath, isRole } from '../../lib/rbac';
+import { InstallPromptProvider } from '@/lib/pwa/useInstallPrompt';
 
 const inter = Inter({ subsets: ['latin'] });
 const dmSerif = DM_Serif_Display({ weight: '400', subsets: ['latin'], variable: '--font-display' });
@@ -25,6 +26,16 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       setIsSafari(true);
       console.log('Safari detected in ClientLayout');
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (process.env.NODE_ENV !== 'production') return;
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // Registration failure is non-fatal — install banners just won't be
+      // installable on Chromium until SW comes back.
+    });
   }, []);
 
   useEffect(() => {
@@ -111,12 +122,14 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const isDashboard = pathname.startsWith('/admin') || pathname.startsWith('/vendor') || pathname.startsWith('/portal');
 
   return (
-    <div className={`${inter.className} ${dmSerif.variable}`}>
-      <Suspense fallback={null}><VisitorTracker /></Suspense>
-      {!isDashboard && <Header user={user} loading={loading} onAccountClick={handleAccountClick} onLogout={handleLogout} />}
-      <main className="min-h-screen">
-        {children}
-      </main>
-    </div>
+    <InstallPromptProvider>
+      <div className={`${inter.className} ${dmSerif.variable}`}>
+        <Suspense fallback={null}><VisitorTracker /></Suspense>
+        {!isDashboard && <Header user={user} loading={loading} onAccountClick={handleAccountClick} onLogout={handleLogout} />}
+        <main className="min-h-screen">
+          {children}
+        </main>
+      </div>
+    </InstallPromptProvider>
   );
-} 
+}
