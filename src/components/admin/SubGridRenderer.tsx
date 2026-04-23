@@ -308,33 +308,51 @@ function SubgridCommentDrawer() {
               </ul>
             )}
           </div>
-          <div className="pt-3 border-t flex gap-2.5 items-start mt-2">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm mt-1">
-              {(user?.name || user?.email || 'A')[0].toUpperCase()}
+          <div className="pt-3 border-t mt-2">
+            {/* Scope caption — mirrors the STORE NOTE accent on store-note cards.
+                Signals that what they type will be scoped to this specific store. */}
+            <div className="flex items-center gap-1.5 mb-1.5 pl-1">
+              <svg className="w-3 h-3 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+              </svg>
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Store note</span>
+              <span className="text-slate-300 text-[10px]" aria-hidden="true">·</span>
+              <span className="text-[11px] text-slate-500 truncate" title={storeName}>on {storeName}</span>
             </div>
-            <div className="flex-1">
-              <textarea
-                value={subgridCommentInput}
-                onChange={e => setSubgridCommentInput(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-blue-500 px-3 py-2 text-sm bg-white shadow-sm resize-none transition-all"
-                placeholder="Add a comment..."
-                rows={2}
-                style={{ minHeight: 40, maxHeight: 100 }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (!isAddingSubgridComment && subgridCommentInput.trim()) handleAddSubgridComment();
-                  }
-                }}
-                disabled={isAddingSubgridComment}
-              />
+            <div className="flex gap-2.5 items-start">
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm mt-1">
+                {(user?.name || user?.email || 'A')[0].toUpperCase()}
+              </div>
+              {/* Blue left-rail matches the Market Visit / store-note accent
+                  used on cards, so the composer previews its output. */}
+              <div className="flex-1 rounded-xl border border-slate-200 border-l-[3px] border-l-blue-500 bg-white focus-within:border-blue-500 focus-within:border-l-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-colors">
+                <textarea
+                  value={subgridCommentInput}
+                  onChange={e => setSubgridCommentInput(e.target.value)}
+                  className="w-full rounded-xl px-3 py-2 text-sm bg-transparent resize-none focus:outline-none placeholder:text-slate-400"
+                  placeholder={storeName ? `Add a note about ${storeName}…` : 'Write a store-level note…'}
+                  rows={2}
+                  style={{ minHeight: 40, maxHeight: 120 }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      if (!isAddingSubgridComment && subgridCommentInput.trim()) handleAddSubgridComment();
+                    }
+                  }}
+                  disabled={isAddingSubgridComment}
+                />
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-end gap-2">
+              <span className="text-[10px] text-slate-400 hidden sm:inline">Enter to post · Shift+Enter for new line</span>
               <button
                 onClick={handleAddSubgridComment}
                 disabled={isAddingSubgridComment || !subgridCommentInput.trim()}
                 aria-busy={isAddingSubgridComment}
-                className="mt-1.5 px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow transition-all float-right disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
+                className="px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
               >
-                {isAddingSubgridComment ? 'Adding…' : 'Add'}
+                {isAddingSubgridComment ? 'Posting…' : 'Post note'}
               </button>
             </div>
           </div>

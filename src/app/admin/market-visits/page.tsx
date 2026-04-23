@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Toaster } from 'sonner';
 import MarketVisitUpload from '@/components/admin/MarketVisitUpload';
 import MarketVisitGallery from '@/components/admin/MarketVisitGallery';
 import AdminHeader from '@/components/admin/AdminHeader';
@@ -23,6 +24,7 @@ export default function MarketVisitsPage() {
           <MarketVisitGallery refreshKey={refreshKey} />
         </div>
       </main>
+      <Toaster position="top-right" richColors closeButton />
     </div>
   );
 }

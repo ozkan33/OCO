@@ -102,23 +102,30 @@ const normalize = (s: string) =>
 // rarely include the punctuation the retailer's marketing name does.
 const loose = (s: string) => normalize(s).replace(/[']/g, '');
 
-// Look up a retailer's favicon by its display name — handles "HY-VEE" ↔ "Hy-Vee",
+// Look up a retailer by its display name — handles "HY-VEE" ↔ "Hy-Vee",
 // "LUNDS&BYERLYS" ↔ "Lunds & Byerlys", "KOWALSKIS" ↔ "Kowalski's", etc.
-export function findRetailerFavicon(name: string | null | undefined): string | null {
+export function findRetailerByName(name: string | null | undefined): Retailer | null {
   if (!name) return null;
   const target = normalize(name);
   const targetLoose = loose(name);
   if (!target) return null;
-  // Exact (normalized)
   const exact = RETAILERS.find(r => normalize(r.name) === target);
-  if (exact) return retailerFaviconForUrl(exact.url);
-  // Exact ignoring apostrophes
+  if (exact) return exact;
   const alias = RETAILERS.find(r => loose(r.name) === targetLoose);
-  if (alias) return retailerFaviconForUrl(alias.url);
-  // Substring, either direction, using the loose form so apostrophes don't block
+  if (alias) return alias;
   const partial = RETAILERS.find(r => {
     const n = loose(r.name);
     return n && (n.includes(targetLoose) || targetLoose.includes(n));
   });
-  return partial ? retailerFaviconForUrl(partial.url) : null;
+  return partial ?? null;
+}
+
+export function findRetailerFavicon(name: string | null | undefined): string | null {
+  const r = findRetailerByName(name);
+  return r ? retailerFaviconForUrl(r.url) : null;
+}
+
+export function findRetailerUrl(name: string | null | undefined): string | null {
+  const r = findRetailerByName(name);
+  return r?.url ?? null;
 }

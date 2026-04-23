@@ -1,19 +1,32 @@
 'use client';
-// TODO: unify — SimpleCommentDrawer and RetailerDrawer below are ~90% identical.
-// Per project convention we do NOT refactor into a shared drawer component;
+// TODO: unify with admin CommentDrawer.tsx — this file is a hand-duplicate of
+// the admin drawer (Bundle 2 + Bundle 2.5 polish), adapted to the portal's
+// comment shape ({ id, text, author, date, updated_at, isOwn, isAdmin }).
+// Per project convention we do NOT refactor into a shared drawer yet;
 // replicate changes in both and keep them in sync by hand.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { useAdminGrid } from './AdminDataGridContext';
-import { parseCommentMeta } from './commentMeta';
-import { useClientLogos, findLogo } from './useClientLogos';
+import { parseCommentMeta } from '@/components/admin/commentMeta';
+import { useClientLogos, findLogo } from '@/components/admin/useClientLogos';
+
+// ─── Portal comment shape ─────────────────────────────────────────────────
+// Matches `interface Comment` in src/app/portal/page.tsx, plus `updated_at`
+// and `isAdmin` which we thread through for edit-indicator + admin pill.
+export interface PortalComment {
+  id?: string;
+  text: string;
+  author: string;
+  date: string;
+  updated_at?: string;
+  isOwn?: boolean;
+  isAdmin?: boolean;
+}
 
 // ─── Progressive-disclosure thresholds ─────────────────────────────────────
-// Keep these as local constants so they can be tuned from one place.
 const COMMENT_THRESHOLDS = {
-  filters: 4, // below this: flat list, no filter bar
-  groups: 10, // at/above: switch to By-store grouping
-  search: 25, // at/above: condensed default + search input
+  filters: 4,
+  groups: 10,
+  search: 25,
   condense: 25,
 } as const;
 
@@ -57,8 +70,6 @@ function daysBetween(a: Date | number, b: Date | number): number {
   return Math.floor((new Date(a).getTime() - new Date(b).getTime()) / (1000 * 60 * 60 * 24));
 }
 
-// Label used for day-separators between cards: "Today", "Yesterday",
-// otherwise a short month-day form. Adds reading rhythm to the feed.
 function daySeparatorLabel(dateInput: string | Date | null | undefined): string {
   if (!dateInput) return '';
   const d = new Date(dateInput);
@@ -80,26 +91,26 @@ function sameLocalDay(a: string | Date, b: string | Date): boolean {
   );
 }
 
-function isMarketVisitMeta(c: any): boolean {
+function isMarketVisitMeta(c: PortalComment): boolean {
   return parseCommentMeta(c?.text).isMarketVisit;
 }
 
 interface CommentGroup {
-  key: string; // storeName or CHAIN_BUCKET
-  label: string; // display name
-  comments: any[]; // newest-first within the group
-  lastActivity: number; // ms epoch of most recent comment in group
+  key: string;
+  label: string;
+  comments: PortalComment[];
+  lastActivity: number;
   isChainBucket: boolean;
 }
 
-function groupCommentsByStore(comments: any[]): CommentGroup[] {
+function groupCommentsByStore(comments: PortalComment[]): CommentGroup[] {
   const map = new Map<string, CommentGroup>();
   for (const c of comments) {
     const meta = parseCommentMeta(c.text);
     const isChain = !meta.isMarketVisit || !meta.storeName;
     const key = isChain ? CHAIN_BUCKET : (meta.storeName as string);
     const label = isChain ? 'Chain notes' : (meta.storeName as string);
-    const createdAt = new Date(c.created_at).getTime();
+    const createdAt = new Date(c.date).getTime();
     let group = map.get(key);
     if (!group) {
       group = { key, label, comments: [], lastActivity: 0, isChainBucket: isChain };
@@ -110,19 +121,17 @@ function groupCommentsByStore(comments: any[]): CommentGroup[] {
   }
   for (const g of map.values()) {
     g.comments.sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
   }
   return Array.from(map.values()).sort((a, b) => {
-    // Chain bucket always last
     if (a.isChainBucket && !b.isChainBucket) return 1;
     if (!a.isChainBucket && b.isChainBucket) return -1;
     return b.lastActivity - a.lastActivity;
   });
 }
 
-// Compute summary facts from (already newest-first) comments list.
-function computeSummary(comments: any[]) {
+function computeSummary(comments: PortalComment[]) {
   if (!comments.length) {
     return {
       lastCreated: null as Date | null,
@@ -145,7 +154,7 @@ function computeSummary(comments: any[]) {
     } else {
       noteCount += 1;
     }
-    const t = new Date(c.created_at).getTime();
+    const t = new Date(c.date).getTime();
     if (t > latest) latest = t;
   }
   const lastCreated = latest ? new Date(latest) : null;
@@ -160,8 +169,6 @@ function computeSummary(comments: any[]) {
   };
 }
 
-// Simple coarse-pointer / small-viewport detector. Mirrors patterns already
-// present in the codebase (matchMedia + window.innerWidth).
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -189,11 +196,11 @@ interface FilterState {
   view: ViewMode;
   type: TypeFilter;
   date: DateFilter;
-  author: string; // user_id or 'all'
+  author: string;
   search: string;
 }
 
-function filterComments(comments: any[], f: FilterState): any[] {
+function filterComments(comments: PortalComment[], f: FilterState): PortalComment[] {
   const now = Date.now();
   const day = 1000 * 60 * 60 * 24;
   const windowMs =
@@ -214,13 +221,13 @@ function filterComments(comments: any[], f: FilterState): any[] {
       if (f.type === 'note' && mv) return false;
     }
     if (windowMs !== Infinity) {
-      const t = new Date(c.created_at).getTime();
+      const t = new Date(c.date).getTime();
       if (now - t > windowMs) return false;
     }
-    if (f.author !== 'all' && String(c.user_id || '') !== f.author) return false;
+    if (f.author !== 'all' && String(c.author || '') !== f.author) return false;
     if (q) {
       const body = parseCommentMeta(c.text).body.toLowerCase();
-      const name = String(c.author_name || c.user_email || '').toLowerCase();
+      const name = String(c.author || '').toLowerCase();
       if (!body.includes(q) && !name.includes(q)) return false;
     }
     return true;
@@ -228,29 +235,6 @@ function filterComments(comments: any[], f: FilterState): any[] {
 }
 
 // ─── Presentational atoms ──────────────────────────────────────────────────
-function TypePill({ isMarketVisit }: { isMarketVisit: boolean }) {
-  // Muted inline label — no heavy pill chrome. Color communicates type.
-  if (isMarketVisit) {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-600 uppercase tracking-wide">
-        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
-        </svg>
-        Market Visit
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 uppercase tracking-wide">
-      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3.75h6m-6 3.75h9M4.5 4.5h15a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5h-15a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z" />
-      </svg>
-      Chain note
-    </span>
-  );
-}
-
 function StaleDot({ className = '' }: { className?: string }) {
   return (
     <span
@@ -275,7 +259,7 @@ function CommentEmptyState() {
         </div>
       </div>
       <p className="text-sm font-semibold text-slate-700">No notes yet</p>
-      <p className="text-xs text-slate-500 mt-1 max-w-[240px]">Market Visits come from uploads. Add a chain note below for observations that apply to the whole chain.</p>
+      <p className="text-xs text-slate-500 mt-1 max-w-[240px]">Market Visits come from your broker&apos;s photo uploads. Add a chain note below for observations that apply to the whole chain.</p>
     </div>
   );
 }
@@ -297,11 +281,10 @@ function CommentSummaryHeader({
 }) {
   if (!commentCount) return null;
   const parts: string[] = [];
-  if (lastCreated) parts.push(`Last visit: ${formatRelativeTime(lastCreated)}`);
+  if (lastCreated) parts.push(`Last activity: ${formatRelativeTime(lastCreated)}`);
   if (storeCount > 0) parts.push(`${storeCount} ${storeCount === 1 ? 'store' : 'stores'}`);
   if (visitCount > 0) parts.push(`${visitCount} ${visitCount === 1 ? 'visit' : 'visits'}`);
   if (noteCount > 0) parts.push(`${noteCount} ${noteCount === 1 ? 'note' : 'notes'}`);
-  // Fallback — shouldn't hit since commentCount>0, but guards zero-split edge.
   if (visitCount === 0 && noteCount === 0) {
     parts.push(`${commentCount} ${commentCount === 1 ? 'comment' : 'comments'}`);
   }
@@ -470,7 +453,6 @@ function CommentGroupHeader({
       >
         <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
       </svg>
-      {/* Store glyph anchor — reinforces that groups are stores */}
       {group.isChainBucket ? (
         <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
@@ -488,7 +470,7 @@ function CommentGroupHeader({
         </div>
         {last && (
           <div className="text-[11px] text-slate-500 truncate">
-            Last visit {formatRelativeTime(last)} · {formatShortDate(last)}
+            Last activity {formatRelativeTime(last)} · {formatShortDate(last)}
           </div>
         )}
       </div>
@@ -499,57 +481,58 @@ function CommentGroupHeader({
   );
 }
 
-// ─── Card (expanded) ───────────────────────────────────────────────────────
+// ─── Card bits ─────────────────────────────────────────────────────────────
 interface CardCommonProps {
-  rowId: number | string;
-  comment: any;
-  index: number;
-  isAuthor: boolean;
-  isLatest: boolean;
-  // When true, the previous card (above) is by the same author — we collapse
-  // the avatar/name row, iMessage-style, to remove monotony in runs.
+  comment: PortalComment;
+  highlightId?: string | null;
+  onEdit: (c: PortalComment) => void;
+  onDelete: (c: PortalComment) => void;
+  editingId: string | null;
+  editText: string;
+  setEditText: (s: string) => void;
+  onSaveEdit: (c: PortalComment) => void;
+  onCancelEdit: () => void;
+  savingEdit: boolean;
+  isLatest?: boolean;
   sameAuthorAsPrev?: boolean;
-  // When true, we are already inside a group by this store — don't repeat
-  // the store anchor in the card itself.
   suppressStoreAnchor?: boolean;
 }
 
-function useCardCommon(c: any) {
-  const { user } = useAdminGrid();
-  const isAuthor = user?.id === c.user_id;
-  const authorEmail = c.user_email || c.email || '';
-  const fallbackPrefix = authorEmail ? authorEmail.split('@')[0] : 'Anonymous';
-  const displayName =
-    (c.author_name && String(c.author_name).trim()) ||
-    fallbackPrefix.charAt(0).toUpperCase() + fallbackPrefix.slice(1);
-  const createdAt = new Date(c.created_at).toLocaleString();
+function useCardCommon(c: PortalComment) {
+  const displayName = c.author || 'Anonymous';
+  const createdAt = new Date(c.date).toLocaleString();
   const isEdited =
-    c.updated_at &&
-    c.created_at &&
-    new Date(c.updated_at).getTime() - new Date(c.created_at).getTime() > 1000;
+    !!c.updated_at &&
+    !!c.date &&
+    new Date(c.updated_at).getTime() - new Date(c.date).getTime() > 1000;
   const meta = parseCommentMeta(c.text);
-  return { isAuthor, displayName, createdAt, isEdited, meta };
+  return { displayName, createdAt, isEdited, meta };
+}
+
+// Small Admin pill — indicates the comment came from a broker/admin so brand
+// users can visually distinguish official commentary from peer notes.
+function AdminPill() {
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 text-[9px] font-semibold uppercase tracking-wider px-1 py-[1px] rounded bg-indigo-100 text-indigo-700 border border-indigo-200"
+      title="Posted by your broker"
+    >
+      Admin
+    </span>
+  );
 }
 
 function CommentCardExpanded({
-  rowId, comment: c, index: i, isLatest,
-  sameAuthorAsPrev = false, suppressStoreAnchor = false,
+  comment: c, isLatest = false, sameAuthorAsPrev = false, suppressStoreAnchor = false,
+  highlightId, onEdit, onDelete,
+  editingId, editText, setEditText, onSaveEdit, onCancelEdit, savingEdit,
 }: CardCommonProps) {
-  const {
-    comments, selectedCategory,
-    editCommentIdx, editCommentText, setEditCommentIdx, setEditCommentText,
-    updateComment, setConfirmDeleteComment,
-  } = useAdminGrid();
-  const clientLogos = useClientLogos();
-  const [savingEdit, setSavingEdit] = useState(false);
-  const savingEditRef = useRef(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const { isAuthor, displayName, createdAt, isEdited, meta } = useCardCommon(c);
-  const authorBrand: string | null = c.author_brand_name || null;
-  const authorBrandLogo = authorBrand ? findLogo(clientLogos, authorBrand) : null;
-  const editing = editCommentIdx === i;
+  const { displayName, createdAt, isEdited, meta } = useCardCommon(c);
+  const editing = editingId === c.id;
   const showStoreAnchor = meta.isMarketVisit && !!meta.storeName && !suppressStoreAnchor;
+  const isHighlighted = highlightId && c.id && highlightId === c.id;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -560,39 +543,26 @@ function CommentCardExpanded({
     return () => document.removeEventListener('mousedown', onDoc);
   }, [menuOpen]);
 
-  // Relative, compact timestamp top-right — keeps cadence without shouting.
-  const relTime = formatRelativeTime(c.created_at);
-
-  // Persistent chain-note anchor when this is a Note card (not a market visit)
-  // and we aren't already inside a store group header. Gives Note cards the
-  // same visual weight as Market Visit cards.
+  const relTime = formatRelativeTime(c.date);
   const showChainNoteAnchor = !meta.isMarketVisit && !suppressStoreAnchor;
 
   return (
     <li
+      data-comment-id={c.id || ''}
       className={[
         'group relative rounded-lg border border-slate-200/80 transition-all',
-        // Persistent, saturated left accent — communicates type at rest even
-        // when the author row is collapsed on iMessage-style runs.
         'border-l-[3px]',
         isLatest
           ? 'border-l-blue-600'
           : meta.isMarketVisit
             ? 'border-l-blue-500'
             : 'border-l-slate-400',
-        // Subtle type-tint so Market Visit vs Note reads without reading.
         meta.isMarketVisit ? 'bg-blue-50/30' : 'bg-white',
-        // Gentle lift on hover — gives the feed rhythm.
         'hover:border-slate-300 hover:shadow-[0_1px_2px_rgba(15,23,42,0.05)]',
-        // Room on the right so the top-right overflow-menu trigger never
-        // collides with the timestamp/author row.
         sameAuthorAsPrev ? 'pt-2 pb-2.5 pl-3 pr-9' : 'pt-2.5 pb-3 pl-3 pr-9',
+        isHighlighted ? 'ring-2 ring-blue-400 ring-offset-1 ring-offset-slate-100' : '',
       ].join(' ')}
     >
-      {/* Store anchor — the thing admins actually search for. Lives at the
-          top of each card so it reads first, unless we're already inside a
-          store group header. Date intentionally dropped here: the relative
-          timestamp in the author row is the single source of truth. */}
       {showStoreAnchor && (
         <div className="flex items-center gap-1.5 mb-1.5 min-w-0">
           <svg className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
@@ -611,41 +581,20 @@ function CommentCardExpanded({
         </div>
       )}
       <div className="flex items-start gap-2">
-        {/* Avatar — hidden when previous card is by same author (iMessage-style run) */}
         {!sameAuthorAsPrev ? (
-          <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center text-blue-700 font-semibold text-[12px] ring-1 ring-blue-200/40">
+          <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center font-semibold text-[12px] ring-1 ${c.isAdmin ? 'bg-gradient-to-br from-indigo-100 to-indigo-50 text-indigo-700 ring-indigo-200/60' : 'bg-gradient-to-br from-blue-100 to-indigo-100 text-blue-700 ring-blue-200/40'}`}>
             {displayName[0]?.toUpperCase() || 'A'}
           </div>
         ) : (
-          // Reserve the gutter AND draw a subtle thread connector — makes
-          // same-author runs visibly belong together (Slack-thread style).
           <div className="flex-shrink-0 w-7 flex justify-center" aria-hidden="true">
             <span className="w-px h-full bg-slate-200" />
           </div>
         )}
         <div className="flex-1 min-w-0">
-          {/* Author/time row collapses on subsequent cards by the same author.
-              Timestamp now rides inline with author (not top-right corner) so
-              the overflow menu owns the corner unambiguously. */}
           {!sameAuthorAsPrev && (
             <div className="flex items-center gap-1.5 min-w-0 mb-0.5 flex-wrap">
               <span className="text-[13px] font-medium text-slate-800 truncate">{displayName}</span>
-              {authorBrand && (
-                <span
-                  className="inline-flex items-center gap-1 text-[10px] text-slate-500 max-w-[120px]"
-                  title={`Brand user: ${authorBrand}`}
-                >
-                  {authorBrandLogo ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={authorBrandLogo} alt="" className="w-3 h-3 rounded-sm object-contain flex-shrink-0" />
-                  ) : (
-                    <svg className="w-2.5 h-2.5 flex-shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
-                    </svg>
-                  )}
-                  <span className="truncate">{authorBrand}</span>
-                </span>
-              )}
+              {c.isAdmin && <AdminPill />}
               <span className="text-slate-300 text-[10px]" aria-hidden="true">·</span>
               <span
                 className="text-[11px] text-slate-500 whitespace-nowrap tabular-nums"
@@ -661,9 +610,6 @@ function CommentCardExpanded({
               )}
             </div>
           )}
-          {/* For collapsed (same-author) cards: no author row, no right-side
-              timestamp — the corner belongs to the always-visible ⋯ menu.
-              Edit indicator only, if present. */}
           {sameAuthorAsPrev && isEdited && (
             <div className="mb-0.5">
               <span className="text-[10px] italic text-slate-400" title={createdAt}>edited · {relTime}</span>
@@ -672,42 +618,30 @@ function CommentCardExpanded({
           {editing ? (
             <div className="flex flex-col gap-2 mt-1">
               <textarea
-                value={editCommentText}
-                onChange={e => setEditCommentText(e.target.value)}
+                value={editText}
+                onChange={e => setEditText(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
                 rows={2}
                 autoFocus
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey && !savingEdit && editText.trim()) {
+                    e.preventDefault();
+                    onSaveEdit(c);
+                  }
+                  if (e.key === 'Escape' && !savingEdit) onCancelEdit();
+                }}
               />
               <div className="flex gap-2 mt-1">
                 <button
-                  onClick={async () => {
-                    if (savingEditRef.current) return;
-                    savingEditRef.current = true;
-                    setSavingEdit(true);
-                    try {
-                      const target = comments[selectedCategory][rowId][i];
-                      await updateComment(target.id, editCommentText);
-                      setEditCommentIdx(null);
-                      setEditCommentText('');
-                      toast.success('Note updated');
-                    } catch {
-                      toast.error('Failed to update note');
-                    } finally {
-                      savingEditRef.current = false;
-                      setSavingEdit(false);
-                    }
-                  }}
-                  disabled={savingEdit || !editCommentText.trim()}
+                  onClick={() => onSaveEdit(c)}
+                  disabled={savingEdit || !editText.trim()}
                   aria-busy={savingEdit}
                   className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 transition-colors"
                 >
                   {savingEdit ? 'Saving…' : 'Save'}
                 </button>
                 <button
-                  onClick={() => {
-                    setEditCommentIdx(null);
-                    setEditCommentText('');
-                  }}
+                  onClick={onCancelEdit}
                   disabled={savingEdit}
                   className="px-3 py-1 bg-slate-100 text-slate-700 rounded-md hover:bg-slate-200 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
@@ -716,21 +650,14 @@ function CommentCardExpanded({
               </div>
             </div>
           ) : (
-            // The content. Bumped to 14px + stronger ink — this is the actual signal.
             <div className="text-[14px] leading-relaxed text-slate-900 whitespace-pre-line">
               {meta.body || <span className="text-slate-300 italic">—</span>}
             </div>
           )}
         </div>
       </div>
-      {/* Overflow menu — ALWAYS visible at rest (muted), darkens on hover.
-          Hover-to-reveal failed on touch and made Edit/Delete un-discoverable
-          on desktop. Pattern: GitHub / Linear / Slack comment menus. */}
-      {isAuthor && !editing && (
-        <div
-          ref={menuRef}
-          className="absolute right-1.5 top-1.5"
-        >
+      {c.isOwn && !editing && c.id && (
+        <div ref={menuRef} className="absolute right-1.5 top-1.5">
           <button
             type="button"
             onClick={e => {
@@ -756,8 +683,7 @@ function CommentCardExpanded({
                 role="menuitem"
                 onClick={() => {
                   setMenuOpen(false);
-                  setEditCommentIdx(i);
-                  setEditCommentText(c.text);
+                  onEdit(c);
                 }}
                 className="block w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100"
               >
@@ -768,7 +694,7 @@ function CommentCardExpanded({
                 role="menuitem"
                 onClick={() => {
                   setMenuOpen(false);
-                  setConfirmDeleteComment({ rowId, commentIdx: i });
+                  onDelete(c);
                 }}
                 className="block w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
               >
@@ -782,15 +708,12 @@ function CommentCardExpanded({
   );
 }
 
-// ─── Card (condensed, single-line, click to expand) ───────────────────────
-function CommentCardCondensed({ rowId, comment: c, index: i, suppressStoreAnchor = false }: CardCommonProps) {
+function CommentCardCondensed(props: CardCommonProps) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const {
-    setEditCommentIdx, setEditCommentText, setConfirmDeleteComment,
-  } = useAdminGrid();
-  const { isAuthor, displayName, meta } = useCardCommon(c);
+  const { comment: c, onEdit, onDelete } = props;
+  const { displayName, meta } = useCardCommon(c);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -803,21 +726,18 @@ function CommentCardCondensed({ rowId, comment: c, index: i, suppressStoreAnchor
 
   const preview = (meta.body || '').replace(/\s+/g, ' ').trim();
   const truncated = preview.length > 60 ? preview.slice(0, 59).trimEnd() + '…' : preview;
-  const dateLabel = formatShortDate(c.created_at);
+  const dateLabel = formatShortDate(c.date);
 
   if (expanded) {
-    return <CommentCardExpanded rowId={rowId} comment={c} index={i} isAuthor={isAuthor} isLatest={false} suppressStoreAnchor={suppressStoreAnchor} />;
+    return <CommentCardExpanded {...props} />;
   }
 
   return (
-    <li className="group relative">
+    <li className="group relative" data-comment-id={c.id || ''}>
       <button
         type="button"
         onClick={() => setExpanded(true)}
         className={[
-          // Right padding reserves space for the always-visible ⋯ trigger,
-          // preventing the old collision where the overflow icon sat on top
-          // of the preview text.
           'w-full flex items-center gap-2 pl-2 pr-8 py-1.5 rounded-md text-left',
           'border-l-2 transition-colors',
           meta.isMarketVisit ? 'border-l-blue-500 hover:bg-blue-50/50' : 'border-l-slate-400 hover:bg-slate-50',
@@ -826,12 +746,13 @@ function CommentCardCondensed({ rowId, comment: c, index: i, suppressStoreAnchor
       >
         <span className="text-[11px] text-slate-500 tabular-nums flex-shrink-0 w-12">{dateLabel}</span>
         <span className="text-[11px] text-slate-500 flex-shrink-0 max-w-[80px] truncate">{displayName}</span>
+        {c.isAdmin && <AdminPill />}
         <span className="text-[11px] text-slate-300 flex-shrink-0">·</span>
         <span className="text-[12.5px] text-slate-700 truncate min-w-0 flex-1">
           {truncated || <span className="text-slate-300 italic">—</span>}
         </span>
       </button>
-      {isAuthor && (
+      {c.isOwn && c.id && (
         <div ref={menuRef} className="absolute right-1 top-1/2 -translate-y-1/2">
           <button
             type="button"
@@ -858,9 +779,8 @@ function CommentCardCondensed({ rowId, comment: c, index: i, suppressStoreAnchor
                 role="menuitem"
                 onClick={() => {
                   setMenuOpen(false);
-                  setEditCommentIdx(i);
-                  setEditCommentText(c.text);
                   setExpanded(true);
+                  onEdit(c);
                 }}
                 className="block w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100"
               >
@@ -871,7 +791,7 @@ function CommentCardCondensed({ rowId, comment: c, index: i, suppressStoreAnchor
                 role="menuitem"
                 onClick={() => {
                   setMenuOpen(false);
-                  setConfirmDeleteComment({ rowId, commentIdx: i });
+                  onDelete(c);
                 }}
                 className="block w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
               >
@@ -885,20 +805,34 @@ function CommentCardCondensed({ rowId, comment: c, index: i, suppressStoreAnchor
   );
 }
 
-// ─── Main comment list with progressive disclosure ────────────────────────
-function CommentList({ rowId }: { rowId: number | string }) {
-  const { comments, selectedCategory } = useAdminGrid();
-  const raw = useMemo(
-    () => comments[selectedCategory]?.[rowId] || [],
-    [comments, selectedCategory, rowId]
-  );
-  // Newest first — flip the API's ASC order client-side.
-  const rowComments = useMemo(() => {
-    return [...raw].sort(
-      (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-  }, [raw]);
-
+// ─── Main comment list ────────────────────────────────────────────────────
+function CommentList({
+  rowComments,
+  filters,
+  setFilters,
+  highlightId,
+  onEdit,
+  onDelete,
+  editingId,
+  editText,
+  setEditText,
+  onSaveEdit,
+  onCancelEdit,
+  savingEdit,
+}: {
+  rowComments: PortalComment[];
+  filters: FilterState;
+  setFilters: React.Dispatch<React.SetStateAction<FilterState>>;
+  highlightId?: string | null;
+  onEdit: (c: PortalComment) => void;
+  onDelete: (c: PortalComment) => void;
+  editingId: string | null;
+  editText: string;
+  setEditText: (s: string) => void;
+  onSaveEdit: (c: PortalComment) => void;
+  onCancelEdit: () => void;
+  savingEdit: boolean;
+}) {
   const isMobile = useIsMobile();
   const count = rowComments.length;
   const aboveGroups = count >= COMMENT_THRESHOLDS.groups;
@@ -906,19 +840,10 @@ function CommentList({ rowId }: { rowId: number | string }) {
   const aboveSearch = count >= COMMENT_THRESHOLDS.search;
   const condenseByDefault = aboveSearch || (isMobile && count >= COMMENT_THRESHOLDS.filters);
 
-  const [filters, setFilters] = useState<FilterState>({
-    view: 'store',
-    type: 'all',
-    date: 'anytime',
-    author: 'all',
-    search: '',
-  });
-  // Keep view mode aligned with disclosure level.
   useEffect(() => {
     if (!aboveGroups && filters.view === 'store') {
       setFilters(f => ({ ...f, view: 'all' }));
     } else if (aboveGroups && filters.view === 'all') {
-      // auto-upgrade on first cross of threshold
       setFilters(f => (f.view === 'all' ? { ...f, view: 'store' } : f));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -927,25 +852,16 @@ function CommentList({ rowId }: { rowId: number | string }) {
   const authorsList = useMemo(() => {
     const m = new Map<string, string>();
     for (const c of rowComments) {
-      const id = String(c.user_id || '');
-      if (!id) continue;
-      if (!m.has(id)) {
-        const authorEmail = c.user_email || c.email || '';
-        const fallback = authorEmail ? authorEmail.split('@')[0] : 'Anonymous';
-        const name =
-          (c.author_name && String(c.author_name).trim()) ||
-          fallback.charAt(0).toUpperCase() + fallback.slice(1);
-        m.set(id, name);
-      }
+      const name = c.author || '';
+      if (!name) continue;
+      if (!m.has(name)) m.set(name, name);
     }
     return Array.from(m.entries()).map(([id, name]) => ({ id, name }));
   }, [rowComments]);
 
   const filtered = useMemo(() => filterComments(rowComments, filters), [rowComments, filters]);
-
   const groups = useMemo(() => groupCommentsByStore(filtered), [filtered]);
 
-  // Only the most-recent group is expanded by default.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   useEffect(() => {
     setOpenGroups(prev => {
@@ -959,46 +875,44 @@ function CommentList({ rowId }: { rowId: number | string }) {
   }, [groups]);
   const toggleGroup = (key: string) => setOpenGroups(s => ({ ...s, [key]: !s[key] }));
 
-  // Map comment id -> original index into rowComments (newest-first order),
-  // but the underlying handlers need the ORIGINAL api-order index (the ASC one
-  // stored in the context). So we resolve by scanning `raw` each time.
-  const originalIndexOf = (c: any): number => {
-    const id = c.id;
-    if (id == null) return raw.indexOf(c);
-    const idx = raw.findIndex((x: any) => x.id === id);
-    return idx === -1 ? raw.indexOf(c) : idx;
+  const cardProps = {
+    highlightId,
+    onEdit,
+    onDelete,
+    editingId,
+    editText,
+    setEditText,
+    onSaveEdit,
+    onCancelEdit,
+    savingEdit,
   };
 
   if (count === 0) {
     return <CommentEmptyState />;
   }
 
-  // 1–3 comments: flat newest-first, no filter bar, no groups.
   if (!aboveFilters) {
     return (
       <ul className="space-y-2">
-        {rowComments.map((c: any, idx: number) => {
-          const i = originalIndexOf(c);
+        {rowComments.map((c, idx) => {
           const prev = rowComments[idx - 1];
-          const sameAuthor = !!prev && String(prev.user_id || '') === String(c.user_id || '') && String(c.user_id || '') !== '';
-          const sameDay = !!prev && sameLocalDay(prev.created_at, c.created_at);
+          const sameAuthor = !!prev && String(prev.author || '') === String(c.author || '') && String(c.author || '') !== '';
+          const sameDay = !!prev && sameLocalDay(prev.date, c.date);
           const showDivider = !prev || !sameDay;
           return (
-            <React.Fragment key={c.id || i}>
+            <React.Fragment key={c.id || idx}>
               {showDivider && idx > 0 && (
                 <li aria-hidden="true" className="relative flex items-center justify-center py-1">
                   <span className="flex-1 h-px bg-slate-200/80" />
                   <span className="px-2 text-[10px] font-medium text-slate-400 uppercase tracking-wider">
-                    {daySeparatorLabel(c.created_at)}
+                    {daySeparatorLabel(c.date)}
                   </span>
                   <span className="flex-1 h-px bg-slate-200/80" />
                 </li>
               )}
               <CommentCardExpanded
-                rowId={rowId}
+                {...cardProps}
                 comment={c}
-                index={i}
-                isAuthor={false}
                 isLatest={false}
                 sameAuthorAsPrev={sameAuthor && !showDivider}
               />
@@ -1009,7 +923,6 @@ function CommentList({ rowId }: { rowId: number | string }) {
     );
   }
 
-  // 4–9 comments: flat + simple chip filters (no grouping).
   if (!aboveGroups) {
     return (
       <div>
@@ -1024,30 +937,26 @@ function CommentList({ rowId }: { rowId: number | string }) {
           <p className="text-xs text-slate-400 text-center py-4">Nothing matches these filters.</p>
         ) : (
           <ul className="space-y-2">
-            {filtered.map((c: any, idx: number) => {
-              const i = originalIndexOf(c);
-              const condensed = condenseByDefault;
-              const Card = condensed ? CommentCardCondensed : CommentCardExpanded;
+            {filtered.map((c, idx) => {
+              const Card = condenseByDefault ? CommentCardCondensed : CommentCardExpanded;
               const prev = filtered[idx - 1];
-              const sameAuthor = !!prev && String(prev.user_id || '') === String(c.user_id || '') && String(c.user_id || '') !== '';
-              const sameDay = !!prev && sameLocalDay(prev.created_at, c.created_at);
+              const sameAuthor = !!prev && String(prev.author || '') === String(c.author || '') && String(c.author || '') !== '';
+              const sameDay = !!prev && sameLocalDay(prev.date, c.date);
               const showDivider = !prev || !sameDay;
               return (
-                <React.Fragment key={c.id || i}>
+                <React.Fragment key={c.id || idx}>
                   {showDivider && idx > 0 && (
                     <li aria-hidden="true" className="relative flex items-center justify-center py-1">
                       <span className="flex-1 h-px bg-slate-200/80" />
                       <span className="px-2 text-[10px] font-medium text-slate-400 uppercase tracking-wider">
-                        {daySeparatorLabel(c.created_at)}
+                        {daySeparatorLabel(c.date)}
                       </span>
                       <span className="flex-1 h-px bg-slate-200/80" />
                     </li>
                   )}
                   <Card
-                    rowId={rowId}
+                    {...cardProps}
                     comment={c}
-                    index={i}
-                    isAuthor={false}
                     isLatest={false}
                     sameAuthorAsPrev={sameAuthor && !showDivider}
                   />
@@ -1060,7 +969,6 @@ function CommentList({ rowId }: { rowId: number | string }) {
     );
   }
 
-  // 10+ comments: grouped by store (if view=store) OR flat (if view=all).
   return (
     <div>
       <CommentFilterBar
@@ -1074,29 +982,26 @@ function CommentList({ rowId }: { rowId: number | string }) {
         <p className="text-xs text-slate-400 text-center py-4">Nothing matches these filters.</p>
       ) : filters.view === 'all' ? (
         <ul className="space-y-1.5">
-          {filtered.map((c: any, idx: number) => {
-            const i = originalIndexOf(c);
+          {filtered.map((c, idx) => {
             const Card = condenseByDefault ? CommentCardCondensed : CommentCardExpanded;
             const prev = filtered[idx - 1];
-            const sameAuthor = !!prev && String(prev.user_id || '') === String(c.user_id || '') && String(c.user_id || '') !== '';
-            const sameDay = !!prev && sameLocalDay(prev.created_at, c.created_at);
+            const sameAuthor = !!prev && String(prev.author || '') === String(c.author || '') && String(c.author || '') !== '';
+            const sameDay = !!prev && sameLocalDay(prev.date, c.date);
             const showDivider = !prev || !sameDay;
             return (
-              <React.Fragment key={c.id || i}>
+              <React.Fragment key={c.id || idx}>
                 {showDivider && idx > 0 && !condenseByDefault && (
                   <li aria-hidden="true" className="relative flex items-center justify-center py-1">
                     <span className="flex-1 h-px bg-slate-200/80" />
                     <span className="px-2 text-[10px] font-medium text-slate-400 uppercase tracking-wider">
-                      {daySeparatorLabel(c.created_at)}
+                      {daySeparatorLabel(c.date)}
                     </span>
                     <span className="flex-1 h-px bg-slate-200/80" />
                   </li>
                 )}
                 <Card
-                  rowId={rowId}
+                  {...cardProps}
                   comment={c}
-                  index={i}
-                  isAuthor={false}
                   isLatest={false}
                   sameAuthorAsPrev={sameAuthor && !showDivider}
                 />
@@ -1114,34 +1019,26 @@ function CommentList({ rowId }: { rowId: number | string }) {
                 <CommentGroupHeader group={g} open={open} onToggle={() => toggleGroup(g.key)} />
                 {open && (
                   <ul className="mt-1 mb-2 pl-2 space-y-1.5 border-l border-slate-100 ml-2">
-                    {g.comments.map((c: any, idx: number) => {
-                      const i = originalIndexOf(c);
+                    {g.comments.map((c, idx) => {
                       const isLatest = c === latest;
                       const prev = g.comments[idx - 1];
-                      const sameAuthor = !!prev && String(prev.user_id || '') === String(c.user_id || '') && String(c.user_id || '') !== '';
+                      const sameAuthor = !!prev && String(prev.author || '') === String(c.author || '') && String(c.author || '') !== '';
                       if (isLatest) {
-                        // Latest = expanded + Latest accent. Inside a store group, the
-                        // header already shows the store — don't repeat it in the card.
                         return (
                           <CommentCardExpanded
-                            key={c.id || i}
-                            rowId={rowId}
+                            key={c.id || idx}
+                            {...cardProps}
                             comment={c}
-                            index={i}
-                            isAuthor={false}
                             isLatest={true}
                             suppressStoreAnchor={!g.isChainBucket}
                           />
                         );
                       }
-                      // Non-latest — condensed within group
                       return (
                         <CommentCardCondensed
-                          key={c.id || i}
-                          rowId={rowId}
+                          key={c.id || idx}
+                          {...cardProps}
                           comment={c}
-                          index={i}
-                          isAuthor={false}
                           isLatest={false}
                           sameAuthorAsPrev={sameAuthor}
                           suppressStoreAnchor={!g.isChainBucket}
@@ -1159,101 +1056,308 @@ function CommentList({ rowId }: { rowId: number | string }) {
   );
 }
 
-// Shared comment input form.
-// NOTE: everything typed here becomes a CHAIN NOTE (no store metadata).
-// The composer visually mirrors chain-note cards (slate left-rail) so users
-// understand at-a-glance what their post will look like after it lands.
-function CommentInput({ onSubmit, chainName }: { onSubmit: () => void; chainName?: string }) {
-  const { user, commentInput, setCommentInput, isAddingComment } = useAdminGrid();
-  const disabled = isAddingComment || !commentInput.trim();
-  const placeholder = chainName
-    ? `Add a note about ${chainName}…`
-    : 'Write a chain-level note…';
-
-  return (
-    <form
-      onSubmit={e => { e.preventDefault(); if (!disabled) onSubmit(); }}
-      className="pt-4 border-t border-slate-200 bg-white rounded-b-2xl mt-2"
-    >
-      {/* Scope caption — mirrors the CHAIN NOTE accent label shown on chain-note cards.
-          Signals exactly what "Post note" will produce before the user types. */}
-      <div className="flex items-center gap-1.5 mb-1.5 pl-1">
-        <svg className="w-3 h-3 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
-        </svg>
-        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Chain note</span>
-        <span className="text-slate-300 text-[10px]" aria-hidden="true">·</span>
-        <span className="text-[11px] text-slate-500">visible across all stores in this chain</span>
-      </div>
-      <div className="flex gap-3 items-start">
-        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-base mt-1">
-          {(user?.name || user?.username || 'A')[0].toUpperCase()}
-        </div>
-        {/* Slate left-rail around the textarea — the same accent chain-note cards use,
-            so the composer previews its output. */}
-        <div className="flex-1 rounded-xl border border-slate-200 border-l-[3px] border-l-slate-400 bg-white focus-within:border-blue-500 focus-within:border-l-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-colors">
-          <textarea
-            value={commentInput}
-            onChange={e => setCommentInput(e.target.value)}
-            className="w-full rounded-xl px-3 py-2.5 text-sm bg-transparent resize-none min-h-[44px] focus:outline-none placeholder:text-slate-400"
-            placeholder={placeholder}
-            rows={commentInput.length > 60 ? 4 : 2}
-            style={{ minHeight: 44, maxHeight: 140 }}
-            onFocus={e => e.currentTarget.rows = 4}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!disabled) onSubmit(); } }}
-            disabled={isAddingComment}
-          />
-        </div>
-      </div>
-      <div className="mt-2 flex items-center justify-end gap-2">
-        <span className="text-[10px] text-slate-400 hidden sm:inline">Enter to post · Shift+Enter for new line</span>
-        <button
-          type="submit"
-          disabled={disabled}
-          aria-busy={isAddingComment}
-          className="px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
-        >
-          {isAddingComment ? 'Posting…' : 'Post note'}
-        </button>
-      </div>
-    </form>
-  );
+// ─── Drawer ───────────────────────────────────────────────────────────────
+export interface PortalCommentDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  scorecardId: string;
+  rowId: string;
+  retailerName: string;
+  scorecardName?: string;
+  comments: PortalComment[];
+  // Initial filter & focus behavior — drives which click opened the drawer.
+  initialTypeFilter?: TypeFilter;
+  initialView?: ViewMode;
+  focusComposer?: boolean;
+  // Comment id that should scroll into view & pulse on open (e.g. newly posted).
+  highlightCommentId?: string | null;
+  // Parent-side state mutations so the preview strip + badge count stay in sync.
+  onCommentCreated?: (c: PortalComment) => void;
+  onCommentUpdated?: (c: PortalComment) => void;
+  onCommentDeleted?: (id: string) => void;
+  // Tell parent to mark the row as read when drawer opens.
+  onMarkRead?: () => void;
+  // Current user's display name (for composer avatar initial).
+  currentUserName?: string;
 }
 
-// ─── Simple Comment Drawer (opened from comment icon) ───────────────────────
-// TODO: unify — see note at the top of the file.
-export function SimpleCommentDrawer() {
-  const {
-    openCommentRowId, handleCloseCommentModal, handleAddComment,
-    getCurrentData, editingScoreCard, comments, selectedCategory,
-  } = useAdminGrid();
+export default function PortalCommentDrawer({
+  open,
+  onClose,
+  scorecardId,
+  rowId,
+  retailerName,
+  scorecardName,
+  comments,
+  initialTypeFilter,
+  initialView,
+  focusComposer,
+  highlightCommentId,
+  onCommentCreated,
+  onCommentUpdated,
+  onCommentDeleted,
+  onMarkRead,
+  currentUserName,
+}: PortalCommentDrawerProps) {
   const clientLogos = useClientLogos();
+  const retailerLogoUrl = findLogo(clientLogos, retailerName);
+  const brandLogoUrl = findLogo(clientLogos, scorecardName || '');
 
-  if (openCommentRowId === null) return null;
+  // Newest-first (admin convention) — portal page pushes ASC so we flip here.
+  const rowComments = useMemo(() => {
+    return [...comments].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+  }, [comments]);
 
-  const row = getCurrentData()?.rows.find((r: any) => r.id === openCommentRowId) || {};
-  const scorecardName = editingScoreCard?.name || '';
-  const brandLogoUrl = findLogo(clientLogos, scorecardName);
-  const retailerLogoUrl = findLogo(clientLogos, row.name);
+  const summary = useMemo(() => computeSummary(rowComments), [rowComments]);
 
-  const rowComments = comments[selectedCategory]?.[row.id] || [];
-  const summary = computeSummary(rowComments);
+  // Composer state
+  const [commentInput, setCommentInput] = useState('');
+  const [isAddingComment, setIsAddingComment] = useState(false);
+  const addingRef = useRef(false);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+  const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+  const triggerRef = useRef<Element | null>(null);
+
+  // Edit state — scoped per comment id.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const savingEditRef = useRef(false);
+
+  // Local highlight (e.g. just posted / deep-linked) — fades after a moment.
+  const [localHighlightId, setLocalHighlightId] = useState<string | null>(null);
+
+  // Filter state is owned by the drawer (hoisted from CommentList) so the
+  // composer can adapt: Market Visit view is admin-authored, so we replace
+  // the chain-note composer with a read-only banner in that mode.
+  const [filters, setFilters] = useState<FilterState>({
+    view: initialView || 'store',
+    type: initialTypeFilter || 'all',
+    date: 'anytime',
+    author: 'all',
+    search: '',
+  });
+  const currentTypeFilter = filters.type;
+
+  // Open/close side effects: capture trigger, focus, body scroll lock, mark read.
+  useEffect(() => {
+    if (!open) return;
+    triggerRef.current = document.activeElement;
+    // Mark read as soon as the drawer opens.
+    onMarkRead?.();
+    // Focus the composer if requested, else the close button (anchors keyboard).
+    requestAnimationFrame(() => {
+      if (focusComposer && composerRef.current) {
+        composerRef.current.focus();
+      } else {
+        closeBtnRef.current?.focus();
+      }
+    });
+    // Body scroll lock for mobile bottom sheet.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      // Return focus to the trigger.
+      const t = triggerRef.current;
+      if (t && typeof (t as HTMLElement).focus === 'function') {
+        try { (t as HTMLElement).focus(); } catch { /* noop */ }
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Sync the incoming highlight prop into local highlight and scroll to it.
+  useEffect(() => {
+    if (!open) return;
+    if (!highlightCommentId) return;
+    setLocalHighlightId(highlightCommentId);
+    const t = setTimeout(() => setLocalHighlightId(curr => (curr === highlightCommentId ? null : curr)), 2500);
+    // Scroll to the highlighted comment after render (double rAF).
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = drawerRef.current?.querySelector(`[data-comment-id="${highlightCommentId}"]`);
+        if (el) (el as HTMLElement).scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+    });
+    return () => clearTimeout(t);
+  }, [highlightCommentId, open]);
+
+  // ESC to close.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  // Simple focus trap — keep tab cycles inside the drawer.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const root = drawerRef.current;
+      if (!root) return;
+      const focusables = root.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  const handleAdd = async () => {
+    if (addingRef.current) return;
+    if (!commentInput.trim()) return;
+    addingRef.current = true;
+    setIsAddingComment(true);
+    try {
+      const res = await fetch('/api/portal/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          scorecard_id: scorecardId,
+          row_id: rowId,
+          text: commentInput.trim(),
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to post note');
+      const newComment = await res.json();
+      const created: PortalComment = {
+        id: newComment.id,
+        text: newComment.text || commentInput.trim(),
+        author: newComment.author || currentUserName || 'You',
+        date: newComment.created_at || new Date().toISOString(),
+        isOwn: true,
+      };
+      onCommentCreated?.(created);
+      setCommentInput('');
+      // Highlight the newly posted comment briefly.
+      if (created.id) {
+        setLocalHighlightId(created.id);
+        setTimeout(() => setLocalHighlightId(curr => (curr === created.id ? null : curr)), 2500);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const el = drawerRef.current?.querySelector(`[data-comment-id="${created.id}"]`);
+            if (el) (el as HTMLElement).scrollIntoView({ block: 'center', behavior: 'smooth' });
+          });
+        });
+      }
+      toast.success('Chain note posted');
+    } catch {
+      toast.error('Could not post note. Please try again.');
+    } finally {
+      addingRef.current = false;
+      setIsAddingComment(false);
+    }
+  };
+
+  const handleEdit = (c: PortalComment) => {
+    if (!c.id) return;
+    setEditingId(c.id);
+    // Edit against the raw text (so any prefix round-trips if present).
+    setEditText(c.text);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditText('');
+  };
+
+  const handleSaveEdit = async (c: PortalComment) => {
+    if (!c.id) return;
+    if (savingEditRef.current) return;
+    if (!editText.trim()) return;
+    savingEditRef.current = true;
+    setSavingEdit(true);
+    try {
+      const res = await fetch('/api/portal/comments', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id: c.id, text: editText.trim() }),
+      });
+      if (!res.ok) throw new Error();
+      onCommentUpdated?.({ ...c, text: editText.trim(), updated_at: new Date().toISOString() });
+      setEditingId(null);
+      setEditText('');
+      toast.success('Note updated');
+    } catch {
+      toast.error('Could not update note.');
+    } finally {
+      savingEditRef.current = false;
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDelete = async (c: PortalComment) => {
+    if (!c.id) return;
+    // Inline confirm — keep the drawer open; portal page handles heavier UX.
+    if (!window.confirm('Delete this note? This cannot be undone.')) return;
+    try {
+      const res = await fetch(`/api/portal/comments?id=${c.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error();
+      onCommentDeleted?.(c.id);
+      toast.success('Note deleted');
+    } catch {
+      toast.error('Could not delete note.');
+    }
+  };
+
+  if (!open) return null;
+
+  const composerDisabled = isAddingComment || !commentInput.trim();
 
   return (
-    // Drawer sits below the sticky AdminHeader (~56px tall, z-50) so the
-    // breadcrumb/title aren't clipped by the main nav.
-    <div className="fixed left-0 right-0 bottom-0 top-14 z-40 flex flex-col sm:flex-row">
-      <div className="absolute inset-0 bg-black bg-opacity-40 transition-opacity" onClick={handleCloseCommentModal}></div>
+    <div
+      className="fixed left-0 right-0 bottom-0 top-0 z-50 flex flex-col sm:flex-row"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Activity for ${retailerName}`}
+    >
       <div
-        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92vh] max-h-[92dvh] rounded-t-2xl sm:rounded-t-none sm:rounded-l-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        className="absolute inset-0 bg-black bg-opacity-40 transition-opacity"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div
+        ref={drawerRef}
+        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-screen sm:max-h-screen h-[92vh] max-h-[92dvh] sm:rounded-none rounded-t-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
+        style={{
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          width: 'min(440px, 100%)',
+        }}
       >
+        {/* Mobile drag handle */}
         <div className="sm:hidden pt-2 pb-1 flex justify-center">
           <span className="block w-10 h-1 rounded-full bg-slate-300" aria-hidden="true" />
         </div>
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 sm:px-6 py-4 sm:py-5 bg-slate-50 rounded-t-2xl">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 sm:px-6 py-4 sm:py-5 bg-slate-50 rounded-t-2xl sm:rounded-none">
           <div className="flex items-start gap-3 min-w-0 flex-1">
-            {/* Scope badge: retailer logo when available, else chain icon (indigo) */}
             {retailerLogoUrl ? (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img
@@ -1278,7 +1382,7 @@ export function SimpleCommentDrawer() {
                   <span className="truncate" title={scorecardName}>{scorecardName}</span>
                 </nav>
               )}
-              <h2 className="text-xl font-bold text-slate-900 leading-tight truncate" title={row.name || 'Row'}>{row.name || 'Row'}</h2>
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight truncate" title={retailerName}>{retailerName}</h2>
               <CommentSummaryHeader
                 lastCreated={summary.lastCreated}
                 storeCount={summary.storeCount}
@@ -1290,265 +1394,110 @@ export function SimpleCommentDrawer() {
             </div>
           </div>
           <button
-            onClick={handleCloseCommentModal}
+            ref={closeBtnRef}
+            onClick={onClose}
             className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             aria-label="Close activity"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
           </button>
         </div>
+        {/* Body — activity list above, composer below. */}
         <div className="flex-1 flex flex-col px-5 sm:px-6 py-4 overflow-y-auto bg-slate-100/70">
           <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5">Activity</h3>
           <div className="flex-1 overflow-y-auto mb-2 pr-1 -mr-1">
-            {row.id != null && <CommentList rowId={row.id} />}
-          </div>
-          <CommentInput onSubmit={handleAddComment} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Retailer Drawer (opened from row click — has address + comments) ───────
-// TODO: unify — see note at the top of the file.
-export function RetailerDrawer() {
-  const ctx = useAdminGrid();
-  const {
-    openRetailerDrawer, selectedCategory, user,
-    commentInput, setCommentInput, editingScoreCard,
-    getCurrentData, updateCurrentData, isScorecard,
-    setScorecards, setEditingScoreCard, setSelectedCategory,
-    setOpenRetailerDrawer, setComments, comments,
-  } = ctx;
-
-  const [isAddingRetailerComment, setIsAddingRetailerComment] = useState(false);
-  const addingRetailerRef = useRef(false);
-  const clientLogos = useClientLogos();
-
-  if (openRetailerDrawer === null || !selectedCategory || !isScorecard(selectedCategory)) return null;
-
-  const currentData = getCurrentData();
-  // Flexible match: support both numeric and string row IDs
-  const row = currentData?.rows.find((r: any) => r.id === openRetailerDrawer || String(r.id) === String(openRetailerDrawer)) || {};
-
-  const handleAddRetailerComment = async () => {
-    if (addingRetailerRef.current) return;
-    if (!commentInput.trim() || openRetailerDrawer == null || !selectedCategory || !user) return;
-
-    addingRetailerRef.current = true;
-    setIsAddingRetailerComment(true);
-    try {
-      const currentScorecard = editingScoreCard;
-      const requestBody: any = {
-        scorecard_id: selectedCategory,
-        user_id: openRetailerDrawer,
-        text: commentInput.trim(),
-        scorecard_data: selectedCategory.startsWith('scorecard_') ? {
-          name: currentScorecard?.name || 'Untitled Scorecard',
-          columns: currentScorecard?.columns || [],
-          rows: currentScorecard?.rows || []
-        } : undefined
-      };
-
-      const response = await fetch('/api/comments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to post note');
-      }
-
-      const newComment = await response.json();
-
-      if (newComment.migrated_scorecard) {
-        const { old_id, new_id, title } = newComment.migrated_scorecard;
-        const migratedScorecard = {
-          ...currentScorecard!,
-          id: new_id,
-          name: title,
-          columns: currentScorecard?.columns || [],
-          rows: currentScorecard?.rows || [],
-          createdAt: currentScorecard?.createdAt || new Date(),
-          lastModified: new Date()
-        };
-
-        setScorecards((prev: any[]) => prev.map(sc =>
-          sc.id === old_id ? migratedScorecard : sc
-        ).sort((a: any, b: any) => (a.name || '').localeCompare(b.name || '')));
-
-        setEditingScoreCard(migratedScorecard);
-        setSelectedCategory(new_id);
-
-        const allScorecards = JSON.parse(localStorage.getItem('scorecards') || '[]');
-        const updatedLocalScorecards = allScorecards.map((sc: any) =>
-          sc.id === old_id ? migratedScorecard : sc
-        );
-        localStorage.setItem('scorecards', JSON.stringify(updatedLocalScorecards));
-        setOpenRetailerDrawer(null);
-        toast.success('Scorecard migrated to database and chain note posted');
-
-        setComments((prev: any) => ({
-          ...prev,
-          [new_id]: {
-            ...(prev[new_id] || {}),
-            [openRetailerDrawer]: [...((prev[new_id] || {})[openRetailerDrawer] || []), newComment],
-          }
-        }));
-      } else {
-        setComments((prev: any) => ({
-          ...prev,
-          [selectedCategory]: {
-            ...(prev[selectedCategory] || {}),
-            [openRetailerDrawer]: [...((prev[selectedCategory] || {})[openRetailerDrawer] || []), newComment],
-          }
-        }));
-        toast.success('Chain note posted');
-      }
-
-      setCommentInput('');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to post note');
-    } finally {
-      addingRetailerRef.current = false;
-      setIsAddingRetailerComment(false);
-    }
-  };
-
-  const retailerSubmitDisabled = isAddingRetailerComment || !commentInput.trim();
-
-  const scorecardName = editingScoreCard?.name || '';
-  const brandLogoUrl = findLogo(clientLogos, scorecardName);
-  const retailerLogoUrl = findLogo(clientLogos, row.name);
-
-  const rowComments = comments[selectedCategory]?.[row.id] || [];
-  const summary = computeSummary(rowComments);
-
-  return (
-    // Drawer sits below the sticky AdminHeader (~56px tall, z-50) so the
-    // breadcrumb/title aren't clipped by the main nav.
-    <div className="fixed left-0 right-0 bottom-0 top-14 z-40 flex flex-col sm:flex-row">
-      <div className="absolute inset-0 bg-black bg-opacity-40 transition-opacity" onClick={() => setOpenRetailerDrawer(null)}></div>
-      <div
-        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92vh] max-h-[92dvh] rounded-t-2xl sm:rounded-t-none sm:rounded-l-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-      >
-        <div className="sm:hidden pt-2 pb-1 flex justify-center">
-          <span className="block w-10 h-1 rounded-full bg-slate-300" aria-hidden="true" />
-        </div>
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 bg-slate-50 rounded-t-2xl">
-          <div className="flex items-start gap-3 min-w-0 flex-1">
-            {/* Scope badge: retailer logo when available, else chain icon (indigo) */}
-            {retailerLogoUrl ? (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={retailerLogoUrl}
-                alt=""
-                className="flex-shrink-0 w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 p-0.5 mt-0.5"
-              />
-            ) : (
-              <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center mt-0.5" aria-hidden="true">
-                <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" strokeWidth="1.75" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
-                </svg>
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              {scorecardName && (
-                <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-[11px] text-slate-500 mb-0.5 min-w-0">
-                  {brandLogoUrl && (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={brandLogoUrl} alt="" className="w-4 h-4 rounded object-contain bg-white border border-slate-200 flex-shrink-0" />
-                  )}
-                  <span className="truncate" title={scorecardName}>{scorecardName}</span>
-                </nav>
-              )}
-              <h2 className="text-base font-bold text-slate-900 leading-tight truncate" title={row.name || 'Row'}>{row.name || 'Row'}</h2>
-              <CommentSummaryHeader
-                lastCreated={summary.lastCreated}
-                storeCount={summary.storeCount}
-                commentCount={summary.commentCount}
-                visitCount={summary.visitCount}
-                noteCount={summary.noteCount}
-                isStale={summary.isStale}
-              />
-            </div>
-          </div>
-          <button
-            onClick={() => setOpenRetailerDrawer(null)}
-            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-            aria-label="Close activity"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-        <div className="flex-1 flex flex-col px-6 py-4 overflow-y-auto bg-slate-100/70">
-          <div className="mb-4">
-            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Address</label>
-            <input
-              type="text"
-              value={row.address || ''}
-              onChange={e => {
-                if (!currentData || row.id === undefined) return;
-                const updatedRows = currentData.rows.map((r: any) => r.id === row.id ? { ...r, address: e.target.value } : r);
-                updateCurrentData({ rows: updatedRows });
-              }}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-colors"
-              placeholder="Enter address..."
+            <CommentList
+              rowComments={rowComments}
+              filters={filters}
+              setFilters={setFilters}
+              highlightId={localHighlightId}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              editingId={editingId}
+              editText={editText}
+              setEditText={setEditText}
+              onSaveEdit={handleSaveEdit}
+              onCancelEdit={handleCancelEdit}
+              savingEdit={savingEdit}
             />
           </div>
-          <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5">Activity</h3>
-          <div className="flex-1 overflow-y-auto mb-2 pr-1 -mr-1">
-            {row.id != null && <CommentList rowId={row.id} />}
-          </div>
-          <div className="pt-4 border-t border-slate-200 bg-white rounded-b-2xl mt-2">
-            {/* Scope caption — mirrors the CHAIN NOTE accent label on chain-note cards. */}
-            <div className="flex items-center gap-1.5 mb-1.5 pl-1">
-              <svg className="w-3 h-3 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
-              </svg>
-              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Chain note</span>
-              <span className="text-slate-300 text-[10px]" aria-hidden="true">·</span>
-              <span className="text-[11px] text-slate-500">visible across all stores in this chain</span>
-            </div>
-            <div className="flex gap-3 items-start">
-              <div className="flex-shrink-0 w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-base mt-1">
-                {(user?.name || user?.username || 'A')[0].toUpperCase()}
-              </div>
-              <div className="flex-1 rounded-xl border border-slate-200 border-l-[3px] border-l-slate-400 bg-white focus-within:border-blue-500 focus-within:border-l-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-colors">
-                <textarea
-                  value={commentInput}
-                  onChange={e => setCommentInput(e.target.value)}
-                  className="w-full rounded-xl px-3 py-2.5 text-sm bg-transparent resize-none min-h-[44px] focus:outline-none placeholder:text-slate-400"
-                  placeholder={row.name ? `Add a note about ${row.name}…` : 'Write a chain-level note…'}
-                  rows={commentInput.length > 60 ? 4 : 2}
-                  style={{ minHeight: 44, maxHeight: 140 }}
-                  onFocus={e => e.currentTarget.rows = 4}
-                  onBlur={e => e.currentTarget.rows = commentInput.length > 60 ? 4 : 2}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!retailerSubmitDisabled) handleAddRetailerComment(); } }}
-                  disabled={isAddingRetailerComment}
-                />
+          {currentTypeFilter === 'market' ? (
+            /* Market Visits are admin-authored (generated by market-visit
+               uploads). Brand users can't post them, so replace the composer
+               with a read-only info banner and a one-tap switch back to the
+               chain-note composer. */
+            <div className="mt-2 pt-4 border-t border-slate-200 bg-white rounded-b-2xl">
+              <div className="flex items-start gap-3 px-1 py-2">
+                <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-teal-50 border border-teal-100 flex items-center justify-center mt-0.5" aria-hidden="true">
+                  <svg className="w-4 h-4 text-teal-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-semibold text-slate-700 leading-tight">Store visit notes are added by your broker.</p>
+                  <p className="text-[11px] text-slate-500 leading-snug mt-0.5">They&apos;re generated automatically after on-site market visits.</p>
+                  <button
+                    type="button"
+                    onClick={() => { setFilters(f => ({ ...f, type: 'all' })); composerRef.current?.focus(); }}
+                    className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                  >
+                    Write a chain-level note instead
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="mt-2 flex items-center justify-end gap-2">
-              <span className="text-[10px] text-slate-400 hidden sm:inline">Enter to post · Shift+Enter for new line</span>
-              <button
-                onClick={handleAddRetailerComment}
-                disabled={retailerSubmitDisabled}
-                aria-busy={isAddingRetailerComment}
-                className="px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
-              >
-                {isAddingRetailerComment ? 'Posting…' : 'Post note'}
-              </button>
-            </div>
-          </div>
+          ) : (
+            /* Composer — mirrors the admin chain-note composer exactly. */
+            <form
+              onSubmit={e => { e.preventDefault(); if (!composerDisabled) handleAdd(); }}
+              className="pt-4 border-t border-slate-200 bg-white rounded-b-2xl mt-2"
+            >
+              <div className="flex items-center gap-1.5 mb-1.5 pl-1">
+                <svg className="w-3 h-3 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+                </svg>
+                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Chain note</span>
+                <span className="text-slate-300 text-[10px]" aria-hidden="true">·</span>
+                <span className="text-[11px] text-slate-500">visible across all stores in this chain</span>
+              </div>
+              <div className="flex gap-3 items-start">
+                <div className="flex-shrink-0 w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-base mt-1">
+                  {(currentUserName || 'A')[0]?.toUpperCase() || 'A'}
+                </div>
+                <div className="flex-1 rounded-xl border border-slate-200 border-l-[3px] border-l-slate-400 bg-white focus-within:border-blue-500 focus-within:border-l-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-colors">
+                  <textarea
+                    ref={composerRef}
+                    value={commentInput}
+                    onChange={e => setCommentInput(e.target.value)}
+                    className="w-full rounded-xl px-3 py-2.5 text-sm bg-transparent resize-none min-h-[44px] focus:outline-none placeholder:text-slate-400"
+                    placeholder={retailerName ? `Add a note about ${retailerName}…` : 'Write a chain-level note…'}
+                    rows={commentInput.length > 60 ? 4 : 2}
+                    style={{ minHeight: 44, maxHeight: 140 }}
+                    onFocus={e => (e.currentTarget.rows = 4)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!composerDisabled) handleAdd(); } }}
+                    disabled={isAddingComment}
+                  />
+                </div>
+              </div>
+              <div className="mt-2 flex items-center justify-end gap-2">
+                <span className="text-[10px] text-slate-400 hidden sm:inline">Enter to post · Shift+Enter for new line</span>
+                <button
+                  type="submit"
+                  disabled={composerDisabled}
+                  aria-busy={isAddingComment}
+                  className="px-4 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
+                >
+                  {isAddingComment ? 'Posting…' : 'Post note'}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     </div>
   );
 }
-
-export default SimpleCommentDrawer;

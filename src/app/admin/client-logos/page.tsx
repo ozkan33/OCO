@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, useRef } from 'react';
-import { FiTrash2, FiUpload, FiMoreVertical, FiExternalLink, FiEdit2, FiCheck, FiX, FiDownloadCloud } from 'react-icons/fi';
+import { FiTrash2, FiUpload, FiMoreVertical, FiExternalLink, FiEdit2, FiCheck, FiX, FiDownloadCloud, FiGlobe } from 'react-icons/fi';
 import { toast, Toaster } from 'sonner';
 import AdminHeader from '@/components/admin/AdminHeader';
 import { RETAILERS, retailerFaviconForUrl } from '@/lib/retailerLogos';
@@ -72,6 +72,7 @@ export default function LogosAdminPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [reorderingId, setReorderingId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [autoFilling, setAutoFilling] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -130,6 +131,11 @@ export default function LogosAdminPage() {
     brand: logos.filter(l => l.kind === 'brand').length,
     retailer: logos.filter(l => l.kind === 'retailer').length,
   }), [logos]);
+
+  const missingUrlCount = useMemo(
+    () => visibleLogos.filter(l => !l.website_url).length,
+    [visibleLogos]
+  );
 
   const config = TAB_CONFIG[activeKind];
 
@@ -235,6 +241,39 @@ export default function LogosAdminPage() {
     if (ok) {
       toast.success('Website URL updated');
       setEditingUrlId(null);
+    }
+  };
+
+  const handleAutoFillWebsites = async () => {
+    if (autoFilling) return;
+    setAutoFilling(true);
+    try {
+      const res = await fetch('/api/client-logos/auto-fill-websites', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: activeKind }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || 'Auto-fill failed');
+        return;
+      }
+      const data = await res.json();
+      const updated = typeof data?.updated === 'number' ? data.updated : 0;
+      const scanned = typeof data?.scanned === 'number' ? data.scanned : 0;
+      if (scanned === 0) {
+        toast.success('All logos already have websites');
+      } else if (updated === 0) {
+        toast.info(`Couldn't find a website for any of the ${scanned} remaining logos`);
+      } else {
+        toast.success(`Filled ${updated} website${updated === 1 ? '' : 's'}${updated < scanned ? ` (${scanned - updated} couldn't be resolved)` : ''}`);
+      }
+      await fetchLogos();
+    } catch {
+      toast.error('Auto-fill failed');
+    } finally {
+      setAutoFilling(false);
     }
   };
 
@@ -438,10 +477,31 @@ export default function LogosAdminPage() {
 
         {/* List */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
             <h2 className="text-base font-semibold text-slate-800">
               Current {config.title} ({visibleLogos.length})
             </h2>
+            {missingUrlCount > 0 && (
+              <button
+                type="button"
+                onClick={handleAutoFillWebsites}
+                disabled={autoFilling}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Try to find the website for logos that don't have one"
+              >
+                {autoFilling ? (
+                  <>
+                    <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-slate-300 border-t-blue-600" />
+                    Resolving…
+                  </>
+                ) : (
+                  <>
+                    <FiGlobe className="w-3.5 h-3.5" />
+                    Auto-fill {missingUrlCount} missing website{missingUrlCount === 1 ? '' : 's'}
+                  </>
+                )}
+              </button>
+            )}
           </div>
 
           {visibleLogos.length === 0 ? (
