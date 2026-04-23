@@ -91,9 +91,13 @@ export default function AdminHeader({ rightContent }: AdminHeaderProps) {
             On phones the nav moves to a dedicated second row below, so it can use
             the full viewport width instead of fighting the avatar for space. */}
         <div className="flex items-center justify-between gap-2 sm:gap-4 min-w-0 sm:flex-1">
-          <Link href="/" aria-label="3Brothers Marketing home" className="flex items-center gap-2.5 group shrink-0 min-h-[44px]">
+          <Link
+            href="/"
+            aria-label="3Brothers Marketing home"
+            className="flex items-center gap-2.5 group min-h-[44px] min-w-0 flex-1 sm:flex-initial sm:shrink-0"
+          >
             <LogoMark size={32} />
-            <span className="text-base font-bold text-slate-800 group-hover:text-slate-600 transition-colors">
+            <span className="text-base font-bold text-slate-800 group-hover:text-slate-600 transition-colors truncate sm:whitespace-normal">
               3Brothers Marketing
             </span>
           </Link>

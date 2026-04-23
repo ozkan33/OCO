@@ -1,7 +1,21 @@
+export interface AddressDetails {
+  house_number: string | null;
+  road: string | null;
+  city: string | null;
+  state: string | null;
+  postcode: string | null;
+}
+
+export interface ReverseGeocodeResult {
+  address: string;
+  storeName?: string;
+  details?: AddressDetails;
+}
+
 export async function reverseGeocode(
   lat: number,
   lng: number
-): Promise<{ address: string; storeName?: string } | null> {
+): Promise<ReverseGeocodeResult | null> {
   try {
     const res = await fetch('/api/geocode', {
       method: 'POST',
@@ -16,6 +30,7 @@ export async function reverseGeocode(
     return {
       address: data.address || data.fullAddress || null,
       storeName: data.storeName || undefined,
+      details: data.details || undefined,
     };
   } catch (err) {
     console.warn('Reverse geocode error:', err);

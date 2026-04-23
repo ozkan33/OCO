@@ -13,6 +13,7 @@ import ConfirmDialog from '@/components/portal/ConfirmDialog';
 import WeeklySummaryCard from '@/components/portal/WeeklySummaryCard';
 import { Capability, Role, hasCapability, isRole } from '../../../lib/rbac';
 import { isStandalone } from '@/lib/pwa/deviceDetection';
+import PortalCommentDrawer from './PortalCommentDrawer';
 
 // Lazy-load the upload form — only roles with MARKET_VISITS_CREATE ever open
 // it, and the form pulls EXIF + geolocation helpers that aren't worth shipping
@@ -87,9 +88,6 @@ export default function PortalDashboard() {
   const canCreateVisits = hasCapability(role, Capability.MARKET_VISITS_CREATE);
   const [activeTab, setActiveTab] = useState<'overview' | 'scorecard' | 'visits'>('overview');
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
-  const [addingNoteFor, setAddingNoteFor] = useState<{ scorecardId: string; rowId: string } | null>(null);
-  const [noteText, setNoteText] = useState('');
-  const [submittingNote, setSubmittingNote] = useState(false);
   const [savingCommentEdit, setSavingCommentEdit] = useState(false);
   const [savingVisitCommentEdit, setSavingVisitCommentEdit] = useState(false);
   const [editingComment, setEditingComment] = useState<{ id: string; scorecardId: string; rowId: string } | null>(null);
@@ -119,24 +117,62 @@ export default function PortalDashboard() {
   // is per-browser, so unread state does not sync across devices — acceptable
   // for v1 since brand users typically check from one machine.
   const [lastSeenMap, setLastSeenMap] = useState<Record<string, number>>({});
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [visibleCountPerRow, setVisibleCountPerRow] = useState<Record<string, number>>({});
-  // Per-store expansion inside an expanded Store Visits section.
-  // Key: `${scorecardId}:${rowId}` -> Set of storeNames that are expanded.
-  const [expandedStoresPerRow, setExpandedStoresPerRow] = useState<Record<string, Set<string>>>({});
-  // Client UX: Chain Discussion + Store Visits are hidden per row until the
-  // client opts in via the count pill. Keys: `${scorecardId}:${rowId}:chain`
-  // and `${scorecardId}:${rowId}:store`. Empty set = everything collapsed.
-  // Broker Notes remain visible always.
-  const [discussionsVisibleRows, setDiscussionsVisibleRows] = useState<Set<string>>(new Set());
-  const [pulseThread, setPulseThread] = useState<string | null>(null);
-  const threadRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  // Badge-level pulse cue when the drawer opens — keyed by
+  // `${scorecardId}:${rowId}` and cleared after ~250ms. Purely decorative.
+  const [badgePulse, setBadgePulse] = useState<string | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Auto-expand the Chain Discussion thread AND Store Visits section when a
-  // notification deep-links to a row. We don't know if the notification is chain-
-  // or store-related, so open both so the user sees the full context immediately.
-  // We leave the row expanded after the highlight clears — the user is reading.
+  // Portal comment drawer (Option C) — the inline preview strip on each row
+  // stays, but the full-thread reading/composing surface lives in a right-side
+  // drawer on desktop / bottom sheet on mobile. `openDrawerFor` tracks which
+  // row is currently open; the other fields customize default filter & focus.
+  type DrawerTypeFilter = 'all' | 'market' | 'note';
+  type DrawerView = 'store' | 'all';
+  const [openDrawerFor, setOpenDrawerFor] = useState<{
+    scorecardId: string;
+    rowId: string;
+    typeFilter?: DrawerTypeFilter;
+    view?: DrawerView;
+    focusComposer?: boolean;
+  } | null>(null);
+  // If a notification arrives while the drawer is closed we keep the NEW dot
+  // on the badge; if the drawer IS open for that row we scroll/highlight
+  // inside the drawer using this id.
+  const [drawerHighlightId, setDrawerHighlightId] = useState<string | null>(null);
+
+  // Brand-scoped storage key for last-seen state. Scoping by brand prevents
+  // cross-pollination if two brand users share a browser.
+  const lastSeenStorageKey = useMemo(() => {
+    const brand = (data?.brand || 'unknown').toLowerCase().replace(/\s+/g, '_');
+    return `portal:lastSeen:${brand}`;
+  }, [data?.brand]);
+
+  // Hydrate lastSeen map once we know the brand.
+  useEffect(() => {
+    if (!data?.brand) return;
+    try {
+      const raw = window.localStorage.getItem(lastSeenStorageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') setLastSeenMap(parsed as Record<string, number>);
+    } catch {
+      // ignore — corrupt JSON, treat as empty
+    }
+  }, [data?.brand, lastSeenStorageKey]);
+
+  // Mark a row as seen "now" and persist. Called whenever the user opens a
+  // thread, reveals a discussion section, or deep-links via a notification.
+  const markRowSeen = useCallback((scorecardId: string, rowId: string) => {
+    const key = `${scorecardId}:${rowId}`;
+    setLastSeenMap(prev => {
+      const next = { ...prev, [key]: Date.now() };
+      try { window.localStorage.setItem(lastSeenStorageKey, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [lastSeenStorageKey]);
+
+  // When a notification deep-links to a row, clear unread and open the drawer.
+  // The drawer (PortalCommentDrawer) now owns all thread reading/compose UX.
   useEffect(() => {
     if (highlight?.kind === 'visit') {
       const vid = highlight.visitId;
@@ -149,41 +185,13 @@ export default function PortalDashboard() {
       return;
     }
     if (highlight?.kind !== 'row') return;
-    const key = `${highlight.scorecardId}:${highlight.rowId}`;
-    const storesKey = `${key}:stores`;
-    setExpandedRows(prev => {
-      if (prev.has(key) && prev.has(storesKey)) return prev;
-      const next = new Set(prev);
-      next.add(key);
-      next.add(storesKey);
-      return next;
+    markRowSeen(highlight.scorecardId, highlight.rowId);
+    setOpenDrawerFor({
+      scorecardId: highlight.scorecardId,
+      rowId: highlight.rowId,
+      typeFilter: 'all',
     });
-    // Also reveal both row-level discussion sections so the deep-linked thread
-    // is visible without requiring a second tap (we don't know which kind).
-    setDiscussionsVisibleRows(prev => {
-      const chainK = `${key}:chain`;
-      const storeK = `${key}:store`;
-      if (prev.has(chainK) && prev.has(storeK)) return prev;
-      const next = new Set(prev);
-      next.add(chainK);
-      next.add(storeK);
-      return next;
-    });
-    // Brief ring pulse on the thread panel so the eye lands on the conversation.
-    setPulseThread(key);
-    const t = setTimeout(() => setPulseThread(curr => (curr === key ? null : curr)), 1500);
-    // After the thread renders expanded, scroll the inner container to the latest message.
-    const rafId = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const el = threadRefs.current[key];
-        if (el) el.scrollTop = el.scrollHeight;
-      });
-    });
-    return () => {
-      clearTimeout(t);
-      cancelAnimationFrame(rafId);
-    };
-  }, [highlight]);
+  }, [highlight, markRowSeen]);
 
   const refreshData = useCallback(async (effectiveRole: Role | null) => {
     const canScore = hasCapability(effectiveRole, Capability.SCORECARD_READ);
@@ -224,36 +232,6 @@ export default function PortalDashboard() {
     return () => { cancelled = true; };
   }, [refreshData]);
 
-  // Brand-scoped storage key for last-seen state. Scoping by brand prevents
-  // cross-pollination if two brand users share a browser.
-  const lastSeenStorageKey = useMemo(() => {
-    const brand = (data?.brand || 'unknown').toLowerCase().replace(/\s+/g, '_');
-    return `portal:lastSeen:${brand}`;
-  }, [data?.brand]);
-
-  // Hydrate lastSeen map once we know the brand.
-  useEffect(() => {
-    if (!data?.brand) return;
-    try {
-      const raw = window.localStorage.getItem(lastSeenStorageKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') setLastSeenMap(parsed as Record<string, number>);
-    } catch {
-      // ignore — corrupt JSON, treat as empty
-    }
-  }, [data?.brand, lastSeenStorageKey]);
-
-  // Mark a row as seen "now" and persist. Called when the user opens a thread.
-  const markRowSeen = useCallback((scorecardId: string, rowId: string) => {
-    const key = `${scorecardId}:${rowId}`;
-    setLastSeenMap(prev => {
-      const next = { ...prev, [key]: Date.now() };
-      try { window.localStorage.setItem(lastSeenStorageKey, JSON.stringify(next)); } catch {}
-      return next;
-    });
-  }, [lastSeenStorageKey]);
-
   // Latest comment timestamp on a row (any author). Returns 0 if none.
   const latestActivityTs = useCallback((comments?: Comment[]) => {
     if (!comments || comments.length === 0) return 0;
@@ -273,46 +251,6 @@ export default function PortalDashboard() {
     const seen = lastSeenMap[`${scorecardId}:${rowId}`] ?? 0;
     return latest > seen;
   }, [lastSeenMap, latestActivityTs]);
-
-  const handleAddNote = async (scorecardId: string, rowId: string) => {
-    if (!noteText.trim() || submittingNote) return;
-    setSubmittingNote(true);
-    try {
-      const res = await fetch('/api/portal/comments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ scorecard_id: scorecardId, row_id: rowId, text: noteText.trim() }),
-      });
-      if (!res.ok) throw new Error('Failed to add note');
-      const newComment = await res.json();
-      // Add the new comment to local state
-      setData(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          scorecards: prev.scorecards.map(sc => {
-            if (sc.id !== scorecardId) return sc;
-            return {
-              ...sc,
-              retailers: sc.retailers.map(r => {
-                if (r.rowId !== rowId) return r;
-                return {
-                  ...r,
-                  comments: [...(r.comments || []), { id: newComment.id, text: newComment.text || noteText.trim(), author: newComment.author || 'You', date: newComment.created_at || new Date().toISOString(), isOwn: true }],
-                };
-              }),
-            };
-          }),
-        };
-      });
-      setNoteText('');
-      setAddingNoteFor(null);
-    } catch {
-      // Could add error toast here
-    }
-    setSubmittingNote(false);
-  };
 
   const handleEditComment = async (commentId: string, scorecardId: string, rowId: string) => {
     if (savingCommentEdit) return;
@@ -376,6 +314,52 @@ export default function PortalDashboard() {
       },
     });
   };
+
+  // ─── Drawer helpers ────────────────────────────────────────────────────
+  // Parent-side state patch for a created/updated/deleted comment so the
+  // preview strip and badge counts stay in sync without a full refetch.
+  const patchRowComments = useCallback((
+    scorecardId: string,
+    rowId: string,
+    mutate: (prev: Comment[]) => Comment[],
+  ) => {
+    setData(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        scorecards: prev.scorecards.map(sc => {
+          if (sc.id !== scorecardId) return sc;
+          return {
+            ...sc,
+            retailers: sc.retailers.map(r => {
+              if (r.rowId !== rowId) return r;
+              return { ...r, comments: mutate(r.comments || []) };
+            }),
+          };
+        }),
+      };
+    });
+  }, []);
+
+  const handleDrawerCommentCreated = useCallback((c: Comment) => {
+    if (!openDrawerFor) return;
+    const { scorecardId, rowId } = openDrawerFor;
+    patchRowComments(scorecardId, rowId, prev => [...prev, c]);
+  }, [openDrawerFor, patchRowComments]);
+
+  const handleDrawerCommentUpdated = useCallback((c: Comment) => {
+    if (!openDrawerFor || !c.id) return;
+    const { scorecardId, rowId } = openDrawerFor;
+    patchRowComments(scorecardId, rowId, prev =>
+      prev.map(x => (x.id === c.id ? { ...x, text: c.text } : x))
+    );
+  }, [openDrawerFor, patchRowComments]);
+
+  const handleDrawerCommentDeleted = useCallback((id: string) => {
+    if (!openDrawerFor) return;
+    const { scorecardId, rowId } = openDrawerFor;
+    patchRowComments(scorecardId, rowId, prev => prev.filter(x => x.id !== id));
+  }, [openDrawerFor, patchRowComments]);
 
   const handleAddPhotoComment = async (visitId: string, storeName: string) => {
     const text = photoCommentText[visitId]?.trim();
@@ -993,9 +977,9 @@ export default function PortalDashboard() {
                     </thead>
                     <tbody>
                       {visibleRetailers.map((r, i) => {
-                        const isAddingNote = addingNoteFor?.scorecardId === sc.id && addingNoteFor?.rowId === r.rowId;
-                        // Split r.comments into chain-level vs store-visit-level to drive both
-                        // the header indicators and the expanded thread panel below.
+                        // Split r.comments into chain-level vs store-visit-level to drive
+                        // the per-badge counts. The drawer (PortalCommentDrawer) owns
+                        // all reading + composing UX — the row only renders the badges.
                         const mvRegexRow = /^\[Market Visit\s+[\u2014\u2013-]\s+(\d{4}-\d{2}-\d{2})(?:\s+[·\u00B7]\s+([^\]]+))?\]\s*([\s\S]*)$/;
                         let chainNoteCount = 0;
                         let storeNoteCount = 0;
@@ -1003,21 +987,32 @@ export default function PortalDashboard() {
                           if (mvRegexRow.test(c.text)) storeNoteCount++;
                           else chainNoteCount++;
                         });
-                        const rowBaseKey = `${sc.id}:${r.rowId}`;
-                        const chainKey = `${rowBaseKey}:chain`;
-                        const storeKey = `${rowBaseKey}:store`;
-                        const chainOpen = discussionsVisibleRows.has(chainKey);
-                        const storeOpen = discussionsVisibleRows.has(storeKey);
-                        const toggleSection = (key: string) => {
-                          setDiscussionsVisibleRows(prev => {
-                            const next = new Set(prev);
-                            if (next.has(key)) next.delete(key);
-                            else next.add(key);
-                            return next;
-                          });
+                        const rowKey = `${sc.id}:${r.rowId}`;
+                        const rowUnread = isRowUnread(sc.id, r.rowId, r.comments);
+                        const isPulsing = badgePulse === rowKey;
+                        const pulseBadge = () => {
+                          setBadgePulse(rowKey);
+                          window.setTimeout(() => {
+                            setBadgePulse(curr => (curr === rowKey ? null : curr));
+                          }, 220);
                         };
-                        const toggleChainSection = () => toggleSection(chainKey);
-                        const toggleStoreSection = () => toggleSection(storeKey);
+                        // Drawer openers — badges route here. The drawer is the single
+                        // source of truth for thread UX; nothing is rendered inline.
+                        const openChainDrawer = () => {
+                          pulseBadge();
+                          markRowSeen(sc.id, r.rowId);
+                          setOpenDrawerFor({ scorecardId: sc.id, rowId: r.rowId, typeFilter: 'note' });
+                        };
+                        const openStoreDrawer = () => {
+                          pulseBadge();
+                          markRowSeen(sc.id, r.rowId);
+                          setOpenDrawerFor({ scorecardId: sc.id, rowId: r.rowId, typeFilter: 'market', view: 'store' });
+                        };
+                        const openComposerDrawer = () => {
+                          pulseBadge();
+                          markRowSeen(sc.id, r.rowId);
+                          setOpenDrawerFor({ scorecardId: sc.id, rowId: r.rowId, typeFilter: 'all', focusComposer: true });
+                        };
                         return (
                         <Fragment key={i}>
                           <tr
@@ -1030,71 +1025,77 @@ export default function PortalDashboard() {
                           >
                             <td className="px-3 sm:px-4 py-3 align-top">
                               <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                                <span className="font-semibold text-slate-900 text-sm sm:text-base leading-tight">{r.retailerName}</span>
-                                {chainNoteCount > 0 && (
+                                <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900 text-sm sm:text-base leading-tight">
+                                  {rowUnread && (
+                                    <span
+                                      className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"
+                                      aria-hidden="true"
+                                      title="New activity"
+                                    />
+                                  )}
+                                  {r.retailerName}
+                                </span>
+                                {/* Badge cluster — consistent height, tight grouping, 32px min tap target. */}
+                                <div className="inline-flex items-center gap-1.5 max-sm:ml-auto">
+                                  {chainNoteCount > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={openChainDrawer}
+                                      aria-label={`Open chain discussion (${chainNoteCount} ${chainNoteCount === 1 ? 'note' : 'notes'})`}
+                                      title={`Chain discussion · ${chainNoteCount} ${chainNoteCount === 1 ? 'note' : 'notes'}`}
+                                      className={`relative inline-flex items-center gap-1 h-7 min-h-[32px] sm:h-6 sm:min-h-0 px-2 rounded-full text-[11px] font-medium tabular-nums text-blue-700 bg-blue-50 border border-blue-100 shadow-sm transition-all duration-150 [@media(hover:hover)]:hover:bg-blue-100 [@media(hover:hover)]:hover:border-blue-200 [@media(hover:hover)]:hover:shadow active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${isPulsing ? 'scale-[0.95] bg-blue-200' : ''}`}
+                                    >
+                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+                                      </svg>
+                                      <span className="font-semibold">{chainNoteCount}</span>
+                                      {rowUnread && (
+                                        <span
+                                          className="absolute -top-0.5 -right-0.5 flex h-2 w-2"
+                                          aria-hidden="true"
+                                        >
+                                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                                          <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500 ring-2 ring-white" />
+                                        </span>
+                                      )}
+                                    </button>
+                                  )}
+                                  {storeNoteCount > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={openStoreDrawer}
+                                      aria-label={`Open store visits (${storeNoteCount} ${storeNoteCount === 1 ? 'note' : 'notes'})`}
+                                      title={`Store visits · ${storeNoteCount} ${storeNoteCount === 1 ? 'note' : 'notes'}`}
+                                      className={`relative inline-flex items-center gap-1 h-7 min-h-[32px] sm:h-6 sm:min-h-0 px-2 rounded-full text-[11px] font-medium tabular-nums text-teal-700 bg-teal-50 border border-teal-100 shadow-sm transition-all duration-150 [@media(hover:hover)]:hover:bg-teal-100 [@media(hover:hover)]:hover:border-teal-200 [@media(hover:hover)]:hover:shadow active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${isPulsing ? 'scale-[0.95] bg-teal-200' : ''}`}
+                                    >
+                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                      </svg>
+                                      <span className="font-semibold">{storeNoteCount}</span>
+                                      {rowUnread && (
+                                        <span
+                                          className="absolute -top-0.5 -right-0.5 flex h-2 w-2"
+                                          aria-hidden="true"
+                                        >
+                                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75" />
+                                          <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-500 ring-2 ring-white" />
+                                        </span>
+                                      )}
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
-                                    onClick={toggleChainSection}
-                                    aria-expanded={chainOpen}
-                                    aria-label={`${chainOpen ? 'Hide' : 'Show'} chain discussion (${chainNoteCount} ${chainNoteCount === 1 ? 'note' : 'notes'})`}
-                                    title={`${chainNoteCount} chain ${chainNoteCount === 1 ? 'note' : 'notes'}`}
-                                    className={`inline-flex items-center gap-1 text-[11px] font-semibold border px-1.5 py-0.5 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                                      chainOpen
-                                        ? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
-                                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200 hover:border-slate-300'
-                                    }`}
+                                    onClick={openComposerDrawer}
+                                    aria-label="Add a note"
+                                    title="Add a note"
+                                    className="inline-flex items-center justify-center h-7 min-h-[32px] sm:h-6 sm:min-h-0 w-7 sm:w-6 rounded-full text-slate-400 transition-all duration-150 [@media(hover:hover)]:hover:bg-slate-100 [@media(hover:hover)]:hover:text-slate-700 active:scale-[0.92] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                                   >
-                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.25}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                                     </svg>
-                                    {chainNoteCount}
                                   </button>
-                                )}
-                                {storeNoteCount > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={toggleStoreSection}
-                                    aria-expanded={storeOpen}
-                                    aria-label={`${storeOpen ? 'Hide' : 'Show'} store visits (${storeNoteCount} ${storeNoteCount === 1 ? 'note' : 'notes'})`}
-                                    title={`${storeNoteCount} store visit ${storeNoteCount === 1 ? 'note' : 'notes'}`}
-                                    className={`inline-flex items-center gap-1 text-[11px] font-semibold border px-1.5 py-0.5 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${
-                                      storeOpen
-                                        ? 'bg-teal-100 text-teal-800 border-teal-300 hover:bg-teal-200'
-                                        : 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100 hover:border-teal-300'
-                                    }`}
-                                  >
-                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                                    </svg>
-                                    {storeNoteCount}
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (isAddingNote) {
-                                      setAddingNoteFor(null);
-                                      setNoteText('');
-                                    } else {
-                                      setAddingNoteFor({ scorecardId: sc.id, rowId: r.rowId });
-                                      setNoteText('');
-                                    }
-                                  }}
-                                  aria-expanded={isAddingNote}
-                                  aria-label={isAddingNote ? 'Close add note' : 'Add a note'}
-                                  title={isAddingNote ? 'Close add note' : 'Add a note'}
-                                  className={`inline-flex items-center justify-center gap-1 border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 max-sm:ml-auto max-sm:h-7 max-sm:min-h-[32px] max-sm:px-2.5 max-sm:rounded-full max-sm:text-[11px] max-sm:font-semibold sm:w-6 sm:h-6 sm:rounded-full ${
-                                    isAddingNote
-                                      ? 'bg-slate-700 text-white border-slate-700 hover:bg-slate-800 hover:border-slate-800'
-                                      : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 hover:text-slate-800 hover:border-slate-300'
-                                  }`}
-                                >
-                                  <svg className={`w-3 h-3 transition-transform ${isAddingNote ? 'rotate-45' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                  </svg>
-                                  <span className="sm:hidden">{isAddingNote ? 'Close' : 'Note'}</span>
-                                </button>
+                                </div>
                               </div>
                               {(r.retailerInfo.priority || r.retailerInfo.buyer) && (
                                 <div className="sm:hidden mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
@@ -1122,718 +1123,31 @@ export default function PortalDashboard() {
                             <td className="hidden sm:table-cell px-4 py-3 text-slate-600 align-top">{r.retailerInfo.priority}</td>
                             <td className="hidden sm:table-cell px-4 py-3 text-slate-600 align-top">{r.retailerInfo.buyer}</td>
                           </tr>
-                          {/* Add note form */}
-                          {isAddingNote && (
-                            <tr className="bg-slate-50/60">
-                              <td colSpan={r.products.length + 3} className="px-4 py-3">
-                                <div className="max-w-xl">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
-                                    </svg>
-                                    <span className="text-xs font-medium text-slate-500">New note for {r.retailerName}</span>
-                                  </div>
-                                  <div className="flex flex-col sm:flex-row sm:items-end gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all">
-                                    <textarea
-                                      ref={(el) => {
-                                        if (el && noteText) {
-                                          el.style.height = 'auto';
-                                          el.style.height = Math.min(el.scrollHeight, 280) + 'px';
-                                        }
-                                      }}
-                                      value={noteText}
-                                      onChange={(e) => {
-                                        setNoteText(e.target.value);
-                                        const el = e.currentTarget;
-                                        el.style.height = 'auto';
-                                        el.style.height = Math.min(el.scrollHeight, 280) + 'px';
-                                      }}
-                                      placeholder="Type your note... (Enter to send, Shift+Enter for new line)"
-                                      className="flex-1 text-sm text-slate-700 placeholder-slate-400 resize-none focus:outline-none bg-transparent min-h-[44px] max-h-72 leading-snug"
-                                      rows={2}
-                                      autoFocus
-                                      onFocus={(e) => {
-                                        try { e.currentTarget.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
-                                      }}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                          e.preventDefault();
-                                          handleAddNote(sc.id, r.rowId);
-                                        }
-                                        if (e.key === 'Escape') {
-                                          setAddingNoteFor(null);
-                                          setNoteText('');
-                                        }
-                                      }}
-                                    />
-                                    <div className="flex items-center gap-2 shrink-0 justify-end sm:pb-0.5">
-                                      <button
-                                        onClick={() => { setAddingNoteFor(null); setNoteText(''); }}
-                                        className="px-4 py-2 min-h-[40px] text-sm sm:text-xs font-medium text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
-                                      >
-                                        Cancel
-                                      </button>
-                                      <button
-                                        onClick={() => handleAddNote(sc.id, r.rowId)}
-                                        disabled={!noteText.trim() || submittingNote}
-                                        className="inline-flex items-center gap-1.5 px-4 py-2 min-h-[40px] text-sm sm:text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                                      >
-                                        {submittingNote ? (
-                                          <>
-                                            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                            Sending
-                                          </>
-                                        ) : (
-                                          <>
-                                            Send
-                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
-                                            </svg>
-                                          </>
-                                        )}
-                                      </button>
+                          {/* Broker Summary row — broker's chain-level note. Persistent
+                              reference at the bottom. All Chain Discussion + Store Visit
+                              threads now live in the PortalCommentDrawer. */}
+                          {r.notes && (
+                            <tr className="transition-colors duration-500 bg-slate-50/80">
+                              <td colSpan={r.products.length + 3} className="pl-3 pr-2 sm:pl-10 sm:pr-4 pt-1.5 pb-4">
+                                <div className="flex flex-col gap-1 max-w-2xl border-l-2 border-slate-200 pl-2 sm:pl-4 py-0.5">
+                                  <div className="flex items-start gap-2">
+                                    <div className="w-7 h-7 rounded-lg bg-amber-100 border border-amber-200 flex items-center justify-center shrink-0 mt-0.5">
+                                      <svg className="w-3.5 h-3.5 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+                                      </svg>
+                                    </div>
+                                    <div className="flex-1 bg-gradient-to-br from-amber-50 to-amber-50/40 border border-amber-200 rounded-xl px-3.5 py-2.5 shadow-sm">
+                                      <div className="flex items-center gap-1.5 mb-1">
+                                        <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wide">Broker Note</span>
+                                        <span className="text-[10px] text-amber-600/80">Chain summary</span>
+                                      </div>
+                                      <p className="text-sm text-slate-700 leading-relaxed">{r.notes}</p>
                                     </div>
                                   </div>
                                 </div>
                               </td>
                             </tr>
                           )}
-                          {/* Notes and comments row - differentiated by type.
-                              Desktop (>=sm) behavior is unchanged. On mobile (<sm), when there
-                              are only chain/store comments (no Broker Notes) and the client
-                              hasn't toggled discussions open, the tr hides via `max-sm:hidden`
-                              below so the page stays clean. */}
-                          {((r.comments?.length ?? 0) > 0 || r.notes) && (() => {
-                            const mvRegex = /^\[Market Visit\s+[\u2014\u2013-]\s+(\d{4}-\d{2}-\d{2})(?:\s+[·\u00B7]\s+([^\]]+))?\]\s*([\s\S]*)$/;
-                            type ParsedComment = { c: Comment; mvStore: string | null; mvDate: string | null; displayText: string };
-                            const parsed: ParsedComment[] = (r.comments || []).map(c => {
-                              const m = c.text.match(mvRegex);
-                              return {
-                                c,
-                                mvStore: m?.[2]?.trim() || null,
-                                mvDate: m?.[1] || null,
-                                displayText: m ? (m[3] || '').trim() : c.text,
-                              };
-                            });
-                            const storeNotes = parsed.filter(p => p.mvStore);
-                            const chainNotes = parsed.filter(p => !p.mvStore);
-                            // Group store notes by store name for visual clustering
-                            const storeGroups = new Map<string, ParsedComment[]>();
-                            storeNotes.forEach(p => {
-                              const key = p.mvStore!;
-                              const arr = storeGroups.get(key) || [];
-                              arr.push(p);
-                              storeGroups.set(key, arr);
-                            });
-                            const expandKey = `${sc.id}:${r.rowId}`;
-                            const isExpanded = expandedRows.has(expandKey);
-                            // Decide whether to show section headers: only when more than one category is present
-                            const categoryCount = (r.notes ? 1 : 0) + (storeNotes.length > 0 ? 1 : 0) + (chainNotes.length > 0 ? 1 : 0);
-                            const showHeaders = categoryCount > 1;
-                            const toggleExpand = () => {
-                              setExpandedRows(prev => {
-                                const next = new Set(prev);
-                                if (next.has(expandKey)) next.delete(expandKey);
-                                else {
-                                  next.add(expandKey);
-                                  // Opening the thread counts as "seeing" the latest activity.
-                                  // Persists to localStorage so the unread badge clears across reloads.
-                                  markRowSeen(sc.id, r.rowId);
-                                }
-                                return next;
-                              });
-                            };
-                            const rowUnread = isRowUnread(sc.id, r.rowId, r.comments);
-                            const SectionHeader = ({ label }: { label: string }) => {
-                              // Accent dot is color-keyed per section so the eye can lock on to each group quickly.
-                              const dot =
-                                label === 'Chain Discussion'
-                                  ? 'bg-blue-500'
-                                  : label === 'Store Visits'
-                                  ? 'bg-teal-500'
-                                  : label === 'Broker Summary'
-                                  ? 'bg-amber-500'
-                                  : 'bg-slate-400';
-                              return (
-                                <div className="flex items-center gap-1.5 mt-3 mb-0.5 first:mt-1 pl-0.5">
-                                  <span className={`w-1.5 h-1.5 rounded-full ${dot}`} aria-hidden="true" />
-                                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.12em]">{label}</span>
-                                  <span className="flex-1 h-px bg-slate-200/80" aria-hidden="true" />
-                                </div>
-                              );
-                            };
-                            // Chain Discussion header summary — always computed cheaply.
-                            const chainCount = chainNotes.length;
-                            const lastChain = chainCount > 0 ? chainNotes[chainNotes.length - 1] : null;
-                            const relativeTime = (iso: string) => {
-                              const then = new Date(iso).getTime();
-                              if (Number.isNaN(then)) return '';
-                              const diffMs = Date.now() - then;
-                              const sec = Math.max(0, Math.floor(diffMs / 1000));
-                              if (sec < 60) return 'just now';
-                              const min = Math.floor(sec / 60);
-                              if (min < 60) return `${min}m ago`;
-                              const hr = Math.floor(min / 60);
-                              if (hr < 24) return `${hr}h ago`;
-                              const day = Math.floor(hr / 24);
-                              if (day < 7) return `${day}d ago`;
-                              const wk = Math.floor(day / 7);
-                              if (wk < 5) return `${wk}w ago`;
-                              const mo = Math.floor(day / 30);
-                              if (mo < 12) return `${mo}mo ago`;
-                              return `${Math.floor(day / 365)}y ago`;
-                            };
-                            const truncate = (s: string, n = 60) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
-                            const PER_PAGE = 30;
-                            const visibleCount = visibleCountPerRow[expandKey] ?? PER_PAGE;
-                            const loadOlder = () => {
-                              setVisibleCountPerRow(prev => ({ ...prev, [expandKey]: (prev[expandKey] ?? PER_PAGE) + PER_PAGE }));
-                            };
-                            // Hide the whole activity tr when there are no Broker Notes and
-                            // the client hasn't opened either the Chain or Store section via
-                            // the count pills — keeps the landing quiet on both mobile and
-                            // desktop until the client opts in.
-                            const hideRow = !r.notes && !chainOpen && !storeOpen;
-                            return (
-                            <tr
-                              className={`transition-colors duration-500 ${hideRow ? 'hidden' : ''} ${
-                                highlight?.kind === 'row' && highlight.scorecardId === sc.id && highlight.rowId === String(r.rowId)
-                                  ? 'bg-amber-50'
-                                  : 'bg-slate-50/80'
-                              }`}
-                            >
-                              {/* Indent the whole expanded payload so children visibly nest under the retailer name above.
-                                  A subtle vertical rail (border-l) ties these sub-sections to their parent retailer row.
-                                  Mobile uses a tighter inset to preserve bubble width. */}
-                              <td colSpan={r.products.length + 3} className="pl-3 pr-2 sm:pl-10 sm:pr-4 pt-1.5 pb-4">
-                                <div className="flex flex-col gap-1 max-w-2xl border-l-2 border-slate-200 pl-2 sm:pl-4 py-0.5">
-                                  {/* 1. Chain Discussion — hidden by default. The client opens it
-                                      by clicking the blue-bubble count pill in the retailer row. */}
-                                  {chainCount > 0 && (
-                                    <div className={chainOpen ? 'contents' : 'hidden'}>
-                                      {!isExpanded ? (
-                                        // Collapsed state: slim, calm row. One accent rail on the left carries the unread signal.
-                                        <button
-                                          type="button"
-                                          onClick={toggleExpand}
-                                          aria-expanded={false}
-                                          className={`group/chhdr relative w-full flex items-center gap-2 pl-3.5 pr-2.5 py-1.5 rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 before:content-[''] before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[2px] before:rounded-full ${
-                                            rowUnread
-                                              ? 'bg-white hover:bg-slate-50 before:bg-blue-500'
-                                              : 'hover:bg-slate-100/70 before:bg-slate-300'
-                                          }`}
-                                        >
-                                          <svg className={`w-3.5 h-3.5 shrink-0 ${rowUnread ? 'text-blue-500' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
-                                          </svg>
-                                          <span className={`text-[11px] font-medium shrink-0 ${rowUnread ? 'text-slate-800' : 'text-slate-600'}`}>Chain Discussion</span>
-                                          <span className="text-[10px] font-medium text-slate-500 shrink-0">{chainCount}</span>
-                                          {rowUnread && (
-                                            <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-blue-600 shrink-0" aria-label="New activity">
-                                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                                              <span className="uppercase tracking-wider">New</span>
-                                            </span>
-                                          )}
-                                          {lastChain && (
-                                            <span className="hidden sm:block text-[11px] text-slate-400 truncate min-w-0 flex-1">
-                                              {truncate(lastChain.displayText || lastChain.c.text, 52)}
-                                              <span className="text-slate-300"> · {relativeTime(lastChain.c.date)}</span>
-                                            </span>
-                                          )}
-                                          <svg className="w-3 h-3 text-slate-300 group-hover/chhdr:text-slate-500 transition-colors shrink-0 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                                          </svg>
-                                        </button>
-                                      ) : (
-                                        // Expanded: full thread with date grouping, max-height scroll, load-older.
-                                        (() => {
-                                          // Slice to the most-recent `visibleCount` messages (chronological tail).
-                                          const start = Math.max(0, chainCount - visibleCount);
-                                          const slice = chainNotes.slice(start);
-                                          const hasOlder = start > 0;
-                                          // Bucket a date into a relative group label.
-                                          const bucketFor = (iso: string) => {
-                                            const d = new Date(iso);
-                                            if (Number.isNaN(d.getTime())) return 'Earlier';
-                                            const now = new Date();
-                                            const toKey = (x: Date) => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;
-                                            if (toKey(d) === toKey(now)) return 'Today';
-                                            const y = new Date(now);
-                                            y.setDate(y.getDate() - 1);
-                                            if (toKey(d) === toKey(y)) return 'Yesterday';
-                                            const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
-                                            if (diffDays < 7) return 'This week';
-                                            return 'Earlier';
-                                          };
-                                          const pulse = pulseThread === expandKey;
-                                          return (
-                                            <div className={`relative rounded-xl bg-stone-50 border pl-4 pr-3 py-2.5 transition-all shadow-sm before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:rounded-full before:bg-slate-400 ${pulse ? 'border-blue-400 ring-2 ring-blue-400/50 shadow-md' : 'border-stone-300'}`}>
-                                              {/* Thread header (expanded) */}
-                                              <div className="flex items-center gap-1.5 mb-2">
-                                                <svg className="w-3.5 h-3.5 text-slate-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
-                                                </svg>
-                                                <span className="text-[10px] font-semibold text-slate-800 uppercase tracking-wider">Chain Discussion</span>
-                                                <span className="text-[10px] font-medium text-slate-400">{chainCount} {chainCount === 1 ? 'message' : 'messages'}</span>
-                                                <button
-                                                  type="button"
-                                                  onClick={toggleExpand}
-                                                  aria-expanded={true}
-                                                  className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-slate-700 hover:text-slate-900 hover:bg-stone-200/60 px-1.5 py-0.5 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                                                  title="Collapse thread"
-                                                >
-                                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                                  </svg>
-                                                  Collapse
-                                                </button>
-                                              </div>
-                                              {/* Scroll container with fade masks */}
-                                              <div className="relative">
-                                                <div
-                                                  ref={(el) => { threadRefs.current[expandKey] = el; }}
-                                                  className="relative flex flex-col gap-2 max-h-[28rem] overflow-y-auto pr-1"
-                                                  style={{ maskImage: 'linear-gradient(to bottom, transparent 0, black 18px, black calc(100% - 18px), transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, black 18px, black calc(100% - 18px), transparent 100%)' }}
-                                                >
-                                                  {hasOlder && (
-                                                    <div className="sticky top-0 z-10 flex justify-center pt-1 pb-1.5 bg-gradient-to-b from-slate-50/95 via-slate-50/70 to-transparent">
-                                                      <button
-                                                        type="button"
-                                                        onClick={loadOlder}
-                                                        className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-700 hover:text-slate-900 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 px-2 py-0.5 rounded-full shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                                                      >
-                                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
-                                                        </svg>
-                                                        Load {Math.min(PER_PAGE, start)} older {Math.min(PER_PAGE, start) === 1 ? 'message' : 'messages'}
-                                                      </button>
-                                                    </div>
-                                                  )}
-                                                  {slice.map(({ c, displayText }, ci) => {
-                                                    const isEditing = editingComment?.id === c.id;
-                                                    const initial = (c.author || '?')[0].toUpperCase();
-                                                    const isLast = ci === slice.length - 1;
-                                                    const thisBucket = bucketFor(c.date);
-                                                    const prevBucket = ci > 0 ? bucketFor(slice[ci - 1].c.date) : null;
-                                                    const showBucket = ci === 0 || thisBucket !== prevBucket;
-                                                    return (
-                                                      <Fragment key={c.id || ci}>
-                                                        {showBucket && (
-                                                          <div className="flex items-center gap-2 py-1 select-none">
-                                                            <div className="flex-1 h-px bg-slate-200" aria-hidden="true" />
-                                                            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 bg-white/70 backdrop-blur-sm border border-slate-200 px-2 py-0.5 rounded-full shadow-sm">
-                                                              {thisBucket}
-                                                            </span>
-                                                            <div className="flex-1 h-px bg-slate-200" aria-hidden="true" />
-                                                          </div>
-                                                        )}
-                                                        <div className={`relative flex items-start gap-2 group/comment ${c.isOwn ? 'flex-row-reverse' : ''}`}>
-                                                          {/* Timeline rail connector (not on last item) */}
-                                                          {!isLast && (
-                                                            <span
-                                                              aria-hidden="true"
-                                                              className={`absolute top-7 h-[calc(100%-0.75rem)] w-px ${c.isOwn ? 'right-[11px] bg-blue-200/70' : 'left-[11px] bg-slate-200'}`}
-                                                            />
-                                                          )}
-                                                          {/* Avatar */}
-                                                          <div className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold ring-2 ring-white ${c.isOwn ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700 border border-slate-300'}`}>
-                                                            {initial}
-                                                          </div>
-                                                          {/* Bubble */}
-                                                          <div className={`max-w-sm flex flex-col ${c.isOwn ? 'items-end' : 'items-start'}`}>
-                                                            <div
-                                                              className={`relative rounded-2xl px-3 py-2 shadow-sm ${
-                                                                c.isOwn
-                                                                  ? 'bg-blue-600 text-white rounded-tr-sm before:content-[""] before:absolute before:top-2 before:-right-1.5 before:w-0 before:h-0 before:border-y-[6px] before:border-y-transparent before:border-l-[7px] before:border-l-blue-600'
-                                                                  : 'bg-white border border-slate-200 rounded-tl-sm before:content-[""] before:absolute before:top-2 before:-left-[7px] before:w-0 before:h-0 before:border-y-[6px] before:border-y-transparent before:border-r-[7px] before:border-r-slate-200 after:content-[""] after:absolute after:top-2 after:-left-[6px] after:w-0 after:h-0 after:border-y-[6px] after:border-y-transparent after:border-r-[7px] after:border-r-white'
-                                                              }`}
-                                                            >
-                                                              <div className={`flex items-center gap-1.5 mb-0.5 ${c.isOwn ? 'justify-end' : ''}`}>
-                                                                <span className={`text-[11px] font-semibold ${c.isOwn ? 'text-blue-100' : 'text-slate-700'}`}>{c.author}</span>
-                                                                <span className={`text-[10px] ${c.isOwn ? 'text-blue-200' : 'text-slate-400'}`}>
-                                                                  {new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                                                  {' '}
-                                                                  {new Date(c.date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                                                                </span>
-                                                              </div>
-                                                              {isEditing ? (
-                                                                <div className="flex flex-col gap-2 mt-1">
-                                                                  <textarea
-                                                                    ref={(el) => {
-                                                                      if (el) {
-                                                                        el.style.height = 'auto';
-                                                                        el.style.height = Math.min(el.scrollHeight, 280) + 'px';
-                                                                      }
-                                                                    }}
-                                                                    rows={2}
-                                                                    value={editText}
-                                                                    onChange={e => {
-                                                                      setEditText(e.target.value);
-                                                                      const el = e.currentTarget;
-                                                                      el.style.height = 'auto';
-                                                                      el.style.height = Math.min(el.scrollHeight, 280) + 'px';
-                                                                    }}
-                                                                    className="text-sm border border-slate-200 rounded-lg px-2.5 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full bg-white resize-none min-h-[44px] max-h-72 leading-snug"
-                                                                    autoFocus
-                                                                    onKeyDown={e => {
-                                                                      if (e.key === 'Enter' && !e.shiftKey && !savingCommentEdit) {
-                                                                        e.preventDefault();
-                                                                        handleEditComment(c.id!, sc.id, r.rowId);
-                                                                      }
-                                                                      if (e.key === 'Escape' && !savingCommentEdit) { setEditingComment(null); setEditText(''); }
-                                                                    }}
-                                                                    disabled={savingCommentEdit}
-                                                                  />
-                                                                  <div className="flex items-center gap-2 justify-end">
-                                                                    <button
-                                                                      onClick={() => { setEditingComment(null); setEditText(''); }}
-                                                                      disabled={savingCommentEdit}
-                                                                      className={`text-xs font-medium px-3 py-1.5 min-h-[32px] rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${c.isOwn ? 'text-blue-100 hover:text-white' : 'text-slate-500 hover:text-slate-700'}`}
-                                                                    >Cancel</button>
-                                                                    <button
-                                                                      onClick={() => handleEditComment(c.id!, sc.id, r.rowId)}
-                                                                      disabled={savingCommentEdit || !editText.trim()}
-                                                                      aria-busy={savingCommentEdit}
-                                                                      className={`text-xs font-semibold px-3 py-1.5 min-h-[32px] rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${c.isOwn ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
-                                                                    >{savingCommentEdit ? 'Saving…' : 'Save'}</button>
-                                                                  </div>
-                                                                </div>
-                                                              ) : (
-                                                                <p className={`text-sm leading-relaxed ${c.isOwn ? 'text-white' : 'text-slate-700'}`}>{displayText}</p>
-                                                              )}
-                                                            </div>
-                                                            {c.isOwn && c.id && !isEditing && (
-                                                              <div className={`flex gap-2 mt-1 opacity-60 group-hover/comment:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity ${c.isOwn ? 'justify-end' : 'justify-start'}`}>
-                                                                <button
-                                                                  onClick={() => { setEditingComment({ id: c.id!, scorecardId: sc.id, rowId: r.rowId }); setEditText(c.text); }}
-                                                                  className="text-slate-500 hover:text-blue-600 transition-colors p-1.5 -m-1.5 rounded min-h-[32px] min-w-[32px] inline-flex items-center justify-center"
-                                                                  title="Edit note"
-                                                                  aria-label="Edit note"
-                                                                >
-                                                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
-                                                                </button>
-                                                                <button
-                                                                  onClick={() => handleDeleteComment(c.id!, sc.id, r.rowId)}
-                                                                  className="text-slate-500 hover:text-red-600 transition-colors p-1.5 -m-1.5 rounded min-h-[32px] min-w-[32px] inline-flex items-center justify-center"
-                                                                  title="Delete note"
-                                                                  aria-label="Delete note"
-                                                                >
-                                                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
-                                                                </button>
-                                                              </div>
-                                                            )}
-                                                          </div>
-                                                        </div>
-                                                      </Fragment>
-                                                    );
-                                                  })}
-                                                </div>
-                                              </div>
-                                            </div>
-                                          );
-                                        })()
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {/* 2. Store Visits — hidden by default. The client opens it
-                                      by clicking the teal pin count pill in the retailer row. */}
-                                  {storeNotes.length > 0 && (() => {
-                                    // Keys are suffixed so they never collide with the chain-discussion key.
-                                    const storesKey = `${sc.id}:${r.rowId}:stores`;
-                                    const storesExpanded = expandedRows.has(storesKey);
-                                    const rowKey = `${sc.id}:${r.rowId}`;
-                                    // Helper: best-known timestamp for a parsed comment (prefer mvDate).
-                                    const tsOf = (p: { c: Comment; mvDate: string | null }) => {
-                                      const t1 = p.mvDate ? new Date(p.mvDate).getTime() : NaN;
-                                      if (!Number.isNaN(t1)) return t1;
-                                      const t2 = new Date(p.c.date).getTime();
-                                      return Number.isNaN(t2) ? 0 : t2;
-                                    };
-                                    // Sort store groups by most-recently-active first (cheap: one pass).
-                                    const storeGroupsSorted: Array<[string, typeof storeNotes]> = Array.from(storeGroups.entries())
-                                      .map(([name, items]) => {
-                                        const latest = items.reduce((mx, p) => Math.max(mx, tsOf(p)), 0);
-                                        return { name, items, latest };
-                                      })
-                                      .sort((a, b) => b.latest - a.latest)
-                                      .map(({ name, items }) => [name, items]);
-                                    const totalStoreNotes = storeNotes.length;
-                                    const totalStoreCount = storeGroupsSorted.length;
-                                    const mostRecentStore = storeGroupsSorted[0];
-                                    const latestStoreNote = mostRecentStore
-                                      ? mostRecentStore[1].slice().sort((a, b) => tsOf(b) - tsOf(a))[0]
-                                      : null;
-                                    const toggleStoresSection = () => {
-                                      setExpandedRows(prev => {
-                                        const next = new Set(prev);
-                                        if (next.has(storesKey)) next.delete(storesKey);
-                                        else {
-                                          next.add(storesKey);
-                                          // Seed per-store expansion: only the most-recently-active store.
-                                          setExpandedStoresPerRow(curr => {
-                                            if (curr[rowKey]) return curr;
-                                            const seed = new Set<string>();
-                                            if (mostRecentStore) seed.add(mostRecentStore[0]);
-                                            return { ...curr, [rowKey]: seed };
-                                          });
-                                        }
-                                        return next;
-                                      });
-                                    };
-                                    return (
-                                      <div className={storeOpen ? 'contents' : 'hidden'}>
-                                        {!storesExpanded ? (
-                                          // Collapsed: slim, calm row. Teal accent rail keys it as Store Visits.
-                                          <button
-                                            type="button"
-                                            onClick={toggleStoresSection}
-                                            aria-expanded={false}
-                                            className="group/svhdr relative w-full flex items-center gap-2 pl-3.5 pr-2.5 py-1.5 rounded-lg hover:bg-slate-100/70 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 before:content-[''] before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[2px] before:rounded-full before:bg-teal-400"
-                                          >
-                                            <svg className="w-3.5 h-3.5 text-teal-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                                            </svg>
-                                            <span className="text-[11px] font-medium text-slate-600 shrink-0">Store Visits</span>
-                                            <span className="text-[10px] font-medium text-slate-500 shrink-0">
-                                              {totalStoreNotes} <span className="text-slate-300">·</span> {totalStoreCount} {totalStoreCount === 1 ? 'store' : 'stores'}
-                                            </span>
-                                            {latestStoreNote && mostRecentStore && (
-                                              <span className="hidden sm:block text-[11px] text-slate-400 truncate min-w-0 flex-1">
-                                                <span className="text-slate-500">{truncate(mostRecentStore[0], 22)}</span>
-                                                <span className="text-slate-300"> · </span>
-                                                {truncate(latestStoreNote.displayText || latestStoreNote.c.text, 48)}
-                                              </span>
-                                            )}
-                                            <svg className="w-3 h-3 text-slate-300 group-hover/svhdr:text-slate-500 transition-colors shrink-0 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                                            </svg>
-                                          </button>
-                                        ) : (() => {
-                                          // Expanded state — two-tier. Paginate stores (8 per page).
-                                          const STORE_PAGE = 8;
-                                          const storeCountKey = `${sc.id}:${r.rowId}:storeCount`;
-                                          const visibleStoreCount = visibleCountPerRow[storeCountKey] ?? STORE_PAGE;
-                                          const visibleStoreGroups = storeGroupsSorted.slice(0, visibleStoreCount);
-                                          const hiddenStoreCount = Math.max(0, storeGroupsSorted.length - visibleStoreCount);
-                                          const loadOlderStores = () => {
-                                            setVisibleCountPerRow(prev => ({ ...prev, [storeCountKey]: (prev[storeCountKey] ?? STORE_PAGE) + STORE_PAGE }));
-                                          };
-                                          const expandedStoreSet = expandedStoresPerRow[rowKey] || new Set<string>();
-                                          const toggleStore = (storeName: string) => {
-                                            setExpandedStoresPerRow(curr => {
-                                              const prevSet = curr[rowKey] || new Set<string>();
-                                              const nextSet = new Set(prevSet);
-                                              if (nextSet.has(storeName)) nextSet.delete(storeName);
-                                              else nextSet.add(storeName);
-                                              return { ...curr, [rowKey]: nextSet };
-                                            });
-                                          };
-                                          // Date-bucket helper local to store visits (same buckets as Chain Discussion).
-                                          const getDateBucket = (iso: string) => {
-                                            const d = new Date(iso);
-                                            if (Number.isNaN(d.getTime())) return 'Earlier';
-                                            const now = new Date();
-                                            const toKey = (x: Date) => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;
-                                            if (toKey(d) === toKey(now)) return 'Today';
-                                            const y = new Date(now);
-                                            y.setDate(y.getDate() - 1);
-                                            if (toKey(d) === toKey(y)) return 'Yesterday';
-                                            const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
-                                            if (diffDays < 7) return 'This week';
-                                            return 'Earlier';
-                                          };
-                                          return (
-                                            <div className="relative rounded-xl bg-slate-50/60 border border-slate-300 shadow-sm pl-4 pr-3 py-2.5 before:content-[''] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:rounded-full before:bg-teal-400/70">
-                                              {/* Section header with collapse */}
-                                              <div className="flex items-center gap-1.5 mb-2">
-                                                <svg className="w-3.5 h-3.5 text-teal-500/80 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                                                </svg>
-                                                <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Store Visits</span>
-                                                <span className="text-[10px] font-medium text-slate-400">{totalStoreNotes} {totalStoreNotes === 1 ? 'note' : 'notes'} · {totalStoreCount} {totalStoreCount === 1 ? 'store' : 'stores'}</span>
-                                                <button
-                                                  type="button"
-                                                  onClick={toggleStoresSection}
-                                                  aria-expanded={true}
-                                                  className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 px-1.5 py-0.5 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                                                  title="Collapse store visits"
-                                                >
-                                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                                  </svg>
-                                                  Collapse
-                                                </button>
-                                              </div>
-                                              {/* Read-only notice — comments happen on the Market Visits tab */}
-                                              <div className="flex items-start gap-1.5 mb-2 px-2 py-1.5 rounded-md bg-slate-100/70 border border-slate-200/80">
-                                                <svg className="w-3.5 h-3.5 text-slate-500 shrink-0 mt-[1px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-                                                </svg>
-                                                <p className="text-[10.5px] text-slate-600 leading-snug">
-                                                  Store visit notes are read-only here. To add a comment on a store visit, open the <span className="font-semibold text-slate-700">Market Visits</span> tab.
-                                                </p>
-                                              </div>
-                                              <div className="flex flex-col gap-2">
-                                                {visibleStoreGroups.map(([storeName, items]) => {
-                                                  const storeExpanded = expandedStoreSet.has(storeName);
-                                                  // Visits sorted chronologically (oldest -> newest) for grouping.
-                                                  const sortedItems = items.slice().sort((a, b) => tsOf(a) - tsOf(b));
-                                                  const latestItem = sortedItems[sortedItems.length - 1];
-                                                  const latestDateIso = latestItem
-                                                    ? (latestItem.mvDate || latestItem.c.date)
-                                                    : null;
-                                                  // Per-store visit pagination (10 per page, newest tail).
-                                                  const VISIT_PAGE = 10;
-                                                  const visitKey = `${sc.id}:${r.rowId}:store:${storeName}`;
-                                                  const visibleVisitCount = visibleCountPerRow[visitKey] ?? VISIT_PAGE;
-                                                  const visitStart = Math.max(0, sortedItems.length - visibleVisitCount);
-                                                  const visitSlice = sortedItems.slice(visitStart);
-                                                  const hasOlderVisits = visitStart > 0;
-                                                  const loadOlderVisits = () => {
-                                                    setVisibleCountPerRow(prev => ({ ...prev, [visitKey]: (prev[visitKey] ?? VISIT_PAGE) + VISIT_PAGE }));
-                                                  };
-                                                  return (
-                                                    <div key={storeName} className="relative bg-white border border-slate-200 rounded-xl overflow-hidden">
-                                                      {/* Store header — clickable toggle */}
-                                                      <button
-                                                        type="button"
-                                                        onClick={() => toggleStore(storeName)}
-                                                        aria-expanded={storeExpanded}
-                                                        className={`group/storehdr w-full flex items-center gap-2 pl-4 pr-3 py-2 bg-white hover:bg-slate-50 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${storeExpanded ? 'border-b border-slate-100' : ''}`}
-                                                      >
-                                                        <svg className="w-3.5 h-3.5 text-teal-500/80 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                                                        </svg>
-                                                        <span className="text-xs font-semibold text-slate-800 uppercase tracking-wide truncate" title={storeName}>{storeName}</span>
-                                                        <span className="text-[10px] font-medium text-teal-700 bg-teal-50 border border-teal-100 px-1.5 py-0.5 rounded-md shrink-0 ml-auto">
-                                                          {items.length} {items.length === 1 ? 'visit note' : 'visit notes'}
-                                                        </span>
-                                                        {latestDateIso && (
-                                                          <span className="hidden sm:inline text-[10px] text-slate-400 shrink-0">{relativeTime(latestDateIso)}</span>
-                                                        )}
-                                                        <svg
-                                                          className={`w-3.5 h-3.5 text-slate-400 group-hover/storehdr:text-slate-600 transition-transform shrink-0 ${storeExpanded ? 'rotate-90' : ''}`}
-                                                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
-                                                        >
-                                                          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                                                        </svg>
-                                                      </button>
-                                                      {/* Store visit entries — read-only on Product Status.
-                                                          To edit/delete store notes, brand users go to the
-                                                          Market Visits tab where they can comment directly
-                                                          on the visit photo. Only rendered when store is expanded. */}
-                                                      {storeExpanded && (
-                                                        <div className="divide-y divide-slate-100">
-                                                          {hasOlderVisits && (
-                                                            <div className="flex justify-center py-1.5 bg-slate-50/60">
-                                                              <button
-                                                                type="button"
-                                                                onClick={loadOlderVisits}
-                                                                className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-700 hover:text-slate-900 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 px-2 py-0.5 rounded-full shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                                                              >
-                                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
-                                                                </svg>
-                                                                Show {Math.min(VISIT_PAGE, visitStart)} older {Math.min(VISIT_PAGE, visitStart) === 1 ? 'visit' : 'visits'}
-                                                              </button>
-                                                            </div>
-                                                          )}
-                                                          {visitSlice.map((entry, idx) => {
-                                                            const { c, mvDate, displayText } = entry;
-                                                            const bucketIso = mvDate || c.date;
-                                                            const thisBucket = getDateBucket(bucketIso);
-                                                            const prevIso = idx > 0 ? (visitSlice[idx - 1].mvDate || visitSlice[idx - 1].c.date) : null;
-                                                            const prevBucket = prevIso ? getDateBucket(prevIso) : null;
-                                                            const showBucket = idx === 0 || thisBucket !== prevBucket;
-                                                            return (
-                                                              <Fragment key={c.id || `${storeName}-${idx}`}>
-                                                                {showBucket && (
-                                                                  <div className="flex items-center gap-2 px-4 pt-2 pb-1 bg-slate-50/40 select-none">
-                                                                    <div className="flex-1 h-px bg-slate-200" aria-hidden="true" />
-                                                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded-full shadow-sm">
-                                                                      {thisBucket}
-                                                                    </span>
-                                                                    <div className="flex-1 h-px bg-slate-200" aria-hidden="true" />
-                                                                  </div>
-                                                                )}
-                                                                <div className="pl-4 pr-3 py-2.5">
-                                                                  <div className="flex items-center gap-1.5 mb-1 min-w-0">
-                                                                    <span className="text-[11px] font-semibold text-slate-700 truncate">{c.author}</span>
-                                                                    <span className="text-[10px] text-slate-400 shrink-0">
-                                                                      {mvDate
-                                                                        ? new Date(mvDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-                                                                        : `${new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${new Date(c.date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
-                                                                      }
-                                                                    </span>
-                                                                    <span
-                                                                      className="ml-auto inline-flex items-center gap-1 text-[9px] font-semibold text-slate-400 uppercase tracking-wider shrink-0"
-                                                                      title="Read-only here — edit on the Market Visits tab"
-                                                                    >
-                                                                      <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
-                                                                      </svg>
-                                                                      Read-only
-                                                                    </span>
-                                                                  </div>
-                                                                  <p className="text-sm text-slate-700 leading-relaxed">{displayText}</p>
-                                                                </div>
-                                                              </Fragment>
-                                                            );
-                                                          })}
-                                                        </div>
-                                                      )}
-                                                    </div>
-                                                  );
-                                                })}
-                                                {hiddenStoreCount > 0 && (
-                                                  <button
-                                                    type="button"
-                                                    onClick={loadOlderStores}
-                                                    className="inline-flex items-center justify-center gap-1 text-[11px] font-medium text-slate-700 hover:text-slate-900 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 px-2.5 py-1 rounded-full shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 self-center"
-                                                  >
-                                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                                    </svg>
-                                                    Show {Math.min(STORE_PAGE, hiddenStoreCount)} older {Math.min(STORE_PAGE, hiddenStoreCount) === 1 ? 'store' : 'stores'}
-                                                  </button>
-                                                )}
-                                              </div>
-                                            </div>
-                                          );
-                                        })()}
-                                      </div>
-                                    );
-                                  })()}
-
-                                  {/* 3. Broker Note — persistent summary, reference at the bottom */}
-                                  {r.notes && (
-                                    <>
-                                      {showHeaders && <SectionHeader label="Broker Summary" />}
-                                      <div className="flex items-start gap-2">
-                                        <div className="w-7 h-7 rounded-lg bg-amber-100 border border-amber-200 flex items-center justify-center shrink-0 mt-0.5">
-                                          <svg className="w-3.5 h-3.5 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
-                                          </svg>
-                                        </div>
-                                        <div className="flex-1 bg-gradient-to-br from-amber-50 to-amber-50/40 border border-amber-200 rounded-xl px-3.5 py-2.5 shadow-sm">
-                                          <div className="flex items-center gap-1.5 mb-1">
-                                            <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wide">Broker Note</span>
-                                            <span className="text-[10px] text-amber-600/80">Chain summary</span>
-                                          </div>
-                                          <p className="text-sm text-slate-700 leading-relaxed">{r.notes}</p>
-                                        </div>
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                            );
-                          })()}
                         </Fragment>
                         );
                       })}
@@ -2326,6 +1640,31 @@ export default function PortalDashboard() {
         onConfirm={() => { confirmState?.onConfirm(); }}
         onCancel={() => setConfirmState(null)}
       />
+      {openDrawerFor && (() => {
+        const sc = data?.scorecards.find(s => s.id === openDrawerFor.scorecardId);
+        const r = sc?.retailers.find(x => x.rowId === openDrawerFor.rowId);
+        if (!sc || !r) return null;
+        return (
+          <PortalCommentDrawer
+            open={true}
+            onClose={() => { setOpenDrawerFor(null); setDrawerHighlightId(null); }}
+            scorecardId={openDrawerFor.scorecardId}
+            rowId={openDrawerFor.rowId}
+            retailerName={r.retailerName}
+            scorecardName={sc.scorecardName}
+            comments={r.comments ?? []}
+            initialTypeFilter={openDrawerFor.typeFilter}
+            initialView={openDrawerFor.view}
+            focusComposer={openDrawerFor.focusComposer}
+            highlightCommentId={drawerHighlightId}
+            onCommentCreated={handleDrawerCommentCreated}
+            onCommentUpdated={handleDrawerCommentUpdated}
+            onCommentDeleted={handleDrawerCommentDeleted}
+            onMarkRead={() => markRowSeen(openDrawerFor.scorecardId, openDrawerFor.rowId)}
+            currentUserName={data?.contactName}
+          />
+        );
+      })()}
     </div>
   );
 }

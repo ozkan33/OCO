@@ -45,6 +45,16 @@ export async function POST(request: Request) {
       address: parts.length >= 2 ? parts.join(', ') : data.display_name,
       fullAddress: data.display_name,
       storeName: addr.shop || addr.supermarket || addr.retail || addr.building || null,
+      // Structured address fields — used downstream to fuzzy-match against
+      // chain_stores (e.g. GPS lands at "220 West St" but Store Data has
+      // "225 West St" for the same Cub Foods).
+      details: {
+        house_number: addr.house_number || null,
+        road: addr.road || null,
+        city: addr.city || addr.town || addr.village || addr.hamlet || null,
+        state: addr.state || null,
+        postcode: addr.postcode || null,
+      },
     });
   } catch (err: any) {
     if (err?.message === 'No token found' || err?.message === 'Invalid token') {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
+import { resolveLogoWebsite } from '@/lib/resolveLogoWebsite';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -60,10 +61,20 @@ export async function POST(request: Request) {
     const label = formData.get('label') as string | null;
     const sortOrder = formData.get('sort_order') as string | null;
     const kind = normalizeKind(formData.get('kind') as string | null) ?? 'brand';
-    const websiteUrl = normalizeUrl(formData.get('website_url') as string | null);
+    let websiteUrl = normalizeUrl(formData.get('website_url') as string | null);
 
     if (!label || !label.trim()) {
       return NextResponse.json({ error: 'Label is required' }, { status: 400 });
+    }
+
+    // Best-effort auto-resolve when the admin didn't supply a URL. Failures
+    // are silent — the row still saves with website_url = null.
+    if (!websiteUrl) {
+      try {
+        websiteUrl = await resolveLogoWebsite(label.trim(), kind);
+      } catch {
+        websiteUrl = null;
+      }
     }
 
     if (!file || !(file instanceof File)) {

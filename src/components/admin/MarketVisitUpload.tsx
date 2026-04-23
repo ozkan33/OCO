@@ -1,11 +1,14 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
+import { toast } from 'sonner';
 import { useBrands } from '@/hooks/useBrands';
 import { extractExifFromFile } from '@/utils/extractExif';
 import { compressImageForUpload } from '@/utils/compressImage';
-import { reverseGeocode } from '@/utils/reverseGeocode';
+import { reverseGeocode, type ReverseGeocodeResult } from '@/utils/reverseGeocode';
 import { findNearbyStore } from '@/utils/findNearbyStore';
+import { findStoreByAddress } from '@/utils/findStoreByAddress';
+import { lookupStoreByName, type StoreLookup } from '@/utils/lookupStoreByName';
 import AddressAutocomplete from './AddressAutocomplete';
 
 interface MarketVisitUploadProps {
@@ -34,6 +37,151 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
   const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
   const [noGps, setNoGps] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Mobile-only inline suggestion under the Store Name input. Toasts on a
+  // 390px viewport land top-right, far from the field and the user's thumb,
+  // so on small screens we render an inline chip instead — easier to tap, sits
+  // right where the validation applies.
+  type StoreSuggestion =
+    | { kind: 'suggest'; trimmed: string; suggestion: string; extra: string; store: StoreLookup }
+    | { kind: 'unknown'; trimmed: string };
+  const [pendingSuggestion, setPendingSuggestion] = useState<StoreSuggestion | null>(null);
+  // Tracks the value we last fired the chain_stores lookup against so blur on
+  // an already-validated name doesn't re-toast.
+  const lastValidatedStoreNameRef = useRef<string>('');
+  // Address values we auto-filled from chain_stores. Lets us safely overwrite
+  // with a new chain_stores match while still respecting any address the
+  // admin (or Nominatim) typed manually.
+  const autoFilledAddressRef = useRef<string>('');
+  // Mirror of `address` so callbacks closed over by toast actions read the
+  // current value rather than the value at toast-creation time.
+  const addressRef = useRef<string>('');
+  addressRef.current = address;
+  const storeNameRef = useRef<string>('');
+  storeNameRef.current = storeName;
+
+  const fillAddressIfEmpty = useCallback((next: string) => {
+    if (!next) return;
+    const current = addressRef.current.trim();
+    if (current && current !== autoFilledAddressRef.current) return;
+    setAddress(next);
+    autoFilledAddressRef.current = next;
+  }, []);
+
+  const applyStoreMatch = useCallback((store: StoreLookup) => {
+    if (store.store_name) setStoreName(store.store_name);
+    if (store.address) fillAddressIfEmpty(store.address);
+  }, [fillAddressIfEmpty]);
+
+  // Picks the most authoritative source for store_name + address given a
+  // GPS-reverse-geocoded result and (optionally) a nearby prior visit.
+  // Priority:
+  //   1. chain_stores match by address  — canonical brand data wins outright,
+  //      and we trust the canonical street address even if Nominatim's
+  //      geocoder snapped to a neighboring number.
+  //   2. prior visit storeName + Nominatim address — admin's own data.
+  //   3. Nominatim shop-tag + Nominatim address — generic fallback.
+  const resolveStoreFromCoords = useCallback(async (
+    geo: ReverseGeocodeResult | null,
+    nearby: { storeName: string; distanceM: number } | null,
+  ) => {
+    let chainMatch: StoreLookup | null = null;
+    if (geo?.details) {
+      chainMatch = await findStoreByAddress(geo.details);
+    }
+    if (chainMatch) {
+      if (chainMatch.store_name) {
+        setStoreName(chainMatch.store_name);
+        // Mark as already-validated so the blur handler doesn't re-toast
+        // the canonical name we just set.
+        lastValidatedStoreNameRef.current = chainMatch.store_name;
+      }
+      if (chainMatch.address) {
+        setAddress(chainMatch.address);
+        autoFilledAddressRef.current = chainMatch.address;
+      }
+      return;
+    }
+    if (geo?.address) setAddress(geo.address);
+    const suggested = nearby?.storeName || geo?.storeName;
+    if (suggested && !storeNameRef.current) setStoreName(suggested);
+  }, []);
+
+  const isMobileViewport = () =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
+
+  const validateStoreName = useCallback(async (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      lastValidatedStoreNameRef.current = '';
+      setPendingSuggestion(null);
+      return;
+    }
+    if (trimmed === lastValidatedStoreNameRef.current) return;
+    lastValidatedStoreNameRef.current = trimmed;
+    setPendingSuggestion(null);
+
+    const result = await lookupStoreByName(trimmed);
+    if (!result) return;
+
+    const { match, store } = result;
+    if (match.kind === 'exact' && store) {
+      if (store.address) fillAddressIfEmpty(store.address);
+      return;
+    }
+    if (match.kind === 'normalized' && store) {
+      applyStoreMatch(store);
+      lastValidatedStoreNameRef.current = store.store_name || trimmed;
+      // Confirmation only — non-actionable, so a top-right toast on phone is
+      // still acceptable here.
+      toast.success(
+        `Store name auto-corrected: "${trimmed}" → "${store.store_name}"`,
+        { description: 'Matched to Store Data.' },
+      );
+      return;
+    }
+    if ((match.kind === 'prefix' || match.kind === 'fuzzy') && store) {
+      const suggestion = match.suggestion;
+      const extra =
+        match.kind === 'prefix' && match.alternatives.length > 0
+          ? ` (+${match.alternatives.length} more)`
+          : '';
+      if (isMobileViewport()) {
+        setPendingSuggestion({ kind: 'suggest', trimmed, suggestion, extra, store });
+      } else {
+        toast.warning(`"${trimmed}" not found in Store Data`, {
+          description: `Did you mean "${suggestion}"?${extra}`,
+          action: {
+            label: `Use "${suggestion}"`,
+            onClick: () => {
+              applyStoreMatch(store);
+              lastValidatedStoreNameRef.current = store.store_name || suggestion;
+            },
+          },
+          duration: 6000,
+        });
+      }
+      return;
+    }
+    if (match.kind === 'unknown') {
+      if (isMobileViewport()) {
+        setPendingSuggestion({ kind: 'unknown', trimmed });
+      } else {
+        toast.warning(`"${trimmed}" not found in Store Data`, {
+          description:
+            'Double-check the store exists in Store Management — this store name has no match.',
+          duration: 6000,
+        });
+      }
+    }
+  }, [applyStoreMatch, fillAddressIfEmpty]);
+
+  const acceptSuggestion = useCallback(() => {
+    if (!pendingSuggestion || pendingSuggestion.kind !== 'suggest') return;
+    const { store, suggestion } = pendingSuggestion;
+    applyStoreMatch(store);
+    lastValidatedStoreNameRef.current = store.store_name || suggestion;
+    setPendingSuggestion(null);
+  }, [pendingSuggestion, applyStoreMatch]);
 
   const resetForm = useCallback(() => {
     setFile(null);
@@ -51,6 +199,9 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
     setSelectedBrands([]);
     setNoGps(false);
     setError(null);
+    lastValidatedStoreNameRef.current = '';
+    autoFilledAddressRef.current = '';
+    setPendingSuggestion(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
 
@@ -112,10 +263,7 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
           reverseGeocode(exif.latitude, exif.longitude),
           findNearbyStore(exif.latitude, exif.longitude),
         ]);
-        if (geo?.address) setAddress(geo.address);
-        // Prior visits > Nominatim shop tag — admin's own data is authoritative.
-        const suggested = nearby?.storeName || geo?.storeName;
-        if (suggested && !storeName) setStoreName(suggested);
+        await resolveStoreFromCoords(geo, nearby);
       } else {
         setNoGps(true);
       }
@@ -124,7 +272,7 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
     } finally {
       setExtracting(false);
     }
-  }, []);
+  }, [resolveStoreFromCoords]);
 
   // iOS Safari requires a user gesture to prompt for location; this runs
   // from a button tap. Timeout protects against the documented iOS quirk
@@ -176,9 +324,7 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
         reverseGeocode(lat, lng),
         findNearbyStore(lat, lng),
       ]);
-      if (geo?.address) setAddress(geo.address);
-      const suggested = nearby?.storeName || geo?.storeName;
-      if (suggested && !storeName) setStoreName(suggested);
+      await resolveStoreFromCoords(geo, nearby);
     } catch (err: any) {
       const code = err?.code;
       if (code === 1) {
@@ -193,7 +339,7 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
     } finally {
       setGeoLoading(false);
     }
-  }, [storeName]);
+  }, [resolveStoreFromCoords]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -412,10 +558,64 @@ export default function MarketVisitUpload({ onUploaded }: MarketVisitUploadProps
           <input
             type="text"
             value={storeName}
-            onChange={e => setStoreName(e.target.value)}
+            onChange={e => {
+              setStoreName(e.target.value);
+              if (pendingSuggestion) setPendingSuggestion(null);
+            }}
+            onBlur={e => { void validateStoreName(e.target.value); }}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void validateStoreName((e.target as HTMLInputElement).value);
+              }
+            }}
             placeholder="e.g. Cub Foods — Eagan"
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none"
           />
+          {pendingSuggestion && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-800"
+            >
+              <svg className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+              </svg>
+              <div className="flex-1 min-w-0">
+                {pendingSuggestion.kind === 'suggest' ? (
+                  <>
+                    <p className="leading-snug">
+                      <span className="font-semibold">&ldquo;{pendingSuggestion.trimmed}&rdquo;</span> not found in Store Data.
+                    </p>
+                    <p className="mt-0.5 leading-snug">
+                      Did you mean <span className="font-semibold">&ldquo;{pendingSuggestion.suggestion}&rdquo;</span>?{pendingSuggestion.extra}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={acceptSuggestion}
+                      className="mt-2 inline-flex items-center px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-md hover:bg-amber-600 active:scale-95 transition-transform"
+                    >
+                      Use &ldquo;{pendingSuggestion.suggestion}&rdquo;
+                    </button>
+                  </>
+                ) : (
+                  <p className="leading-snug">
+                    <span className="font-semibold">&ldquo;{pendingSuggestion.trimmed}&rdquo;</span> not found in Store Data — double-check it exists in Store Management.
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingSuggestion(null)}
+                aria-label="Dismiss suggestion"
+                className="text-amber-500 hover:text-amber-700 shrink-0 -mt-0.5 -mr-1 p-1"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
