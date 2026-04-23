@@ -87,6 +87,25 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ updated: parsed.ids.length });
     }
 
+    if (parsed.scorecardId && parsed.rowId) {
+      // Row-scoped mark-as-read: used when brand user opens a row's comment
+      // drawer, so all admin-authored notifications for that row clear at once.
+      const { error, count } = await supabaseAdmin
+        .from('notifications')
+        .update({ is_read: true }, { count: 'exact' })
+        .eq('recipient_user_id', user.id)
+        .eq('scorecard_id', parsed.scorecardId)
+        .eq('row_id', parsed.rowId)
+        .eq('is_read', false);
+
+      if (error) {
+        logger.error('Failed to mark portal notifications read for row:', error);
+        return NextResponse.json({ error: 'Failed to update notifications' }, { status: 500 });
+      }
+
+      return NextResponse.json({ updated: count ?? 0 });
+    }
+
     return NextResponse.json({ updated: 0 });
   } catch (error) {
     if (error instanceof z.ZodError) {

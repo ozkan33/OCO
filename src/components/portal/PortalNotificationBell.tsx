@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface Notification {
   id: string;
@@ -17,6 +17,10 @@ interface Notification {
 }
 
 interface PortalNotificationBellProps {
+  notifications: Notification[];
+  unreadCount: number;
+  onMarkIdsRead: (ids: string[]) => Promise<void> | void;
+  onMarkAllRead: () => Promise<void> | void;
   onNotificationClick?: (payload: {
     scorecardId: string;
     rowId: string;
@@ -44,38 +48,16 @@ function timeAgo(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export default function PortalNotificationBell({ onNotificationClick }: PortalNotificationBellProps) {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+export default function PortalNotificationBell({
+  notifications,
+  unreadCount,
+  onMarkIdsRead,
+  onMarkAllRead,
+  onNotificationClick,
+}: PortalNotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const fetchNotifications = useCallback(async () => {
-    try {
-      const res = await fetch('/api/portal/notifications', { credentials: 'include' });
-      if (!res.ok) return;
-      const data = await res.json();
-      setNotifications(data.notifications || []);
-      setUnreadCount(data.unreadCount ?? 0);
-    } catch {
-      // Silently fail polling
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchNotifications();
-    intervalRef.current = setInterval(fetchNotifications, 15000);
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') fetchNotifications();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, [fetchNotifications]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -89,43 +71,18 @@ export default function PortalNotificationBell({ onNotificationClick }: PortalNo
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
-  const markAsRead = async (ids: string[]) => {
-    try {
-      await fetch('/api/portal/notifications', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ ids }),
-      });
-      setNotifications(prev =>
-        prev.map(n => (ids.includes(n.id) ? { ...n, is_read: true } : n))
-      );
-      setUnreadCount(prev => Math.max(0, prev - ids.length));
-    } catch {
-      // Silently fail
-    }
-  };
-
   const markAllRead = async () => {
     setLoading(true);
     try {
-      await fetch('/api/portal/notifications', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ markAllRead: true }),
-      });
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-      setUnreadCount(0);
-    } catch {
-      // Silently fail
+      await onMarkAllRead();
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleNotificationClick = async (notif: Notification) => {
     if (!notif.is_read) {
-      await markAsRead([notif.id]);
+      await onMarkIdsRead([notif.id]);
     }
     setIsOpen(false);
     onNotificationClick?.({

@@ -83,9 +83,11 @@ export const portalCommentSchema = z.object({
 export const markNotificationsReadSchema = z.object({
   ids: z.array(z.string().uuid()).optional(),
   markAllRead: z.boolean().optional(),
+  scorecardId: z.string().uuid().optional(),
+  rowId: z.union([z.string(), z.number()]).transform(String).optional(),
 }).refine(
-  (data) => data.ids?.length || data.markAllRead,
-  { message: 'Provide either ids or markAllRead' },
+  (data) => data.ids?.length || data.markAllRead || (data.scorecardId && data.rowId),
+  { message: 'Provide ids, markAllRead, or { scorecardId, rowId }' },
 );
 
 // Contact form submission (public landing page)
