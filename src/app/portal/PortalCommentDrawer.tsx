@@ -1345,15 +1345,15 @@ export default function PortalCommentDrawer({
       />
       <div
         ref={drawerRef}
-        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92vh] max-h-[92dvh] sm:rounded-none rounded-t-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
+        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92dvh] max-h-[92dvh] sm:rounded-none rounded-t-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight overflow-hidden"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {/* Mobile drag handle */}
-        <div className="sm:hidden pt-2 pb-1 flex justify-center">
+        <div className="sm:hidden pt-2 pb-1 flex justify-center flex-shrink-0">
           <span className="block w-10 h-1 rounded-full bg-slate-300" aria-hidden="true" />
         </div>
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 sm:px-6 py-4 sm:py-5 bg-slate-50 rounded-t-2xl sm:rounded-none">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 sm:px-6 py-3 sm:py-5 bg-slate-50 rounded-t-2xl sm:rounded-none flex-shrink-0">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             {retailerLogoUrl ? (
               /* eslint-disable-next-line @next/next/no-img-element */
@@ -1400,9 +1400,9 @@ export default function PortalCommentDrawer({
           </button>
         </div>
         {/* Body — activity list above, composer below. */}
-        <div className="flex-1 flex flex-col px-5 sm:px-6 py-4 overflow-y-auto bg-slate-100/70">
-          <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5">Activity</h3>
-          <div className="flex-1 overflow-y-auto mb-2 pr-1 -mr-1">
+        <div className="flex-1 flex flex-col min-h-0 px-5 sm:px-6 pt-4 bg-slate-100/70">
+          <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5 flex-shrink-0">Activity</h3>
+          <div className="flex-1 overflow-y-auto min-h-0 mb-2 pr-1 -mr-1 overscroll-contain">
             <CommentList
               rowComments={rowComments}
               filters={filters}
@@ -1423,7 +1423,7 @@ export default function PortalCommentDrawer({
                uploads). Brand users can't post them, so replace the composer
                with a read-only info banner and a one-tap switch back to the
                chain-note composer. */
-            <div className="mt-2 pt-4 border-t border-slate-200 bg-white rounded-b-2xl">
+            <div className="flex-shrink-0 mt-2 pt-3 pb-2 border-t border-slate-200 bg-white rounded-b-2xl">
               <div className="flex items-start gap-3 px-1 py-2">
                 <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-teal-50 border border-teal-100 flex items-center justify-center mt-0.5" aria-hidden="true">
                   <svg className="w-4 h-4 text-teal-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1451,7 +1451,7 @@ export default function PortalCommentDrawer({
             /* Composer — mirrors the admin chain-note composer exactly. */
             <form
               onSubmit={e => { e.preventDefault(); if (!composerDisabled) handleAdd(); }}
-              className="pt-4 border-t border-slate-200 bg-white rounded-b-2xl mt-2"
+              className="flex-shrink-0 pt-3 pb-2 border-t border-slate-200 bg-white rounded-b-2xl mt-2"
             >
               <div className="flex items-center gap-1.5 mb-1.5 pl-1">
                 <svg className="w-3 h-3 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
@@ -1470,7 +1470,7 @@ export default function PortalCommentDrawer({
                     ref={composerRef}
                     value={commentInput}
                     onChange={e => setCommentInput(e.target.value)}
-                    className="w-full rounded-xl px-3 py-2.5 text-sm bg-transparent resize-none min-h-[44px] focus:outline-none placeholder:text-slate-400"
+                    className="w-full rounded-xl px-3 py-2.5 text-base sm:text-sm bg-transparent resize-none min-h-[44px] focus:outline-none placeholder:text-slate-400"
                     placeholder={retailerName ? `Add a note about ${retailerName}…` : 'Write a chain-level note…'}
                     rows={commentInput.length > 60 ? 4 : 2}
                     style={{ minHeight: 44, maxHeight: 140 }}
