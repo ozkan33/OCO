@@ -1332,7 +1332,7 @@ export default function PortalCommentDrawer({
 
   return (
     <div
-      className="fixed left-0 right-0 bottom-0 top-0 z-50 flex flex-col sm:flex-row"
+      className="fixed inset-x-0 top-0 h-[100dvh] z-50 flex flex-col sm:flex-row"
       role="dialog"
       aria-modal="true"
       aria-label={`Activity for ${retailerName}`}
@@ -1345,7 +1345,7 @@ export default function PortalCommentDrawer({
       />
       <div
         ref={drawerRef}
-        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92dvh] max-h-[92dvh] sm:rounded-none rounded-t-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight overflow-hidden"
+        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92dvh] max-h-full sm:rounded-none rounded-t-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight overflow-hidden"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {/* Mobile drag handle */}
