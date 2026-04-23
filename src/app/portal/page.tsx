@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo, Fragment } from 'react';
 import dynamic from 'next/dynamic';
+import Image from 'next/image';
 import Link from 'next/link';
 import { toast, Toaster } from 'sonner';
 import PortalNotificationBell from '@/components/portal/PortalNotificationBell';
@@ -598,6 +599,7 @@ export default function PortalDashboard() {
     const inPWA = isStandalone();
     await fetch('/api/auth/log-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'logout' }) }).catch(() => {});
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    try { localStorage.removeItem('portal_last_activity_at'); } catch {}
     // The portal PWA manifest scopes to "/portal". Navigating to "/auth/login"
     // from standalone iOS opens Safari and leaves the PWA pinned to the stale
     // portal page — the user sees their old dashboard and thinks logout failed.
@@ -1266,11 +1268,12 @@ export default function PortalDashboard() {
                   >
                     {v.photo_url ? (
                       <div className="relative aspect-[4/3] bg-slate-100 overflow-hidden">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
+                        <Image
                           src={v.photo_url}
                           alt={v.store_name || 'Market visit'}
-                          className="w-full h-full object-cover cursor-pointer transition-transform duration-300 group-hover:scale-[1.03]"
+                          fill
+                          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                          className="object-cover cursor-pointer transition-transform duration-300 group-hover:scale-[1.03]"
                           onClick={() => setLightbox({ src: v.photo_url, alt: v.store_name || 'Market visit' })}
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />

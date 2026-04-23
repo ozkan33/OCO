@@ -7,14 +7,27 @@ import { authorize } from '../../../../../lib/rbac/requireCapability';
 
 const hasManageAny = (role: Role | null) => hasCapability(role, Capability.MARKET_VISITS_MANAGE_ANY);
 
-const PHOTO_URL_TTL_SECONDS = 60 * 60;
+// Signed URLs are valid for 24h; we reuse them across requests so that Next's
+// image optimizer (and the browser) can CDN-cache the same URL instead of
+// busting cache on every portal reload. Cache is process-local — a fresh
+// serverless instance will re-sign, which is fine.
+const PHOTO_URL_TTL_SECONDS = 60 * 60 * 24;
+const PHOTO_CACHE_TTL_MS = (PHOTO_URL_TTL_SECONDS - 300) * 1000; // expire slightly early
+
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
 
 async function signPhoto(path: string | null | undefined): Promise<string | null> {
   if (!path) return null;
+  const now = Date.now();
+  const cached = signedUrlCache.get(path);
+  if (cached && cached.expiresAt > now) {
+    return cached.url;
+  }
   const { data, error } = await supabaseAdmin.storage
     .from('market-photos')
     .createSignedUrl(path, PHOTO_URL_TTL_SECONDS);
   if (error || !data) return null;
+  signedUrlCache.set(path, { url: data.signedUrl, expiresAt: now + PHOTO_CACHE_TTL_MS });
   return data.signedUrl;
 }
 

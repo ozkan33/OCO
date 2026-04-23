@@ -18,6 +18,9 @@ const nextConfig = {
     remotePatterns: [
       { protocol: 'https', hostname: '*.supabase.co' },
     ],
+    // Cache optimized variants for 30 days so Supabase storage egress is hit
+    // once per image, not per view.
+    minimumCacheTTL: 60 * 60 * 24 * 30,
   },
   async headers() {
     return [
