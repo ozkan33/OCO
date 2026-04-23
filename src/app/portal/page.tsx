@@ -113,10 +113,29 @@ export default function PortalDashboard() {
   const [chainSearch, setChainSearch] = useState('');
   const [activityFilter, setActivityFilter] = useState<'all' | '7d' | '30d' | 'unread'>('all');
   const [sortMode, setSortMode] = useState<'default' | 'recent'>('default');
-  // Per-row last-seen timestamps. Persisted to localStorage so unread state
-  // survives reloads. Keyed by `${scorecardId}:${rowId}`. Note: localStorage
-  // is per-browser, so unread state does not sync across devices — acceptable
-  // for v1 since brand users typically check from one machine.
+  // Notification state is lifted from PortalNotificationBell so the row-level
+  // "Unread" filter can share a single DB-backed source of truth. This fixes a
+  // bug where clearing the bell did not clear row badges, and where the badges
+  // reappeared after logout because localStorage alone is evicted by iOS
+  // Safari ITP after 7 days of inactivity.
+  interface PortalNotification {
+    id: string;
+    actor_name: string;
+    action_type: string;
+    scorecard_id: string;
+    scorecard_name: string;
+    row_id: string;
+    row_name: string;
+    store_name?: string | null;
+    message: string;
+    is_read: boolean;
+    created_at: string;
+  }
+  const [notifications, setNotifications] = useState<PortalNotification[]>([]);
+  const [notificationsUnreadCount, setNotificationsUnreadCount] = useState(0);
+  // Per-row last-seen timestamps. Persisted to localStorage as a fallback for
+  // historical comments that predate the notifications table. DB notifications
+  // (see notifications state above) are the primary unread signal.
   const [lastSeenMap, setLastSeenMap] = useState<Record<string, number>>({});
   // Badge-level pulse cue when the drawer opens — keyed by
   // `${scorecardId}:${rowId}` and cleared after ~250ms. Purely decorative.
@@ -161,8 +180,51 @@ export default function PortalDashboard() {
     }
   }, [data?.brand, lastSeenStorageKey]);
 
+  // Fetch portal notifications. Lifted out of PortalNotificationBell so the
+  // row-level "Unread" filter and the bell stay in sync from the same source.
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await fetch('/api/portal/notifications', { credentials: 'include' });
+      if (!res.ok) return;
+      const payload = await res.json();
+      setNotifications(payload.notifications || []);
+      setNotificationsUnreadCount(payload.unreadCount ?? 0);
+    } catch {
+      // silent — polling will retry
+    }
+  }, []);
+
+  // Poll notifications the same cadence the bell used to, plus a visibility
+  // refresh so coming back to the tab reflects fresh state immediately.
+  useEffect(() => {
+    fetchNotifications();
+    const iv = setInterval(fetchNotifications, 15000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') fetchNotifications();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [fetchNotifications]);
+
+  // Set of `${scorecardId}:${rowId}` pairs with at least one unread DB
+  // notification for the current user. Authoritative across devices.
+  const unreadRowKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const n of notifications) {
+      if (!n.is_read && n.scorecard_id && n.row_id) {
+        set.add(`${n.scorecard_id}:${String(n.row_id)}`);
+      }
+    }
+    return set;
+  }, [notifications]);
+
   // Mark a row as seen "now" and persist. Called whenever the user opens a
   // thread, reveals a discussion section, or deep-links via a notification.
+  // Writes to both the DB (authoritative, cross-device) and localStorage
+  // (fallback for comments without a notifications row).
   const markRowSeen = useCallback((scorecardId: string, rowId: string) => {
     const key = `${scorecardId}:${rowId}`;
     setLastSeenMap(prev => {
@@ -170,7 +232,60 @@ export default function PortalDashboard() {
       try { window.localStorage.setItem(lastSeenStorageKey, JSON.stringify(next)); } catch {}
       return next;
     });
-  }, [lastSeenStorageKey]);
+    // Optimistically clear the server-backed unread flag for this row. Count
+    // from the current snapshot so the bell badge decrements correctly, then
+    // the next poll reconciles with server truth.
+    const clearedCount = notifications.reduce(
+      (acc, n) =>
+        acc + (!n.is_read && n.scorecard_id === scorecardId && String(n.row_id) === String(rowId) ? 1 : 0),
+      0,
+    );
+    if (clearedCount > 0) {
+      setNotifications(prev =>
+        prev.map(n =>
+          !n.is_read && n.scorecard_id === scorecardId && String(n.row_id) === String(rowId)
+            ? { ...n, is_read: true }
+            : n,
+        ),
+      );
+      setNotificationsUnreadCount(c => Math.max(0, c - clearedCount));
+    }
+    fetch('/api/portal/notifications', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ scorecardId, rowId }),
+    }).catch(() => { /* silent — next poll will reconcile */ });
+  }, [lastSeenStorageKey, notifications]);
+
+  // Bell actions (mark one, mark all) need to update the shared notifications
+  // state so the row badges and the bell stay consistent.
+  const markNotificationIds = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setNotifications(prev => prev.map(n => (ids.includes(n.id) ? { ...n, is_read: true } : n)));
+    setNotificationsUnreadCount(prev => Math.max(0, prev - ids.length));
+    try {
+      await fetch('/api/portal/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ ids }),
+      });
+    } catch { /* silent */ }
+  }, []);
+
+  const markAllNotificationsRead = useCallback(async () => {
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+    setNotificationsUnreadCount(0);
+    try {
+      await fetch('/api/portal/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ markAllRead: true }),
+      });
+    } catch { /* silent */ }
+  }, []);
 
   // When a notification deep-links to a row, clear unread and open the drawer.
   // The drawer (PortalCommentDrawer) now owns all thread reading/compose UX.
@@ -244,14 +359,16 @@ export default function PortalDashboard() {
     return max;
   }, []);
 
-  // True if the row has any comment newer than the user's last-seen mark,
-  // OR if there is activity but no last-seen mark yet.
+  // Primary signal: a DB notification flagged unread for this (user, row).
+  // Fallback: latest comment timestamp beats the local last-seen mark — kept
+  // so historical comments that predate the notifications table still surface.
   const isRowUnread = useCallback((scorecardId: string, rowId: string, comments?: Comment[]) => {
+    if (unreadRowKeys.has(`${scorecardId}:${String(rowId)}`)) return true;
     const latest = latestActivityTs(comments);
     if (latest === 0) return false;
     const seen = lastSeenMap[`${scorecardId}:${rowId}`] ?? 0;
     return latest > seen;
-  }, [lastSeenMap, latestActivityTs]);
+  }, [unreadRowKeys, lastSeenMap, latestActivityTs]);
 
   const handleEditComment = async (commentId: string, scorecardId: string, rowId: string) => {
     if (savingCommentEdit) return;
@@ -735,7 +852,13 @@ export default function PortalDashboard() {
             </div>
           </Link>
           <div className="flex items-center gap-0.5 sm:gap-3 flex-shrink-0 ml-auto pr-1 sm:pr-0">
-            <PortalNotificationBell onNotificationClick={handleNotificationClick} />
+            <PortalNotificationBell
+              notifications={notifications}
+              unreadCount={notificationsUnreadCount}
+              onMarkIdsRead={markNotificationIds}
+              onMarkAllRead={markAllNotificationsRead}
+              onNotificationClick={handleNotificationClick}
+            />
             <div className="h-5 w-px bg-slate-200 hidden sm:block" />
             <Link
               href="/portal/settings"
