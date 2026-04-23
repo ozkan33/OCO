@@ -38,7 +38,11 @@ export default function AdminHeader({ rightContent }: AdminHeaderProps) {
   const pathname = usePathname();
   const [user, setUser] = useState<any>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  // Two refs: the user button is rendered twice (phone row 1 vs desktop right
+  // side) and only one is mounted at a time depending on viewport. Outside-click
+  // close needs to succeed whichever one is active.
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
+  const desktopMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch('/api/auth/me', { credentials: 'include' })
@@ -50,7 +54,10 @@ export default function AdminHeader({ rightContent }: AdminHeaderProps) {
   useEffect(() => {
     if (!showUserMenu) return;
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowUserMenu(false);
+      const target = e.target as Node;
+      const insideMobile = mobileMenuRef.current?.contains(target);
+      const insideDesktop = desktopMenuRef.current?.contains(target);
+      if (!insideMobile && !insideDesktop) setShowUserMenu(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -79,30 +86,29 @@ export default function AdminHeader({ rightContent }: AdminHeaderProps) {
       className="bg-white/80 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-50"
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
-      <nav className="w-full px-3 sm:px-6 py-2.5 flex justify-between items-center gap-2">
-        <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
-          <Link href="/" aria-label="3Brothers Marketing home" className="flex items-center gap-2.5 group shrink-0 min-h-[44px] min-w-[44px] justify-center sm:justify-start">
+      <nav className="w-full px-3 sm:px-6 py-2 sm:py-2.5 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-2">
+        {/* Row 1 on phones, left side on tablet+: brand + (phone-only) account button.
+            On phones the nav moves to a dedicated second row below, so it can use
+            the full viewport width instead of fighting the avatar for space. */}
+        <div className="flex items-center justify-between gap-2 sm:gap-4 min-w-0 sm:flex-1">
+          <Link href="/" aria-label="3Brothers Marketing home" className="flex items-center gap-2.5 group shrink-0 min-h-[44px]">
             <LogoMark size={32} />
-            <span className="text-base font-bold text-slate-800 group-hover:text-slate-600 transition-colors hidden sm:inline">
+            <span className="text-base font-bold text-slate-800 group-hover:text-slate-600 transition-colors">
               3Brothers Marketing
             </span>
           </Link>
           <div className="hidden sm:block w-px h-5 bg-slate-200" />
-          <div className="relative flex-1 min-w-0">
+          {/* Desktop nav — inline between brand and avatar. */}
+          <div className="hidden sm:block relative flex-1 min-w-0">
             <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5 overflow-x-auto min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {navItems.map(item => {
                 const isActive = pathname === item.href;
-                // Dashboard grid doesn't fit phone viewports — hide the link
-                // under sm so phone users can't navigate into the unusable page.
-                const phoneHidden = item.href === '/admin/dashboard';
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     prefetch={true}
-                    className={`inline-flex items-center px-3 sm:px-3.5 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
-                      phoneHidden ? 'hidden sm:inline-flex ' : ''
-                    }${
+                    className={`inline-flex items-center px-3.5 py-1.5 text-sm font-medium rounded-md transition-all whitespace-nowrap ${
                       isActive
                         ? 'bg-white text-slate-800 shadow-sm'
                         : 'text-slate-500 hover:text-slate-700 hover:bg-white/60'
@@ -114,15 +120,88 @@ export default function AdminHeader({ rightContent }: AdminHeaderProps) {
                 );
               })}
             </div>
-            <div className="sm:hidden pointer-events-none absolute top-0 right-0 h-full w-5 bg-gradient-to-l from-white/90 to-transparent" aria-hidden="true" />
+          </div>
+          {/* Phone-only account button, sharing row 1 with the brand. */}
+          <div className="flex sm:hidden items-center gap-1 shrink-0">
+            {rightContent}
+            <div className="relative" ref={mobileMenuRef}>
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-all min-h-[44px]"
+                aria-label="User menu"
+                aria-expanded={showUserMenu}
+                aria-haspopup="true"
+              >
+                <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-white text-xs font-semibold tracking-tight">
+                  {initial}
+                </div>
+                <svg className={`w-3.5 h-3.5 text-slate-400 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </button>
+              {showUserMenu && (
+                <div className="absolute right-0 top-full mt-1.5 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1.5 z-50">
+                  <div className="px-3.5 py-2.5 border-b border-slate-100">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{displayName}</p>
+                    {user?.email && <p className="text-xs text-slate-400 truncate">{user.email}</p>}
+                    <p className="text-[11px] text-slate-400 mt-0.5">{roleLabel}</p>
+                  </div>
+                  <div className="py-1">
+                    <Link
+                      href="/admin/settings"
+                      onClick={() => setShowUserMenu(false)}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                      Settings
+                    </Link>
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-600 hover:bg-red-50 hover:text-red-700 transition-colors text-left"
+                    >
+                      <FiLogOut className="w-4 h-4" />
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        {/* Phone-only nav — second row, full width for legible labels. */}
+        <div className="sm:hidden relative">
+          <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {navItems.map(item => {
+              const isActive = pathname === item.href;
+              // Dashboard grid doesn't fit phone viewports — hide on phones
+              // so users can't navigate into the unusable page.
+              if (item.href === '/admin/dashboard') return null;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  prefetch={true}
+                  className={`inline-flex items-center px-3 py-2 min-h-[40px] text-sm font-medium rounded-md transition-all whitespace-nowrap ${
+                    isActive
+                      ? 'bg-white text-slate-800 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 hover:bg-white/60'
+                  }`}
+                  {...(isActive ? { 'aria-current': 'page' as const } : {})}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+          <div className="pointer-events-none absolute top-0 right-0 h-full w-5 bg-gradient-to-l from-white/90 to-transparent rounded-r-lg" aria-hidden="true" />
+        </div>
+        {/* Desktop account button, right side of row 1. */}
+        <div className="hidden sm:flex items-center gap-2 shrink-0">
           {rightContent}
-          <div className="relative" ref={menuRef}>
+          <div className="relative" ref={desktopMenuRef}>
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className="flex items-center gap-2.5 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-all"
+              className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-all"
               aria-label="User menu"
               aria-expanded={showUserMenu}
               aria-haspopup="true"
@@ -130,7 +209,7 @@ export default function AdminHeader({ rightContent }: AdminHeaderProps) {
               <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-white text-xs font-semibold tracking-tight">
                 {initial}
               </div>
-              <div className="hidden sm:flex flex-col items-start">
+              <div className="flex flex-col items-start">
                 <span className="text-sm font-medium text-slate-700 leading-tight max-w-[120px] truncate">{displayName}</span>
                 <span className="text-[10px] text-slate-400 leading-tight">{roleLabel}</span>
               </div>
