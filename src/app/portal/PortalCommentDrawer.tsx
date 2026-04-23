@@ -1336,6 +1336,7 @@ export default function PortalCommentDrawer({
       role="dialog"
       aria-modal="true"
       aria-label={`Activity for ${retailerName}`}
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
       <div
         className="absolute inset-0 bg-black bg-opacity-40 transition-opacity"
@@ -1344,12 +1345,8 @@ export default function PortalCommentDrawer({
       />
       <div
         ref={drawerRef}
-        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-screen sm:max-h-screen h-[92vh] max-h-[92dvh] sm:rounded-none rounded-t-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
-        style={{
-          paddingTop: 'env(safe-area-inset-top)',
-          paddingBottom: 'env(safe-area-inset-bottom)',
-          width: 'min(440px, 100%)',
-        }}
+        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92vh] max-h-[92dvh] sm:rounded-none rounded-t-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {/* Mobile drag handle */}
         <div className="sm:hidden pt-2 pb-1 flex justify-center">
