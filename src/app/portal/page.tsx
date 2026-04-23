@@ -12,6 +12,7 @@ import MasterScorecard from '@/components/admin/MasterScorecard';
 import ConfirmDialog from '@/components/portal/ConfirmDialog';
 import WeeklySummaryCard from '@/components/portal/WeeklySummaryCard';
 import { Capability, Role, hasCapability, isRole } from '../../../lib/rbac';
+import { isStandalone } from '@/lib/pwa/deviceDetection';
 
 // Lazy-load the upload form — only roles with MARKET_VISITS_CREATE ever open
 // it, and the form pulls EXIF + geolocation helpers that aren't worth shipping
@@ -74,6 +75,7 @@ export default function PortalDashboard() {
   const [visits, setVisits] = useState<MarketVisit[]>([]);
   const [weeklySummary, setWeeklySummary] = useState<WeeklySummaryPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [signedOut, setSignedOut] = useState(false);
   const [role, setRole] = useState<Role | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [editingVisit, setEditingVisit] = useState<MarketVisit | null>(null);
@@ -606,10 +608,49 @@ export default function PortalDashboard() {
   };
 
   const handleLogout = async () => {
+    // Capture standalone state BEFORE any fetch — a slow logout call can cause the
+    // user to background the PWA, and some iOS builds flip navigator.standalone
+    // during that transition.
+    const inPWA = isStandalone();
     await fetch('/api/auth/log-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'logout' }) }).catch(() => {});
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    // The portal PWA manifest scopes to "/portal". Navigating to "/auth/login"
+    // from standalone iOS opens Safari and leaves the PWA pinned to the stale
+    // portal page — the user sees their old dashboard and thinks logout failed.
+    // Show an in-scope "signed out" screen instead; the Sign-in button hands
+    // off to Safari explicitly.
+    if (inPWA) {
+      setSignedOut(true);
+      return;
+    }
     window.location.href = '/auth/login';
   };
+
+  if (signedOut) {
+    return (
+      <div
+        className="min-h-screen min-h-[100dvh] bg-gradient-to-b from-slate-50 to-white flex items-center justify-center px-6"
+        style={{
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
+      >
+        <div className="w-full max-w-sm text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-blue-50">
+            <LogoMark size={36} />
+          </div>
+          <h1 className="text-xl font-semibold text-slate-900 tracking-tight">You&apos;ve been signed out</h1>
+          <p className="mt-2 text-sm text-slate-600">Sign in again to continue to your portal.</p>
+          <a
+            href="/auth/login"
+            className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 active:bg-blue-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+          >
+            Sign in
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

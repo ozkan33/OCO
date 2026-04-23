@@ -42,6 +42,33 @@ function safeHostname(url: string | null | undefined): string {
   }
 }
 
+// Edge headers from Vercel / Cloudflare always return 2-letter ISO codes
+// ("US", "GB"), but ipapi.co's fallback returns full names ("United
+// States"). We normalize everything to the full name on write so the
+// dashboard doesn't show "US" and "United States" as two buckets. Names
+// follow the ipapi.co spelling so the two paths stay in sync.
+const ISO_TO_COUNTRY_NAME: Record<string, string> = {
+  US: 'United States', GB: 'United Kingdom', CA: 'Canada', IE: 'Ireland',
+  NL: 'Netherlands', DE: 'Germany', FR: 'France', ES: 'Spain', IT: 'Italy',
+  PT: 'Portugal', BE: 'Belgium', CH: 'Switzerland', AT: 'Austria',
+  SE: 'Sweden', NO: 'Norway', DK: 'Denmark', FI: 'Finland', PL: 'Poland',
+  CZ: 'Czechia', GR: 'Greece', TR: 'Turkey', RU: 'Russia', UA: 'Ukraine',
+  AU: 'Australia', NZ: 'New Zealand', JP: 'Japan', KR: 'South Korea',
+  CN: 'China', HK: 'Hong Kong', TW: 'Taiwan', SG: 'Singapore',
+  MY: 'Malaysia', TH: 'Thailand', VN: 'Vietnam', PH: 'Philippines',
+  ID: 'Indonesia', IN: 'India', PK: 'Pakistan', BD: 'Bangladesh',
+  AE: 'United Arab Emirates', SA: 'Saudi Arabia', IL: 'Israel',
+  EG: 'Egypt', ZA: 'South Africa', NG: 'Nigeria', KE: 'Kenya',
+  MX: 'Mexico', BR: 'Brazil', AR: 'Argentina', CL: 'Chile',
+  CO: 'Colombia', PE: 'Peru', VE: 'Venezuela',
+};
+
+function normalizeCountry(value: string): string {
+  if (!value) return '';
+  if (value.length === 2) return ISO_TO_COUNTRY_NAME[value.toUpperCase()] || value.toUpperCase();
+  return value;
+}
+
 // Best-effort geo resolution. Edge hosts (Vercel, Cloudflare) set these
 // headers on every request for free — far more reliable than ipapi.co,
 // which rate-limits anonymous lookups and returns empty for VPN / IPv6 /
@@ -49,11 +76,12 @@ function safeHostname(url: string | null | undefined): string {
 // present and the IP is public.
 function geoFromHeaders(request: Request): { country: string; city: string; region: string } | null {
   const h = request.headers;
-  const country =
+  const rawCountry =
     h.get('x-vercel-ip-country') ||
     h.get('cf-ipcountry') ||
     h.get('x-country-code') ||
     '';
+  const country = normalizeCountry(rawCountry);
   const city =
     decodeURIComponent(h.get('x-vercel-ip-city') || '') ||
     h.get('cf-ipcity') ||
