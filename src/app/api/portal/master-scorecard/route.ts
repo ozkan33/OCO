@@ -76,7 +76,7 @@ export async function GET(request: Request) {
     // Get brand user assignments (which scorecards + which product columns)
     const { data: assignments } = await supabaseAdmin
       .from('brand_user_assignments')
-      .select('*')
+      .select('scorecard_id, product_columns')
       .eq('user_id', user.id);
 
     if (!assignments || assignments.length === 0) {
@@ -91,7 +91,7 @@ export async function GET(request: Request) {
     const scorecardIds = assignments.map((a: any) => a.scorecard_id);
     const { data: scorecards } = await supabaseAdmin
       .from('user_scorecards')
-      .select('*')
+      .select('id, title, data')
       .in('id', scorecardIds);
 
     if (!scorecards || scorecards.length === 0) {

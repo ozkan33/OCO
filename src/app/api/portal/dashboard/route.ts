@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     // Get brand profile
     const { data: profile } = await supabaseAdmin
       .from('brand_user_profiles')
-      .select('*')
+      .select('brand_name, contact_name, created_by')
       .eq('id', user.id)
       .single();
 
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     // Get assignments
     const { data: assignments } = await supabaseAdmin
       .from('brand_user_assignments')
-      .select('*')
+      .select('id, scorecard_id, product_columns')
       .eq('user_id', user.id);
 
     if (!assignments || assignments.length === 0) {
@@ -42,7 +42,7 @@ export async function GET(request: Request) {
     const scorecardIds = assignments.map((a: any) => a.scorecard_id);
     let { data: scorecards } = await supabaseAdmin
       .from('user_scorecards')
-      .select('*')
+      .select('id, title, user_id, data')
       .in('id', scorecardIds);
 
     // If some assignments didn't match by ID (stale IDs from localStorage),
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
     if (missingAssignments.length > 0 && profile?.created_by) {
       const { data: adminScorecards } = await supabaseAdmin
         .from('user_scorecards')
-        .select('*')
+        .select('id, title, user_id, data')
         .eq('user_id', profile.created_by);
       if (adminScorecards) {
         // Try to match by product columns — if a scorecard has the same product columns, it's likely the right one
