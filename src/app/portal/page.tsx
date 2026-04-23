@@ -1043,7 +1043,7 @@ export default function PortalDashboard() {
                                   aria-expanded={isAddingNote}
                                   aria-label={isAddingNote ? 'Close add note' : 'Add a note'}
                                   title={isAddingNote ? 'Close add note' : 'Add a note'}
-                                  className={`hidden sm:inline-flex items-center justify-center w-6 h-6 min-h-[32px] min-w-[32px] sm:min-h-0 sm:min-w-0 border rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                                  className={`inline-flex items-center justify-center gap-1 border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 max-sm:ml-auto max-sm:h-7 max-sm:min-h-[32px] max-sm:px-2.5 max-sm:rounded-full max-sm:text-[11px] max-sm:font-semibold sm:w-6 sm:h-6 sm:rounded-full ${
                                     isAddingNote
                                       ? 'bg-slate-700 text-white border-slate-700 hover:bg-slate-800 hover:border-slate-800'
                                       : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 hover:text-slate-800 hover:border-slate-300'
@@ -1052,6 +1052,7 @@ export default function PortalDashboard() {
                                   <svg className={`w-3 h-3 transition-transform ${isAddingNote ? 'rotate-45' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                                   </svg>
+                                  <span className="sm:hidden">{isAddingNote ? 'Close' : 'Note'}</span>
                                 </button>
                               </div>
                               {(r.retailerInfo.priority || r.retailerInfo.buyer) && (
