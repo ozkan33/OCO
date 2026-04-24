@@ -68,6 +68,21 @@ export default function DrawerDebugOverlay({
   const svhPx = probeSvhRef.current ? Math.round(probeSvhRef.current.getBoundingClientRect().height) : 0;
   const delta = innerH - vvH;
 
+  // Per-child measurements: measure the drawer's direct element children,
+  // so we can see which one is actually pushing content down. Shows each
+  // child's offsetTop (position inside drawer) and offsetHeight.
+  const children = el ? Array.from(el.children) as HTMLElement[] : [];
+  const childInfo = children.map((c, i) => {
+    const tag = c.tagName.toLowerCase();
+    const cls = (c.className || '').split(' ').slice(0, 2).join('.') || '(no-class)';
+    return {
+      idx: i,
+      label: `${tag}.${cls}`.slice(0, 24),
+      top: Math.round(c.offsetTop),
+      h: Math.round(c.offsetHeight),
+    };
+  });
+
   return (
     <>
       {/* Hidden probes so we can read what the browser computes for dvh/svh. */}
@@ -108,6 +123,15 @@ export default function DrawerDebugOverlay({
         <div style={{ color: dBot > vvH + 4 ? '#fca5a5' : '#d1fae5' }}>
           dBot: <b>{dBot}</b>
         </div>
+        {childInfo.length > 0 && (
+          <div style={{ marginTop: 3, paddingTop: 3, borderTop: '1px solid #374151' }}>
+            {childInfo.map(c => (
+              <div key={c.idx} style={{ color: c.top > 200 ? '#fca5a5' : '#a7f3d0' }}>
+                c{c.idx} t:<b>{c.top}</b> h:<b>{c.h}</b>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </>
   );
