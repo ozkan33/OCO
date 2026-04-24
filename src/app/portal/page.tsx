@@ -133,10 +133,6 @@ export default function PortalDashboard() {
   }
   const [notifications, setNotifications] = useState<PortalNotification[]>([]);
   const [notificationsUnreadCount, setNotificationsUnreadCount] = useState(0);
-  // Per-row last-seen timestamps. Persisted to localStorage as a fallback for
-  // historical comments that predate the notifications table. DB notifications
-  // (see notifications state above) are the primary unread signal.
-  const [lastSeenMap, setLastSeenMap] = useState<Record<string, number>>({});
   // Badge-level pulse cue when the drawer opens — keyed by
   // `${scorecardId}:${rowId}` and cleared after ~250ms. Purely decorative.
   const [badgePulse, setBadgePulse] = useState<string | null>(null);
@@ -159,26 +155,6 @@ export default function PortalDashboard() {
   // on the badge; if the drawer IS open for that row we scroll/highlight
   // inside the drawer using this id.
   const [drawerHighlightId, setDrawerHighlightId] = useState<string | null>(null);
-
-  // Brand-scoped storage key for last-seen state. Scoping by brand prevents
-  // cross-pollination if two brand users share a browser.
-  const lastSeenStorageKey = useMemo(() => {
-    const brand = (data?.brand || 'unknown').toLowerCase().replace(/\s+/g, '_');
-    return `portal:lastSeen:${brand}`;
-  }, [data?.brand]);
-
-  // Hydrate lastSeen map once we know the brand.
-  useEffect(() => {
-    if (!data?.brand) return;
-    try {
-      const raw = window.localStorage.getItem(lastSeenStorageKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') setLastSeenMap(parsed as Record<string, number>);
-    } catch {
-      // ignore — corrupt JSON, treat as empty
-    }
-  }, [data?.brand, lastSeenStorageKey]);
 
   // Fetch portal notifications. Lifted out of PortalNotificationBell so the
   // row-level "Unread" filter and the bell stay in sync from the same source.
@@ -221,20 +197,11 @@ export default function PortalDashboard() {
     return set;
   }, [notifications]);
 
-  // Mark a row as seen "now" and persist. Called whenever the user opens a
-  // thread, reveals a discussion section, or deep-links via a notification.
-  // Writes to both the DB (authoritative, cross-device) and localStorage
-  // (fallback for comments without a notifications row).
+  // Mark all unread notifications for a row as read. Called whenever the user
+  // opens a thread, reveals a discussion section, or deep-links via a
+  // notification. DB is authoritative (cross-device, survives storage clears);
+  // the optimistic state update keeps the bell badge accurate until the next poll.
   const markRowSeen = useCallback((scorecardId: string, rowId: string) => {
-    const key = `${scorecardId}:${rowId}`;
-    setLastSeenMap(prev => {
-      const next = { ...prev, [key]: Date.now() };
-      try { window.localStorage.setItem(lastSeenStorageKey, JSON.stringify(next)); } catch {}
-      return next;
-    });
-    // Optimistically clear the server-backed unread flag for this row. Count
-    // from the current snapshot so the bell badge decrements correctly, then
-    // the next poll reconciles with server truth.
     const clearedCount = notifications.reduce(
       (acc, n) =>
         acc + (!n.is_read && n.scorecard_id === scorecardId && String(n.row_id) === String(rowId) ? 1 : 0),
@@ -256,7 +223,7 @@ export default function PortalDashboard() {
       credentials: 'include',
       body: JSON.stringify({ scorecardId, rowId }),
     }).catch(() => { /* silent — next poll will reconcile */ });
-  }, [lastSeenStorageKey, notifications]);
+  }, [notifications]);
 
   // Bell actions (mark one, mark all) need to update the shared notifications
   // state so the row badges and the bell stay consistent.
@@ -359,16 +326,14 @@ export default function PortalDashboard() {
     return max;
   }, []);
 
-  // Primary signal: a DB notification flagged unread for this (user, row).
-  // Fallback: latest comment timestamp beats the local last-seen mark — kept
-  // so historical comments that predate the notifications table still surface.
-  const isRowUnread = useCallback((scorecardId: string, rowId: string, comments?: Comment[]) => {
-    if (unreadRowKeys.has(`${scorecardId}:${String(rowId)}`)) return true;
-    const latest = latestActivityTs(comments);
-    if (latest === 0) return false;
-    const seen = lastSeenMap[`${scorecardId}:${rowId}`] ?? 0;
-    return latest > seen;
-  }, [unreadRowKeys, lastSeenMap, latestActivityTs]);
+  // DB notifications are the single source of truth: admin comments create an
+  // `is_read=false` row scoped to the brand user; drawer-open and bell
+  // "Mark all read" flip them to true. No local fallback — a localStorage
+  // last-seen map defaulted to 0, which made every row with any comment
+  // permanently "unread" across sessions and devices.
+  const isRowUnread = useCallback((scorecardId: string, rowId: string) => {
+    return unreadRowKeys.has(`${scorecardId}:${String(rowId)}`);
+  }, [unreadRowKeys]);
 
   const handleEditComment = async (commentId: string, scorecardId: string, rowId: string) => {
     if (savingCommentEdit) return;
@@ -953,7 +918,7 @@ export default function PortalDashboard() {
           let totalUnread = 0;
           for (const sc of scorecards) {
             for (const r of sc.retailers) {
-              if (isRowUnread(sc.id, r.rowId, r.comments)) totalUnread++;
+              if (isRowUnread(sc.id, r.rowId)) totalUnread++;
             }
           }
           const isFiltering = chainSearch.trim() !== '' || activityFilter !== 'all' || sortMode !== 'default';
@@ -1061,7 +1026,7 @@ export default function PortalDashboard() {
                 : 0;
               const visibleRetailers = sc.retailers.filter(r => {
                 if (q && !r.retailerName.toLowerCase().includes(q)) return false;
-                if (activityFilter === 'unread' && !isRowUnread(sc.id, r.rowId, r.comments)) return false;
+                if (activityFilter === 'unread' && !isRowUnread(sc.id, r.rowId)) return false;
                 if (windowMs > 0) {
                   const latest = latestActivityTs(r.comments);
                   if (latest === 0 || now - latest > windowMs) return false;
@@ -1113,7 +1078,7 @@ export default function PortalDashboard() {
                           else chainNoteCount++;
                         });
                         const rowKey = `${sc.id}:${r.rowId}`;
-                        const rowUnread = isRowUnread(sc.id, r.rowId, r.comments);
+                        const rowUnread = isRowUnread(sc.id, r.rowId);
                         const isPulsing = badgePulse === rowKey;
                         const pulseBadge = () => {
                           setBadgePulse(rowKey);

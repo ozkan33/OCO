@@ -86,14 +86,6 @@ body {
     -webkit-tap-highlight-color: transparent;
   }
   
-  /* Fix for Safari flexbox issues */
-  .flex {
-    -webkit-box-flex: 1;
-    -webkit-flex: 1;
-    -ms-flex: 1;
-    flex: 1;
-  }
-  
   /* Fix for Safari transform issues */
   .transform {
     -webkit-transform: translateZ(0);
