@@ -1365,32 +1365,30 @@ export default function PortalCommentDrawer({
   const composerDisabled = isAddingComment || !commentInput.trim();
 
   return (
-    // Outer: `fixed inset-0` fills the layout viewport; `justify-end` pins
-    // the drawer to the bottom on mobile. No height dance on the outer —
-    // the drawer carries its own height so the iOS `100dvh` vs `100vh` vs
-    // `h-[%]` cascade can't misfire.
+    // Positioning: the drawer is directly anchored via `position: fixed;
+    // left: 0; right: 0; bottom: 0` on mobile — NO outer flex parent
+    // placing it. The previous pattern (`fixed inset-0 flex justify-end`
+    // + `h-[92dvh]` child) mixed a layout-viewport-sized parent with a
+    // dvh-sized child on iOS PWA and produced mis-measured child heights
+    // (huge whitespace between the grab handle and the header). Scrim is
+    // a separate fixed sibling. On sm+ the drawer becomes a right-side
+    // full-height panel via `sm:top-0` + `sm:h-full`.
     //
     // Drawer: `h-[92dvh]` uses *dynamic viewport height* — equals the
-    // currently visible area (shrinks when the iOS URL bar shows). `svh`
-    // was wrong here: it reserves space for chrome even when chrome isn't
-    // showing, leaving a ~100px gap at the top on iPhone Safari.
-    // When the keyboard opens, the visualViewport effect above overrides
+    // currently visible area (shrinks when the iOS URL bar shows). When
+    // the keyboard opens, the visualViewport effect above overrides
     // `height` / `maxHeight` inline to `vv.height`px.
-    <div
-      className="fixed inset-0 z-50 flex flex-col justify-end sm:flex-row sm:justify-normal"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Activity for ${retailerName}`}
-    >
+    <div role="dialog" aria-modal="true" aria-label={`Activity for ${retailerName}`}>
       <DrawerDebugOverlay targetRef={drawerRef} label="portal drawer" />
+      {/* Scrim — covers the full viewport; tap to close */}
       <div
-        className="absolute inset-0 bg-black bg-opacity-40 transition-opacity"
+        className="fixed inset-0 z-40 bg-black bg-opacity-40 transition-opacity"
         onClick={onClose}
         aria-hidden="true"
       />
       <div
         ref={drawerRef}
-        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 h-[92dvh] max-h-[92dvh] sm:h-full sm:max-h-full sm:rounded-none rounded-t-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight overflow-hidden"
+        className="fixed left-0 right-0 bottom-0 z-50 w-full bg-white shadow-2xl flex flex-col border-slate-200 h-[92dvh] max-h-[92dvh] rounded-t-2xl border-t sheet-slide-up overflow-hidden sm:top-0 sm:left-auto sm:ml-auto sm:max-w-md sm:h-full sm:max-h-full sm:rounded-none sm:border-l sm:border-t-0 sm:animate-slideInRight"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {/* Mobile drag handle */}
