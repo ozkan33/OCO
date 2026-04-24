@@ -1370,11 +1370,12 @@ export default function PortalCommentDrawer({
     // the drawer carries its own height so the iOS `100dvh` vs `100vh` vs
     // `h-[%]` cascade can't misfire.
     //
-    // Drawer: `h-[92svh]` uses *small viewport height* (always the smallest
-    // visible viewport — URL bar + tab bar accounted for). When the iOS
-    // keyboard opens, the visualViewport effect above overrides `height` /
-    // `maxHeight` inline to `vv.height`px. On sm+ screens Tailwind's
-    // `sm:h-full` wins via source order and the drawer fills the side panel.
+    // Drawer: `h-[92dvh]` uses *dynamic viewport height* — equals the
+    // currently visible area (shrinks when the iOS URL bar shows). `svh`
+    // was wrong here: it reserves space for chrome even when chrome isn't
+    // showing, leaving a ~100px gap at the top on iPhone Safari.
+    // When the keyboard opens, the visualViewport effect above overrides
+    // `height` / `maxHeight` inline to `vv.height`px.
     <div
       className="fixed inset-0 z-50 flex flex-col justify-end sm:flex-row sm:justify-normal"
       role="dialog"
@@ -1389,7 +1390,7 @@ export default function PortalCommentDrawer({
       />
       <div
         ref={drawerRef}
-        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 h-[92svh] max-h-[92svh] sm:h-full sm:max-h-full sm:rounded-none rounded-t-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight overflow-hidden"
+        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 h-[92dvh] max-h-[92dvh] sm:h-full sm:max-h-full sm:rounded-none rounded-t-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight overflow-hidden"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {/* Mobile drag handle */}
