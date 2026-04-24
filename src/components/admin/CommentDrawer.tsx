@@ -1228,6 +1228,33 @@ export function SimpleCommentDrawer() {
     getCurrentData, editingScoreCard, comments, selectedCategory,
   } = useAdminGrid();
   const clientLogos = useClientLogos();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // iOS Safari keyboard handling — see PortalCommentDrawer for full rationale.
+  // Admin subtracts 56px (top-14) so the drawer stays below the sticky header.
+  useEffect(() => {
+    if (openCommentRowId === null) return;
+    const root = containerRef.current;
+    if (!root) return;
+    const vv = (typeof window !== 'undefined') ? window.visualViewport : null;
+    if (!vv) return;
+    const sync = () => {
+      const delta = window.innerHeight - vv.height;
+      if (delta > 80) {
+        root.style.setProperty('--drawer-h', `${vv.height - 56}px`);
+      } else {
+        root.style.removeProperty('--drawer-h');
+      }
+    };
+    sync();
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+    return () => {
+      vv.removeEventListener('resize', sync);
+      vv.removeEventListener('scroll', sync);
+      root.style.removeProperty('--drawer-h');
+    };
+  }, [openCommentRowId]);
 
   if (openCommentRowId === null) return null;
 
@@ -1240,12 +1267,17 @@ export function SimpleCommentDrawer() {
   const summary = computeSummary(rowComments);
 
   return (
-    // Drawer sits below the sticky AdminHeader (~56px tall, z-50) so the
-    // breadcrumb/title aren't clipped by the main nav.
-    <div className="fixed left-0 right-0 bottom-0 top-14 z-40 flex flex-col sm:flex-row">
+    // Drawer sits below the sticky AdminHeader (~56px / top-14, z-50). Height
+    // uses `var(--drawer-h, calc(100dvh - 3.5rem))` (tracks URL-bar + keyboard)
+    // with a `calc(100vh - 3.5rem)` class fallback for iOS <15.4.
+    <div
+      ref={containerRef}
+      className="fixed left-0 right-0 bottom-0 z-40 flex flex-col sm:flex-row h-[calc(100vh-3.5rem)]"
+      style={{ height: 'var(--drawer-h, calc(100dvh - 3.5rem))' }}
+    >
       <div className="absolute inset-0 bg-black bg-opacity-40 transition-opacity" onClick={handleCloseCommentModal}></div>
       <div
-        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92vh] max-h-[92dvh] rounded-t-2xl sm:rounded-t-none sm:rounded-l-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
+        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92%] max-h-full rounded-t-2xl sm:rounded-t-none sm:rounded-l-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="sm:hidden pt-2 pb-1 flex justify-center">
@@ -1324,6 +1356,32 @@ export function RetailerDrawer() {
   const [isAddingRetailerComment, setIsAddingRetailerComment] = useState(false);
   const addingRetailerRef = useRef(false);
   const clientLogos = useClientLogos();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // iOS keyboard handling — mirror of SimpleCommentDrawer above.
+  useEffect(() => {
+    if (openRetailerDrawer === null) return;
+    const root = containerRef.current;
+    if (!root) return;
+    const vv = (typeof window !== 'undefined') ? window.visualViewport : null;
+    if (!vv) return;
+    const sync = () => {
+      const delta = window.innerHeight - vv.height;
+      if (delta > 80) {
+        root.style.setProperty('--drawer-h', `${vv.height - 56}px`);
+      } else {
+        root.style.removeProperty('--drawer-h');
+      }
+    };
+    sync();
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+    return () => {
+      vv.removeEventListener('resize', sync);
+      vv.removeEventListener('scroll', sync);
+      root.style.removeProperty('--drawer-h');
+    };
+  }, [openRetailerDrawer]);
 
   if (openRetailerDrawer === null || !selectedCategory || !isScorecard(selectedCategory)) return null;
 
@@ -1428,12 +1486,16 @@ export function RetailerDrawer() {
   const summary = computeSummary(rowComments);
 
   return (
-    // Drawer sits below the sticky AdminHeader (~56px tall, z-50) so the
-    // breadcrumb/title aren't clipped by the main nav.
-    <div className="fixed left-0 right-0 bottom-0 top-14 z-40 flex flex-col sm:flex-row">
+    // Drawer sits below the sticky AdminHeader (~56px / top-14, z-50). See
+    // SimpleCommentDrawer above for the height-resolution rationale.
+    <div
+      ref={containerRef}
+      className="fixed left-0 right-0 bottom-0 z-40 flex flex-col sm:flex-row h-[calc(100vh-3.5rem)]"
+      style={{ height: 'var(--drawer-h, calc(100dvh - 3.5rem))' }}
+    >
       <div className="absolute inset-0 bg-black bg-opacity-40 transition-opacity" onClick={() => setOpenRetailerDrawer(null)}></div>
       <div
-        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92vh] max-h-[92dvh] rounded-t-2xl sm:rounded-t-none sm:rounded-l-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
+        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 sm:h-full h-[92%] max-h-full rounded-t-2xl sm:rounded-t-none sm:rounded-l-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="sm:hidden pt-2 pb-1 flex justify-center">

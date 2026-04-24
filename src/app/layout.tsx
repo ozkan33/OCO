@@ -147,7 +147,11 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        {/* `interactive-widget=resizes-content` (iOS 16.4+, Chrome 108+) makes the
+            software keyboard shrink the layout viewport so 100dvh tracks the visible
+            area when the keyboard is up. Older iOS ignores it — the comment drawers
+            fall back to a visualViewport effect. */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
         <link rel="icon" href="/logo.png" type="image/png" />
         <link rel="apple-touch-icon" href={m.appleIcon} />
         <link rel="manifest" href={m.manifest} />

@@ -1224,6 +1224,35 @@ export default function PortalCommentDrawer({
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
+  // iOS Safari keyboard tracking. The outer container uses `100dvh`, which
+  // already tracks URL-bar show/hide on iOS 15.4+. But on iOS <16.4 the
+  // software keyboard does NOT shrink the layout viewport, so 100dvh stays
+  // full-height and the composer gets buried. We detect that via
+  // visualViewport and override `--drawer-h` to the visible pixel height.
+  useEffect(() => {
+    if (!open) return;
+    const root = drawerRef.current?.parentElement as HTMLElement | null;
+    if (!root) return;
+    const vv = (typeof window !== 'undefined') ? window.visualViewport : null;
+    if (!vv) return;
+    const sync = () => {
+      const delta = window.innerHeight - vv.height;
+      if (delta > 80) {
+        root.style.setProperty('--drawer-h', `${vv.height}px`);
+      } else {
+        root.style.removeProperty('--drawer-h');
+      }
+    };
+    sync();
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+    return () => {
+      vv.removeEventListener('resize', sync);
+      vv.removeEventListener('scroll', sync);
+      root.style.removeProperty('--drawer-h');
+    };
+  }, [open]);
+
   const handleAdd = async () => {
     if (addingRef.current) return;
     if (!commentInput.trim()) return;
@@ -1331,11 +1360,20 @@ export default function PortalCommentDrawer({
   const composerDisabled = isAddingComment || !commentInput.trim();
 
   return (
+    // Height resolution order (first the browser understands wins):
+    //   1. inline `height: var(--drawer-h, 100dvh)` — modern iOS/Chrome. The
+    //      visualViewport effect above sets --drawer-h while the iOS keyboard
+    //      is up; otherwise 100dvh tracks the URL bar.
+    //   2. `h-screen` (100vh) class fallback for iOS <15.4, which doesn't
+    //      parse `dvh` and drops the inline declaration.
+    // Drawer child uses `h-[92%]` so it scales with the container — no unit
+    // mismatch between outer height and drawer height.
     <div
-      className="fixed inset-0 z-50 flex flex-col justify-end sm:flex-row"
+      className="fixed inset-x-0 bottom-0 z-50 flex flex-col sm:flex-row h-screen"
       role="dialog"
       aria-modal="true"
       aria-label={`Activity for ${retailerName}`}
+      style={{ height: 'var(--drawer-h, 100dvh)' }}
     >
       <div
         className="absolute inset-0 bg-black bg-opacity-40 transition-opacity"
@@ -1344,7 +1382,7 @@ export default function PortalCommentDrawer({
       />
       <div
         ref={drawerRef}
-        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 sm:h-full max-h-[92svh] sm:max-h-none sm:rounded-none rounded-t-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight overflow-hidden"
+        className="relative ml-auto w-full sm:max-w-md bg-white shadow-2xl flex flex-col border-slate-200 mt-auto sm:mt-0 h-[92%] sm:h-full max-h-full sm:rounded-none rounded-t-2xl sm:border-l border-t sm:border-t-0 sheet-slide-up sm:animate-slideInRight overflow-hidden"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {/* Mobile drag handle */}
