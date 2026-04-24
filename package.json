@@ -14,10 +14,12 @@
     "db": "tsx scripts/db.ts",
     "sql": "tsx scripts/sql.ts",
     "test:device": "tsx scripts/test-device-detection.mjs",
+    "check:css": "node scripts/check-css-hygiene.mjs",
     "prepare": "husky"
   },
   "lint-staged": {
-    "src/**/*.{ts,tsx}": "eslint"
+    "src/**/*.{ts,tsx}": "eslint",
+    "src/**/*.css": "node scripts/check-css-hygiene.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.50.1",
@@ -45,7 +47,6 @@
     "resend": "^6.12.0",
     "scheduler": "^0.26.0",
     "sonner": "^2.0.6",
-    "swiper": "^12.1.3",
     "zod": "^3.22.4"
   },
   "devDependencies": {

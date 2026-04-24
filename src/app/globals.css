@@ -86,11 +86,6 @@ body {
     -webkit-tap-highlight-color: transparent;
   }
   
-  /* Fix for Safari transform issues */
-  .transform {
-    -webkit-transform: translateZ(0);
-    transform: translateZ(0);
-  }
 }
 
 /* Mobile-specific improvements */

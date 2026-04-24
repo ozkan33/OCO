@@ -1,7 +1,6 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import 'swiper/css';
 import { useState, useEffect } from 'react';
 import TerritoryMap from '@/components/ui/TerritoryMap';
 import { getLandingPath, isRole } from '../../lib/rbac';

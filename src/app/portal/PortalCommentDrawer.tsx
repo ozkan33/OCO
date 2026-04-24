@@ -8,7 +8,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { parseCommentMeta } from '@/components/admin/commentMeta';
 import { useClientLogos, findLogo } from '@/components/admin/useClientLogos';
-import DrawerDebugOverlay from '@/components/dev/DrawerDebugOverlay';
 
 // ─── Portal comment shape ─────────────────────────────────────────────────
 // Matches `interface Comment` in src/app/portal/page.tsx, plus `updated_at`
@@ -1379,7 +1378,6 @@ export default function PortalCommentDrawer({
     // the keyboard opens, the visualViewport effect above overrides
     // `height` / `maxHeight` inline to `vv.height`px.
     <div role="dialog" aria-modal="true" aria-label={`Activity for ${retailerName}`}>
-      <DrawerDebugOverlay targetRef={drawerRef} label="portal drawer" />
       {/* Scrim — covers the full viewport; tap to close */}
       <div
         className="fixed inset-0 z-40 bg-black bg-opacity-40 transition-opacity"

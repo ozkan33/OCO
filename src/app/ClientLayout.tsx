@@ -8,7 +8,6 @@ import { Suspense } from 'react';
 import VisitorTracker from '@/components/VisitorTracker';
 import { getLandingPath, isRole } from '../../lib/rbac';
 import { InstallPromptProvider } from '@/lib/pwa/useInstallPrompt';
-import DebugLoader from '@/components/dev/DebugLoader';
 
 const inter = Inter({ subsets: ['latin'] });
 const dmSerif = DM_Serif_Display({ weight: '400', subsets: ['latin'], variable: '--font-display' });
@@ -125,7 +124,6 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   return (
     <InstallPromptProvider>
       <div className={`${inter.className} ${dmSerif.variable}`}>
-        <DebugLoader />
         <Suspense fallback={null}><VisitorTracker /></Suspense>
         {!isDashboard && <Header user={user} loading={loading} onAccountClick={handleAccountClick} onLogout={handleLogout} />}
         <main className="min-h-screen">

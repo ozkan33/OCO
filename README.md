@@ -50,7 +50,7 @@ Dynamic content with service highlights, territory stats (4,029 doors across MN/
 | File Processing | XLSX (Excel/CSV import/export) |
 | Image Handling | Supabase Storage, Exifr (EXIF metadata) |
 | Validation | Zod |
-| UI | Sonner (toasts), React Select, React DatePicker, React Icons, Swiper |
+| UI | Sonner (toasts), React Select, React DatePicker, React Icons |
 | Testing | Playwright |
 
 ## Prerequisites
