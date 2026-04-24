@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { parseCommentMeta } from '@/components/admin/commentMeta';
 import { useClientLogos, findLogo } from '@/components/admin/useClientLogos';
+import DrawerDebugOverlay from '@/components/dev/DrawerDebugOverlay';
 
 // ─── Portal comment shape ─────────────────────────────────────────────────
 // Matches `interface Comment` in src/app/portal/page.tsx, plus `updated_at`
@@ -1380,6 +1381,7 @@ export default function PortalCommentDrawer({
       aria-modal="true"
       aria-label={`Activity for ${retailerName}`}
     >
+      <DrawerDebugOverlay targetRef={drawerRef} label="portal drawer" />
       <div
         className="absolute inset-0 bg-black bg-opacity-40 transition-opacity"
         onClick={onClose}
