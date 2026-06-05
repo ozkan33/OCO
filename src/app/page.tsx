@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import TerritoryMap from '@/components/ui/TerritoryMap';
 import { getLandingPath, isRole } from '../../lib/rbac';
 
@@ -94,6 +94,16 @@ export default function LandingPage() {
   const [sent, setSent] = useState(false);
   const [clientLogos, setClientLogos] = useState<{ src: string; alt: string; url: string }[]>([]);
   const [retailers, setRetailers] = useState<Retailer[]>([]);
+  const heroVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Only play the first 8 seconds of the hero video, then loop back to the start.
+  const HERO_CLIP_SECONDS = 8;
+  const handleHeroTimeUpdate = () => {
+    const video = heroVideoRef.current;
+    if (video && video.currentTime >= HERO_CLIP_SECONDS) {
+      video.currentTime = 0;
+    }
+  };
 
   const handlePortalClick = async () => {
     try {
@@ -334,12 +344,20 @@ export default function LandingPage() {
         className="relative overflow-hidden text-white -mt-[72px]"
         style={{ minHeight: 'min(100svh, 780px)', paddingTop: '72px' }}
       >
-        {/* Ken Burns animated background */}
-        <div
+        {/* Background video */}
+        <video
+          ref={heroVideoRef}
           aria-hidden
-          className="absolute inset-0 bg-cover bg-center hero-ken-burns"
-          style={{ backgroundImage: "url('/hero.jpg')" }}
-        />
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          onTimeUpdate={handleHeroTimeUpdate}
+          className="absolute inset-0 w-full h-full object-cover"
+        >
+          <source src="/3BS-final.mp4" type="video/mp4" />
+        </video>
 
         {/* Dark overlay */}
         <div
