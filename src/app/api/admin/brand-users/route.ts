@@ -32,6 +32,20 @@ export async function GET(request: Request) {
     // a brand's users), but `email_sent_to` is a per-recipient log, so we
     // also fan out a per-user `last_email_sent_at` for the email indicator.
     const brandNames = Array.from(new Set((profiles || []).map((p: any) => p.brand_name).filter(Boolean)));
+
+    // Per-brand weekly-email opt-out. Absent row = enabled (default), so we only
+    // record the brands an admin has explicitly turned off.
+    const emailDisabledBrands = new Set<string>();
+    if (brandNames.length > 0) {
+      const { data: prefs } = await supabaseAdmin
+        .from('brand_email_prefs')
+        .select('brand_name, weekly_email_enabled')
+        .in('brand_name', brandNames);
+      for (const row of prefs || []) {
+        if (row.weekly_email_enabled === false) emailDisabledBrands.add(row.brand_name);
+      }
+    }
+
     const latestByBrand = new Map<string, { week_of: string; generated_at: string; generated_by: 'cron' | 'manual'; email_sent_to: Array<{ email: string; sent_at: string }> }>();
     if (brandNames.length > 0) {
       const { data: summaries } = await supabaseAdmin
@@ -73,6 +87,7 @@ export async function GET(request: Request) {
             }
           : null,
         last_email_sent_at: sentEntry ? sentEntry.sent_at : null,
+        weekly_email_enabled: !emailDisabledBrands.has(p.brand_name),
       };
     });
 

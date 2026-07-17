@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useBrands } from '@/hooks/useBrands';
 import AdminHeader from '@/components/admin/AdminHeader';
-import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiCheck, FiEye, FiEyeOff, FiClock, FiUserX, FiUserCheck, FiRefreshCw, FiX, FiMail } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiCopy, FiCheck, FiEye, FiEyeOff, FiClock, FiUserX, FiUserCheck, FiRefreshCw, FiX, FiMail, FiBell, FiBellOff } from 'react-icons/fi';
 import { Fragment } from 'react';
 import WeeklySummaryCard from '@/components/portal/WeeklySummaryCard';
 import { ALL_ROLES, Role, ROLE_LABELS } from '../../../../lib/rbac';
@@ -23,6 +23,7 @@ interface BrandUser {
   assignments: { scorecard_id: string; product_columns: string[]; brand_name: string }[];
   latest_summary: LatestSummary | null;
   last_email_sent_at: string | null;
+  weekly_email_enabled: boolean;
 }
 interface Scorecard { id: string; title: string; columns: any[]; rowCount: number; }
 
@@ -185,6 +186,36 @@ export default function ClientsPage() {
 
   const handleSendEmail = (target: EmailTarget) => {
     setEmailPickerFor(target);
+  };
+
+  // Per-brand weekly-email opt-out. Turning a brand off blocks BOTH the Monday
+  // cron auto-send and the manual per-contact send (enforced server-side in
+  // sendWeeklySummaryEmail); the toggle here just drives the DB flag + UI.
+  const [togglingBrand, setTogglingBrand] = useState<string | null>(null);
+  const toggleBrandEmails = async (brandName: string, enabled: boolean) => {
+    if (togglingBrand) return;
+    setTogglingBrand(brandName);
+    setEmailError(null);
+    // Optimistic: flip every row of this brand.
+    setBrandUsers(prev => prev.map(u => u.brand_name === brandName ? { ...u, weekly_email_enabled: enabled } : u));
+    try {
+      const res = await fetch('/api/admin/brand-email-prefs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ brand_name: brandName, enabled }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || 'Failed to update email setting');
+      }
+    } catch (err) {
+      // Roll back on failure.
+      setBrandUsers(prev => prev.map(u => u.brand_name === brandName ? { ...u, weekly_email_enabled: !enabled } : u));
+      setEmailError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setTogglingBrand(null);
+    }
   };
 
   // Edit-specific state
@@ -547,11 +578,13 @@ export default function ClientsPage() {
                         </button>
                         <button
                           onClick={() => handleSendEmail({ userId: bu.id, brand: bu.brand_name, email: bu.email, name: bu.contact_name })}
-                          disabled={emailingUserId === bu.id || !bu.is_active}
+                          disabled={emailingUserId === bu.id || !bu.is_active || bu.weekly_email_enabled === false}
                           className={`transition-colors p-1.5 rounded-md disabled:opacity-40 disabled:cursor-not-allowed hover:text-emerald-700 hover:bg-emerald-50 ${
                             bu.last_email_sent_at ? 'text-emerald-600' : 'text-slate-400'
                           }`}
-                          title={!bu.is_active
+                          title={bu.weekly_email_enabled === false
+                            ? `Weekly emails are turned OFF for ${bu.brand_name}. Turn them on (bell icon) to email this contact.`
+                            : !bu.is_active
                             ? 'Reactivate this contact to email them'
                             : bu.last_email_sent_at
                               ? `Re-email this week's AI summary to ${bu.contact_name} (last sent ${new Date(bu.last_email_sent_at).toLocaleString()})`
@@ -572,21 +605,39 @@ export default function ClientsPage() {
                         <button onClick={() => handlePermanentDelete(bu)} className="text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors p-1.5 rounded-md" title="Delete permanently"><FiTrash2 className="w-4 h-4" /></button>
                         </div>
                         {isAnchor && (
-                          <div
-                            className="hidden sm:flex items-center gap-1 pr-1.5 text-[10px] leading-none text-slate-400"
-                            title={summaryTooltip}
-                          >
-                            <span className="uppercase tracking-wide text-slate-300">AI&nbsp;summary</span>
-                            <span aria-hidden="true" className="text-slate-200">·</span>
-                            <span className={
-                              summaryStatus === 'manual' ? 'text-purple-600 font-medium'
-                              : summaryStatus === 'never' ? 'text-amber-600 font-medium'
-                              : 'text-slate-500'
-                            }>
-                              {summaryRelative}
-                              {summaryStatus === 'manual' ? ' (manual)' : ''}
-                            </span>
-                          </div>
+                          <>
+                            <div
+                              className="hidden sm:flex items-center gap-1 pr-1.5 text-[10px] leading-none text-slate-400"
+                              title={summaryTooltip}
+                            >
+                              <span className="uppercase tracking-wide text-slate-300">AI&nbsp;summary</span>
+                              <span aria-hidden="true" className="text-slate-200">·</span>
+                              <span className={
+                                summaryStatus === 'manual' ? 'text-purple-600 font-medium'
+                                : summaryStatus === 'never' ? 'text-amber-600 font-medium'
+                                : 'text-slate-500'
+                              }>
+                                {summaryRelative}
+                                {summaryStatus === 'manual' ? ' (manual)' : ''}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => toggleBrandEmails(bu.brand_name, bu.weekly_email_enabled === false)}
+                              disabled={togglingBrand === bu.brand_name}
+                              className={`flex items-center gap-1 pr-1.5 text-[10px] leading-none font-medium transition-colors disabled:opacity-50 ${
+                                bu.weekly_email_enabled === false ? 'text-rose-500 hover:text-rose-600' : 'text-emerald-600 hover:text-emerald-700'
+                              }`}
+                              title={bu.weekly_email_enabled === false
+                                ? `Weekly "Week in Review" emails are OFF for ${bu.brand_name}. No Monday auto-send or manual send will go out to this brand. Click to turn on.`
+                                : `Weekly "Week in Review" emails are ON for ${bu.brand_name} (Monday auto-send). Click to turn off.`}
+                              aria-label={`Weekly emails for ${bu.brand_name} are ${bu.weekly_email_enabled === false ? 'off' : 'on'}. Click to turn ${bu.weekly_email_enabled === false ? 'on' : 'off'}.`}
+                            >
+                              {togglingBrand === bu.brand_name
+                                ? <FiRefreshCw className="w-3 h-3 animate-spin" />
+                                : bu.weekly_email_enabled === false ? <FiBellOff className="w-3 h-3" /> : <FiBell className="w-3 h-3" />}
+                              {bu.weekly_email_enabled === false ? 'Emails off' : 'Emails on'}
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
