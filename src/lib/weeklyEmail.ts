@@ -219,6 +219,23 @@ function stripMarkdown(md: string): string {
     .trim();
 }
 
+// Per-brand weekly-email opt-out. A brand with no row in brand_email_prefs is
+// treated as enabled, so this only ever returns false when an admin has
+// explicitly turned the brand off. On query error we fail open (enabled) so a
+// prefs-table hiccup never silently swallows every brand's recap.
+export async function isBrandWeeklyEmailEnabled(brandName: string): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from('brand_email_prefs')
+    .select('weekly_email_enabled')
+    .eq('brand_name', brandName)
+    .maybeSingle();
+  if (error) {
+    logger.error(`[weekly-email] failed to read email pref for ${brandName}:`, error);
+    return true;
+  }
+  return data?.weekly_email_enabled !== false;
+}
+
 async function loadRecipients(brandName: string, targetEmail?: string): Promise<WeeklyEmailRecipient[]> {
   let query = supabaseAdmin
     .from('brand_user_profiles')
@@ -261,6 +278,13 @@ export async function sendWeeklySummaryEmail(
   if (!apiKey) {
     logger.warn('[weekly-email] RESEND_API_KEY not set — skipping send');
     return { recipients: [], sentAt: null, skipped: true, reason: 'RESEND_API_KEY not set' };
+  }
+
+  // Respect the per-brand opt-out. Blocks the Monday cron auto-send and the
+  // manual per-contact send alike — clients turned off receive nothing.
+  if (!(await isBrandWeeklyEmailEnabled(brandName))) {
+    logger.info(`[weekly-email] skipping ${brandName} — weekly email disabled for this brand`);
+    return { recipients: [], sentAt: null, skipped: true, reason: 'Weekly email is turned off for this brand' };
   }
 
   const { data: summary, error: sumErr } = await supabaseAdmin
