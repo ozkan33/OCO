@@ -22,7 +22,7 @@ export async function GET(request: Request) {
       .eq('id', user.id)
       .maybeSingle();
 
-    const brandName = profile?.brand_name || user.user_metadata?.brand;
+    const brandName = profile?.brand_name;
     if (!brandName) {
       return NextResponse.json({ history: [] });
     }

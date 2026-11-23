@@ -1,36 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Capability, ROLE_CAPABILITIES, isRole, type Role } from '../lib/rbac';
+import { features } from '../lib/features';
+import { MFA_PROOF_COOKIE, decodeJwtPayload, proofMatches, verifyProof } from '../lib/mfa/proof';
 
-// ─── Trusted device token verification (Edge-compatible HMAC-SHA256) ─────────
-async function verifyDeviceTokenEdge(signedToken: string): Promise<boolean> {
-  const dotIndex = signedToken.lastIndexOf('.');
-  if (dotIndex === -1) return false;
+// ─── MFA gate ───────────────────────────────────────────────────────────────
+// Pages need: no pending forced password change, an enrolled second factor, and
+// a signed proof bound to this user + session. Anything missing goes to the
+// onboarding page, which asks the server what the next step is (and silently
+// re-issues the proof on a trusted device). API routes enforce the same rules
+// themselves in getUserFromToken — this is routing, not the security boundary.
+async function needsOnboarding(request: NextRequest, payload: Record<string, any> | null): Promise<boolean> {
+  const meta = payload?.app_metadata ?? {};
+  if (meta.must_change_password === true) return true;
+  if (!features.ENABLE_2FA) return false;
+  if (meta.mfa_enrolled !== true) return true;
+  const proof = await verifyProof(request.cookies.get(MFA_PROOF_COOKIE)?.value);
+  return !proofMatches(proof, {
+    sub: payload?.sub ?? '',
+    sid: payload?.session_id ?? '',
+    ep: Number(meta.mfa_epoch ?? 0) || 0,
+  });
+}
 
-  const token = signedToken.substring(0, dotIndex);
-  const sig = signedToken.substring(dotIndex + 1);
-  if (!token || !sig || sig.length !== 64) return false;
-
-  const secret = process.env.JWT_SECRET || process.env.SUPABASE_JWT_SECRET || 'dev-only-insecure-signing-key';
-  if (secret === 'dev-only-insecure-signing-key' && process.env.NODE_ENV === 'production') return false;
-
-  try {
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-    );
-    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(token));
-    const expected = Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
-    // Constant-time comparison to prevent timing attacks
-    if (sig.length !== expected.length) return false;
-    let mismatch = 0;
-    for (let i = 0; i < sig.length; i++) {
-      mismatch |= sig.charCodeAt(i) ^ expected.charCodeAt(i);
-    }
-    return mismatch === 0;
-  } catch {
-    return false;
-  }
+function onboardingRedirect(request: NextRequest): NextResponse {
+  const url = new URL('/auth/change-password', request.url);
+  url.searchParams.set('next', request.nextUrl.pathname);
+  return NextResponse.redirect(url);
 }
 
 // ─── In-memory rate limiter ───────────────────────────────────────────────────
@@ -59,13 +55,7 @@ function isRateLimited(ip: string): boolean {
 
 // ─── Decode a JWT payload without verification (just to check exp & metadata)
 function decodeToken(token: string): Record<string, any> | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    return JSON.parse(atob(parts[1]));
-  } catch {
-    return null;
-  }
+  return decodeJwtPayload(token);
 }
 
 function isTokenExpired(token: string): boolean {
@@ -166,45 +156,10 @@ export async function middleware(request: NextRequest) {
   if (accessToken && !isTokenExpired(accessToken)) {
     // Token valid — now check role-based routing
     const payload = decodeToken(accessToken);
-    const rawRole = payload?.user_metadata?.role;
+    const rawRole = payload?.app_metadata?.role;
     const role: Role | null = typeof rawRole === 'string' && isRole(rawRole.toUpperCase()) ? (rawRole.toUpperCase() as Role) : null;
     const caps = role ? ROLE_CAPABILITIES[role] : null;
-    const mustChangePassword = payload?.user_metadata?.must_change_password;
-
-    const mustEnroll2FA = payload?.user_metadata?.must_enroll_2fa;
-
-    // Any user still carrying must_change_password or must_enroll_2fa flags
-    // must finish onboarding (/auth/change-password handles both steps) before
-    // reaching any protected route. Seed admins are provisioned without these
-    // flags so they skip the redirect naturally.
-    const needsOnboarding = !!(mustChangePassword || mustEnroll2FA);
-    if (
-      needsOnboarding &&
-      !pathname.startsWith('/auth/change-password') &&
-      !pathname.startsWith('/api/auth/change-password') &&
-      !pathname.startsWith('/api/auth/2fa') &&
-      !pathname.startsWith('/api/auth/log-session') &&
-      !pathname.startsWith('/api/auth/me')
-    ) {
-      return NextResponse.redirect(new URL('/auth/change-password', request.url));
-    }
-
-    // 2FA enforcement: if user has TOTP enabled but hasn't verified this session,
-    // block access to protected routes (allow auth API routes so they can verify)
-    const totpEnabled = payload?.user_metadata?.totp_enabled;
-    const has2FAVerified = request.cookies.get('2fa_verified')?.value === 'true';
-    const trustedDeviceCookie = request.cookies.get('trusted_device')?.value || '';
-    // Validate trusted device token signature (not just existence)
-    const hasTrustedDevice = trustedDeviceCookie ? await verifyDeviceTokenEdge(trustedDeviceCookie) : false;
-    if (totpEnabled && !has2FAVerified && !hasTrustedDevice && !mustChangePassword) {
-      // Only allow 2FA-related API calls and login page — NOT settings or other pages
-      const allowed = pathname.startsWith('/api/auth/2fa') ||
-        pathname.startsWith('/api/auth/log-session') ||
-        pathname.startsWith('/auth/login');
-      if (!allowed) {
-        return NextResponse.redirect(new URL('/auth/login', request.url));
-      }
-    }
+    if (await needsOnboarding(request, payload)) return onboardingRedirect(request);
 
     // /admin requires admin:access capability
     if (pathname.startsWith('/admin') && !caps?.has(Capability.ADMIN_ACCESS)) {
@@ -252,37 +207,12 @@ export async function middleware(request: NextRequest) {
     if (refreshed) {
       // Check 2FA on refreshed token too
       const refreshedPayload = decodeToken(refreshed.access_token);
-      const rawRefreshedRole = refreshedPayload?.user_metadata?.role;
+      const rawRefreshedRole = refreshedPayload?.app_metadata?.role;
       const refreshedRole: Role | null = typeof rawRefreshedRole === 'string' && isRole(rawRefreshedRole.toUpperCase())
         ? (rawRefreshedRole.toUpperCase() as Role)
         : null;
       const refreshedCaps = refreshedRole ? ROLE_CAPABILITIES[refreshedRole] : null;
-      const refreshedMustChange = refreshedPayload?.user_metadata?.must_change_password;
-      const refreshedMustEnroll = refreshedPayload?.user_metadata?.must_enroll_2fa;
-      const refreshedTotpEnabled = refreshedPayload?.user_metadata?.totp_enabled;
-      const refreshedHas2FA = request.cookies.get('2fa_verified')?.value === 'true';
-      const refreshedTrustedCookie = request.cookies.get('trusted_device')?.value || '';
-      const refreshedHasTrusted = refreshedTrustedCookie ? await verifyDeviceTokenEdge(refreshedTrustedCookie) : false;
-
-      // Same onboarding redirect as the fast path above.
-      const refreshedNeedsOnboarding = !!(refreshedMustChange || refreshedMustEnroll);
-      if (
-        refreshedNeedsOnboarding &&
-        !pathname.startsWith('/auth/change-password') &&
-        !pathname.startsWith('/api/auth/change-password') &&
-        !pathname.startsWith('/api/auth/2fa') &&
-        !pathname.startsWith('/api/auth/log-session') &&
-        !pathname.startsWith('/api/auth/me')
-      ) {
-        return NextResponse.redirect(new URL('/auth/change-password', request.url));
-      }
-
-      if (refreshedTotpEnabled && !refreshedHas2FA && !refreshedHasTrusted) {
-        const allowed = pathname.startsWith('/api/auth/2fa') || pathname.startsWith('/api/auth/log-session') || pathname.startsWith('/auth/login');
-        if (!allowed) {
-          return NextResponse.redirect(new URL('/auth/login', request.url));
-        }
-      }
+      if (await needsOnboarding(request, refreshedPayload)) return onboardingRedirect(request);
 
       // Mirror the fast-path /admin restrictions so an expired-token hop
       // doesn't sneak KAM/FSR into pages they shouldn't see.

@@ -3,9 +3,20 @@ import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
 import { logger } from '../../../../lib/logger';
 import { bestMatch } from '../../../../lib/marketVisitMatcher';
-import { Capability, Role, hasCapability, getRoleFromUser } from '../../../../lib/rbac';
+import { Capability, hasCapability, getRoleFromUser } from '../../../../lib/rbac';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+
+const HEIF_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1', 'heif']);
+
+// Identify an image from its leading bytes.
+function sniffImage(b: Buffer): { mime: string; ext: string } | null {
+  if (b.length < 12) return null;
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { mime: 'image/jpeg', ext: 'jpg' };
+  if (b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { mime: 'image/png', ext: 'png' };
+  if (b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') return { mime: 'image/webp', ext: 'webp' };
+  if (b.toString('latin1', 4, 8) === 'ftyp' && HEIF_BRANDS.has(b.toString('latin1', 8, 12))) return { mime: 'image/heic', ext: 'heic' };
+  return null;
+}
 
 const PHOTO_URL_TTL_SECONDS = 60 * 60; // 1 hour signed URLs
 
@@ -55,27 +66,15 @@ export async function POST(request: Request) {
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json({ error: 'Photo must be under 10MB' }, { status: 400 });
     }
-    // iOS Safari often sends empty or "image/heif" MIME type for HEIC photos
-    const EXT_TO_MIME: Record<string, string> = {
-      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-      webp: 'image/webp', heic: 'image/heic', heif: 'image/heic',
-    };
-    const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'];
-    const rawExt = file.name.split('.').pop()?.toLowerCase() || '';
-    let mimeType = file.type.toLowerCase();
-
-    // If MIME is empty (common on iOS), infer from file extension
-    if (!mimeType || mimeType === 'application/octet-stream') {
-      mimeType = EXT_TO_MIME[rawExt] || '';
-    }
-    // Normalize image/heif to image/heic for storage
-    if (mimeType === 'image/heif') mimeType = 'image/heic';
-
-    if (!ALLOWED_TYPES.includes(mimeType) && !ALLOWED_EXTENSIONS.includes(rawExt)) {
+    // The file's own bytes decide what it is. The client-supplied name and MIME
+    // type are ignored (iOS often sends them empty or wrong, and an attacker
+    // controls both), so nothing but a real image is ever stored or served.
+    const fileBytes = Buffer.from(await file.arrayBuffer());
+    const sniffed = sniffImage(fileBytes);
+    if (!sniffed) {
       return NextResponse.json({ error: 'Only JPEG, PNG, WebP and HEIC images are allowed' }, { status: 400 });
     }
-    // Ensure we have a valid MIME type for storage
-    if (!mimeType) mimeType = EXT_TO_MIME[rawExt] || 'image/jpeg';
+    const mimeType = sniffed.mime;
 
     // Validate date — must be YYYY-MM-DD (Chrome, Safari, Firefox all use this format)
     if (!visitDate) {
@@ -112,13 +111,11 @@ export async function POST(request: Request) {
     }
 
     // Upload to Supabase Storage
-    const ext = ALLOWED_EXTENSIONS.includes(rawExt) ? rawExt : 'jpg';
-    const storagePath = `${user.id}/${crypto.randomUUID()}.${ext}`;
+    const storagePath = `${user.id}/${crypto.randomUUID()}.${sniffed.ext}`;
 
-    const arrayBuffer = await file.arrayBuffer();
     const { error: uploadError } = await supabaseAdmin.storage
       .from('market-photos')
-      .upload(storagePath, Buffer.from(arrayBuffer), {
+      .upload(storagePath, fileBytes, {
         contentType: mimeType,
         cacheControl: '3600',
       });
@@ -169,16 +166,14 @@ export async function POST(request: Request) {
     }
 
     // ── Auto-comment: match store_name to scorecard customer rows ──
-    // Only ADMIN posts fan out to scorecard comments because the query below
-    // looks up user_scorecards by the caller's user_id — internal employees
-    // (KAM / FSR) don't own scorecards, so there is nothing to link to.
-    if (role === Role.ADMIN && storeName && note) {
+    // Scorecards are a shared team pool, so the note goes to the tagged
+    // brands' scorecards whoever created them and whichever internal role
+    // (Admin, KAM, FSR) logged the visit.
+    if (storeName && note) {
       try {
-        // Fetch scorecards for the selected brands
         const { data: matchedScorecards } = await supabaseAdmin
           .from('user_scorecards')
           .select('id, title, data')
-          .eq('user_id', user.id)
           .in('title', brands);
 
         if (matchedScorecards && matchedScorecards.length > 0) {
@@ -328,7 +323,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const readerRole = getRoleFromUser(user);
-  if (!hasCapability(readerRole, Capability.MARKET_VISITS_READ)) {
+  if (!hasCapability(readerRole, Capability.MARKET_VISITS_READ) || !hasCapability(readerRole, Capability.ADMIN_ACCESS)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -359,7 +354,10 @@ export async function GET(request: Request) {
     }
     if (search) {
       const like = `%${search.replace(/[%_]/g, m => `\\${m}`)}%`;
-      query = query.or(`store_name.ilike.${like},note.ilike.${like},address.ilike.${like}`);
+      // Quote the value: a bare comma or parenthesis in the search text would
+      // otherwise be parsed as filter syntax and fail the whole query.
+      const q = `"${like.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+      query = query.or(`store_name.ilike.${q},note.ilike.${q},address.ilike.${q}`);
     }
 
     query = query.range(offset, offset + limit - 1);

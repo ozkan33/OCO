@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../lib/apiAuth';
-import { Role, getRoleFromUser } from '../../../../lib/rbac';
+import { Capability, Role, getRoleFromUser, hasCapability } from '../../../../lib/rbac';
 
 // GET /api/brands - Distinct brand names. ADMIN sees only brands from their
 // own scorecards (their portfolio); internal roles that can create market
@@ -11,6 +11,10 @@ export async function GET(request: Request) {
   try {
     const user = await getUserFromToken(request);
     const role = getRoleFromUser(user);
+    // Internal staff only — brand clients must not see the client list.
+    if (!hasCapability(role, Capability.ADMIN_ACCESS)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     let query = supabaseAdmin
       .from('user_scorecards')

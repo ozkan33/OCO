@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { resolveAuthorInfo } from '../../../../../lib/commentAuthors';
+import { resolveBrandScorecardId } from '../../../../../lib/brandScorecards';
 import { Capability, Role } from '../../../../../lib/rbac';
 import { authorize } from '../../../../../lib/rbac/requireCapability';
 
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
     // Get assignments
     const { data: assignments } = await supabaseAdmin
       .from('brand_user_assignments')
-      .select('id, scorecard_id, product_columns')
+      .select('id, scorecard_id, product_columns, brand_name')
       .eq('user_id', user.id);
 
     if (!assignments || assignments.length === 0) {
@@ -45,34 +46,26 @@ export async function GET(request: Request) {
       .select('id, title, user_id, data')
       .in('id', scorecardIds);
 
-    // If some assignments didn't match by ID (stale IDs from localStorage),
-    // fetch ALL scorecards for the admin who created this user and match by title
+    // An assignment whose scorecard id no longer exists (stale local id,
+    // deleted scorecard) is re-pointed only at the scorecard titled with this
+    // user's own brand. Otherwise it stays unresolved and shows nothing.
     const foundIds = new Set((scorecards || []).map((sc: any) => sc.id));
-    const missingAssignments = assignments.filter((a: any) => !foundIds.has(a.scorecard_id));
-    if (missingAssignments.length > 0 && profile?.created_by) {
-      const { data: adminScorecards } = await supabaseAdmin
+    for (const missed of assignments.filter((a: any) => !foundIds.has(a.scorecard_id))) {
+      const resolvedId = await resolveBrandScorecardId(missed.scorecard_id, missed.brand_name || profile?.brand_name);
+      if (!resolvedId || foundIds.has(resolvedId)) continue;
+      const { data: match } = await supabaseAdmin
         .from('user_scorecards')
         .select('id, title, user_id, data')
-        .eq('user_id', profile.created_by);
-      if (adminScorecards) {
-        // Try to match by product columns — if a scorecard has the same product columns, it's likely the right one
-        for (const missed of missingAssignments) {
-          const wantedCols = missed.product_columns || [];
-          const match = adminScorecards.find((sc: any) => {
-            const scCols = (sc.data?.columns || []).filter((c: any) => c.isDefault !== true).map((c: any) => c.key);
-            return wantedCols.some((wc: string) => scCols.includes(wc));
-          });
-          if (match && !foundIds.has(match.id)) {
-            scorecards = [...(scorecards || []), match];
-            foundIds.add(match.id);
-            // Update the assignment to use the correct DB ID (self-healing)
-            await supabaseAdmin
-              .from('brand_user_assignments')
-              .update({ scorecard_id: match.id })
-              .eq('id', missed.id);
-          }
-        }
-      }
+        .eq('id', resolvedId)
+        .maybeSingle();
+      if (!match) continue;
+      scorecards = [...(scorecards || []), match];
+      foundIds.add(match.id);
+      await supabaseAdmin
+        .from('brand_user_assignments')
+        .update({ scorecard_id: match.id })
+        .eq('id', missed.id);
+      missed.scorecard_id = match.id;
     }
 
     // Use actual scorecard IDs from fetched scorecards (handles self-healed stale IDs)
@@ -140,8 +133,10 @@ export async function GET(request: Request) {
         const rowComments = (allComments || [])
           .filter((c: any) => c.scorecard_id === sc.id && String(c.row_id) === String(row.id))
           .map((c: any) => {
-            const isAdmin = c.user_id === sc.user_id;
             const info = c.user_id ? authorInfo.get(c.user_id) : undefined;
+            // Any internal author (Admin, KAM, FSR) gets the pill, not just
+            // whoever created the scorecard.
+            const isAdmin = info?.role ? info.role !== Role.BRAND : c.user_id === sc.user_id;
             const fallbackPrefix = (c.user_email || 'Unknown').split('@')[0];
             const author = info?.name || (fallbackPrefix.charAt(0).toUpperCase() + fallbackPrefix.slice(1));
             return { id: c.id, text: c.text, author, date: c.created_at, updated_at: c.updated_at, isOwn: c.user_id === user.id, isAdmin };

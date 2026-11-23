@@ -42,10 +42,9 @@ export default function LoginPage() {
   const [trustDevice, setTrustDevice] = useState(true);
   const [pendingRedirect, setPendingRedirect] = useState('/admin/dashboard');
 
-  // Recovery flow when the stored TOTP secret can't be decrypted on this server
-  // (key rotation / corruption). See /api/auth/2fa/reset.
-  const [totpUnreadable, setTotpUnreadable] = useState(false);
-  const [resetPassword, setResetPassword] = useState('');
+  // One-time recovery code, for a lost or unreadable authenticator.
+  const [useRecovery, setUseRecovery] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState('');
 
   // Biometric (WebAuthn / Face ID / Touch ID / Windows Hello) login.
   // Shown only when (a) the platform has a built-in authenticator AND
@@ -197,54 +196,49 @@ export default function LoginPage() {
       }
 
       // Determine redirect based on role
-      const rawRole = data.user?.user_metadata?.role;
+      const rawRole = data.user?.app_metadata?.role;
       const role = isRole(typeof rawRole === 'string' ? rawRole.toUpperCase() : null) ? (rawRole.toUpperCase() as Role) : null;
-      const mustChangePassword = data.user?.user_metadata?.must_change_password;
-      const mustEnroll2FA = data.user?.user_metadata?.must_enroll_2fa;
-      const totpEnabled = data.user?.user_metadata?.totp_enabled;
-      let redirectTo = coerceLandingForPhone(getLandingPath(role));
+      const redirectTo = coerceLandingForPhone(getLandingPath(role));
 
-      // /auth/change-password owns both onboarding steps (password + 2FA enroll)
-      // for any non-admin portal user. If either flag is set, route there —
-      // middleware enforces the same gate defensively, but routing client-side
-      // avoids a flash of /portal.
-      if (role && role !== Role.ADMIN && (mustChangePassword || mustEnroll2FA)) {
-        redirectTo = '/auth/change-password';
+      // The server decides what this session still owes: a forced password
+      // change, 2FA enrollment, a 2FA code, or nothing.
+      const obRes = await fetch('/api/auth/onboarding', { credentials: 'include' });
+      const ob = obRes.ok ? await obRes.json() : null;
+      if (!ob) {
+        setError('Authentication failed. Please try again.');
+        setLoading(false);
+        return;
       }
 
-      // Check if 2FA is required and device is not trusted.
-      // Skip the prompt when the user is on an onboarding flow — enrollment (not
-      // verification) is what they need, and change-password owns that UI.
-      if (totpEnabled && !mustChangePassword && !mustEnroll2FA) {
-        // First check if this device is already trusted (has valid cookie + DB record)
+      // /auth/change-password owns both onboarding steps (password + 2FA enroll).
+      if (ob.step === 'password' || ob.step === 'enroll') {
+        window.location.href = '/auth/change-password';
+        return;
+      }
+
+      if (ob.step === 'verify') {
+        // A recognized device gets its proof silently; otherwise ask for a code.
         const trustedRes = await fetch('/api/auth/2fa/check-trusted', { credentials: 'include' });
         const trustedData = trustedRes.ok ? await trustedRes.json() : null;
 
-        if (trustedData?.trusted) {
-          // Device is trusted — skip 2FA, log session and navigate
-          await fetch('/api/auth/log-session', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            credentials: 'include', body: JSON.stringify({ action: 'login', device_trusted: true }),
-          }).catch(() => {});
-          // PWA Phase 2: flag the first authenticated page load so the admin
-          // install banner can one-shot render. Cleared by the banner on read.
-          try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
-          if (await maybeShowPasskeyPrompt(email, redirectTo)) { setLoading(false); return; }
-          if (isSafari) { window.location.href = redirectTo; }
-          else { try { await router.push(redirectTo); } catch { window.location.href = redirectTo; } }
-          return;
-        }
-
-        // Device not trusted — check if 2FA is actually enabled and show the prompt
-        const tfaRes = await fetch('/api/auth/2fa/setup', { credentials: 'include' });
-        const tfaData = tfaRes.ok ? await tfaRes.json() : null;
-
-        if (tfaData?.enabled) {
+        if (!trustedData?.trusted) {
           setPendingRedirect(redirectTo);
           setNeeds2FA(true);
           setLoading(false);
           return;
         }
+
+        await fetch('/api/auth/log-session', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          credentials: 'include', body: JSON.stringify({ action: 'login', device_trusted: true }),
+        }).catch(() => {});
+        // PWA Phase 2: flag the first authenticated page load so the admin
+        // install banner can one-shot render. Cleared by the banner on read.
+        try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
+        if (await maybeShowPasskeyPrompt(email, redirectTo)) { setLoading(false); return; }
+        if (isSafari) { window.location.href = redirectTo; }
+        else { try { await router.push(redirectTo); } catch { window.location.href = redirectTo; } }
+        return;
       }
 
       // Log the session
@@ -284,14 +278,9 @@ export default function LoginPage() {
       });
       if (!res.ok) {
         const d = await res.json();
-        // Specific recovery path: stored secret can't be decrypted on this server.
-        // Offer the password-gated reset flow instead of leaving the user stuck.
-        if (d.code === 'TOTP_UNREADABLE') {
-          setTotpUnreadable(true);
-          setError(null);
-          setLoading(false);
-          return;
-        }
+        // Stored secret can't be decrypted on this server — a recovery code
+        // (or an admin reset) is the only way forward.
+        if (d.code === 'TOTP_UNREADABLE') setUseRecovery(true);
         setError(d.error || 'Invalid code.');
         setLoading(false);
         return;
@@ -305,30 +294,26 @@ export default function LoginPage() {
     } catch { setError('Verification failed.'); setLoading(false); }
   };
 
-  const handleReset2FA = async () => {
+  const handleRecovery = async () => {
     setError(null);
-    if (!resetPassword) { setError('Enter your password to confirm.'); return; }
+    if (!recoveryCode.trim()) { setError('Enter one of your recovery codes.'); return; }
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/2fa/reset', {
+      const res = await fetch('/api/auth/2fa/recovery', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', body: JSON.stringify({ password: resetPassword }),
+        credentials: 'include', body: JSON.stringify({ code: recoveryCode }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        setError(d.error || 'Could not reset 2FA.');
+        setError(d.error || 'That recovery code is not valid.');
         setLoading(false);
         return;
       }
-      // 2FA is now cleared server-side. Send the user through normally — no second factor,
-      // and they can re-enrol from admin settings once signed in.
-      await fetch('/api/auth/log-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'login', twofa_reset: true }) }).catch(() => {});
-      // PWA Phase 2: flag the first authenticated page load so the admin
-      // install banner can one-shot render.
-      try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
-      if (await maybeShowPasskeyPrompt(email, pendingRedirect)) { setLoading(false); return; }
-      window.location.href = pendingRedirect;
-    } catch { setError('Reset failed. Please try again.'); setLoading(false); }
+      await fetch('/api/auth/log-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ action: 'login' }) }).catch(() => {});
+      // A recovery code means the authenticator is gone — go straight to
+      // setting up a new one, then on to the app.
+      window.location.href = `/auth/change-password?action=reenroll&next=${encodeURIComponent(pendingRedirect)}`;
+    } catch { setError('Verification failed. Please try again.'); setLoading(false); }
   };
 
   const handleBiometricLogin = async () => {
@@ -340,7 +325,7 @@ export default function LoginPage() {
     try {
       const { redirect } = await signInWithPasskey(email);
       try { sessionStorage.setItem('oco:just-logged-in', '1'); } catch {}
-      // WebAuthn issues a fresh session AND sets 2fa_verified server-side, so
+      // WebAuthn issues a fresh session AND the MFA proof server-side, so
       // we just navigate. No separate log-session call here — the server has
       // all the context it needs from the verify route.
       window.location.href = coerceLandingForPhone(redirect);
@@ -433,11 +418,11 @@ export default function LoginPage() {
             className="text-2xl sm:text-3xl text-slate-900 mb-1.5 text-center"
             style={{ fontFamily: 'var(--font-display)' }}
           >
-            {totpUnreadable ? 'Reset 2FA' : needs2FA ? 'Verification' : 'Welcome Back'}
+            {needs2FA ? 'Verification' : 'Welcome Back'}
           </h1>
           <p className="text-sm text-slate-500 mb-7 text-center max-w-[280px]">
-            {totpUnreadable
-              ? 'Your authenticator enrollment could not be read. Confirm your password to reset 2FA — you can re-enroll from settings after signing in.'
+            {needs2FA && useRecovery
+              ? 'Enter one of your one-time recovery codes.'
               : needs2FA
               ? 'Enter the 6-digit code from your authenticator app.'
               : 'Sign in to access your dashboard.'}
@@ -457,28 +442,34 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* 2FA unreadable — self-service reset flow */}
-          {totpUnreadable ? (
+          {/* Recovery code instead of an authenticator code */}
+          {needs2FA && useRecovery ? (
             <div className="w-full space-y-4">
               <div>
-                <label htmlFor="reset-password" className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
-                  Password
+                <label htmlFor="recovery-code" className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
+                  Recovery Code
                 </label>
                 <input
-                  id="reset-password"
-                  type="password"
-                  value={resetPassword}
-                  onChange={e => setResetPassword(e.target.value)}
-                  placeholder="Enter your password"
+                  id="recovery-code"
+                  type="text"
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={recoveryCode}
+                  onChange={e => setRecoveryCode(e.target.value)}
+                  placeholder="XXXXX-XXXXX"
                   autoFocus
-                  className="w-full border border-slate-200 rounded-xl px-4 py-3.5 text-base text-slate-900 placeholder-slate-300 bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3.5 text-center text-lg font-mono tracking-widest uppercase text-slate-900 placeholder-slate-300 bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all"
                 />
+                <p className="text-xs text-slate-400 mt-2">
+                  Use one of the codes you saved when you set up 2FA. You will then set up a new authenticator. No codes left? Ask your administrator to reset your 2FA.
+                </p>
               </div>
 
               <button
                 type="button"
-                onClick={handleReset2FA}
-                disabled={loading || !resetPassword}
+                onClick={handleRecovery}
+                disabled={loading || !recoveryCode.trim()}
                 className="w-full py-4 min-h-[48px] bg-blue-500 text-white font-semibold rounded-xl [@media(hover:hover)]:hover:bg-blue-600 active:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 flex items-center justify-center gap-2 text-base"
               >
                 {loading && (
@@ -487,12 +478,12 @@ export default function LoginPage() {
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
                 )}
-                {loading ? 'Resetting...' : 'Reset 2FA and continue'}
+                {loading ? 'Verifying...' : 'Verify recovery code'}
               </button>
 
               <button
                 type="button"
-                onClick={() => { setTotpUnreadable(false); setResetPassword(''); setError(null); }}
+                onClick={() => { setUseRecovery(false); setRecoveryCode(''); setError(null); }}
                 className="w-full py-2.5 text-sm text-slate-500 hover:text-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg flex items-center justify-center gap-1.5"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -531,7 +522,7 @@ export default function LoginPage() {
                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 mt-0.5 h-4 w-4"
                 />
                 <div>
-                  <p className="text-sm font-medium text-slate-700">Trust this device for 30 days</p>
+                  <p className="text-sm font-medium text-slate-700">Trust this device for 90 days</p>
                   <p className="text-xs text-slate-400 mt-0.5">You won&apos;t need to enter a code next time.</p>
                 </div>
               </label>
@@ -552,10 +543,18 @@ export default function LoginPage() {
                 {loading ? 'Verifying...' : 'Verify'}
               </button>
 
+              <button
+                type="button"
+                onClick={() => { setUseRecovery(true); setError(null); }}
+                className="w-full py-1 text-sm text-slate-500 hover:text-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg"
+              >
+                Lost your authenticator? Use a recovery code
+              </button>
+
               {/* Back to login */}
               <button
                 type="button"
-                onClick={() => { setNeeds2FA(false); setTotpCode(''); setError(null); }}
+                onClick={() => { setNeeds2FA(false); setUseRecovery(false); setTotpCode(''); setError(null); }}
                 className="w-full py-2.5 text-sm text-slate-500 hover:text-slate-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg flex items-center justify-center gap-1.5"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

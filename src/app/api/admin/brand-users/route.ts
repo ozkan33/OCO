@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../lib/apiAuth';
 import { createBrandUserSchema } from '../../../../../lib/schemas';
 import { features } from '../../../../../lib/features';
+import { resolveBrandScorecardId } from '../../../../../lib/brandScorecards';
 
 // GET /api/admin/brand-users - List all brand users
 export async function GET(request: Request) {
@@ -118,19 +119,16 @@ export async function POST(request: Request) {
       email,
       password: tempPassword,
       email_confirm: true,
-      user_metadata: {
+      // Authorization and onboarding state live in app_metadata (server-only).
+      // mfa_enrolled=false sends the user through /auth/change-password, which
+      // owns both the password and the 2FA enrollment steps.
+      app_metadata: {
         role,
-        brand: brandName,
-        name: contactName,
         must_change_password: features.ENABLE_FORCED_PASSWORD_CHANGE,
-        // Flag the new user for mandatory 2FA enrollment. Cleared when verify succeeds.
-        // Middleware uses this to force them through /auth/change-password (which owns
-        // the enrollment UI) even after password change commits. Without this, a failed
-        // 2FA setup call leaves totp_enabled=false + must_change_password=false and the
-        // 2FA gate in middleware has nothing to latch onto → user lands on /portal
-        // unprotected. See supabase/migrations/20240101000027_brand_users_must_enroll_2fa.sql.
-        must_enroll_2fa: features.ENABLE_2FA,
+        mfa_enrolled: false,
+        mfa_epoch: 0,
       },
+      user_metadata: { role, brand: brandName, name: contactName },
     });
 
     if (createError) {
@@ -162,34 +160,27 @@ export async function POST(request: Request) {
     }
 
     // Create scorecard assignments with validated IDs
+    let warning: string | undefined;
     if (scorecardAssignments.length > 0) {
-      // Fetch admin's scorecards to validate/resolve IDs
-      const { data: adminScorecards } = await supabaseAdmin
-        .from('user_scorecards')
-        .select('id, title, data')
-        .eq('user_id', admin.id);
-
-      const assignmentRows = scorecardAssignments.map(a => {
-        let resolvedId = a.scorecardId;
-        const directMatch = (adminScorecards || []).find((sc: any) => sc.id === a.scorecardId);
-        if (!directMatch || !directMatch.data?.rows?.length) {
-          const realMatch = (adminScorecards || []).find((sc: any) => {
-            if (!sc.data?.rows?.length) return false;
-            const scCols = (sc.data?.columns || []).filter((c: any) => c.isDefault !== true).map((c: any) => c.key);
-            return a.productColumns.length > 0 && a.productColumns.some((pc: string) => scCols.includes(pc));
-          });
-          if (realMatch) resolvedId = realMatch.id;
-        }
-        return {
+      const assignmentRows = [];
+      for (const a of scorecardAssignments) {
+        const resolvedId = await resolveBrandScorecardId(a.scorecardId, brandName);
+        if (!resolvedId) continue;
+        assignmentRows.push({
           user_id: newUser.user.id,
           brand_name: brandName,
           scorecard_id: resolvedId,
           product_columns: a.productColumns,
           assigned_by: admin.id,
-        };
-      });
+        });
+      }
 
-      await supabaseAdmin.from('brand_user_assignments').insert(assignmentRows);
+      const { error: assignErr } = assignmentRows.length > 0
+        ? await supabaseAdmin.from('brand_user_assignments').insert(assignmentRows)
+        : { error: null };
+      if (assignErr || assignmentRows.length < scorecardAssignments.length) {
+        warning = 'The user was created, but one or more scorecards could not be assigned. Open the user and set Scorecard Access again.';
+      }
     }
 
     return NextResponse.json({
@@ -198,6 +189,7 @@ export async function POST(request: Request) {
       contactName,
       brandName,
       tempPassword, // Shown once to admin
+      ...(warning ? { warning } : {}),
     }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Failed to create user' }, { status: 500 });

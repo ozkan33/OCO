@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../lib/apiAuth';
 import { logger } from '../../../../../lib/logger';
+import { Capability, getRoleFromUser, hasCapability } from '../../../../../lib/rbac';
 import { markNotificationsReadSchema } from '../../../../../lib/schemas';
 import { z } from 'zod';
 
@@ -9,9 +10,9 @@ import { z } from 'zod';
 export async function GET(request: Request) {
   try {
     const user = await getUserFromToken(request);
-    const role = user.user_metadata?.role;
+    const role = getRoleFromUser(user);
 
-    if (role !== 'ADMIN') {
+    if (!hasCapability(role, Capability.SCORECARD_WRITE)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -52,9 +53,9 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const user = await getUserFromToken(request);
-    const role = user.user_metadata?.role;
+    const role = getRoleFromUser(user);
 
-    if (role !== 'ADMIN') {
+    if (!hasCapability(role, Capability.SCORECARD_WRITE)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

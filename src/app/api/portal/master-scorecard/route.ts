@@ -111,8 +111,6 @@ export async function GET(request: Request) {
       const allowedProductCols = assignment?.product_columns || [];
       const columns = sc.data?.columns || [];
       const rows = sc.data?.rows || [];
-      const brandName = sc.title || 'Untitled';
-
       // Filter to only the product columns this client is allowed to see
       const productCols = columns.filter((col: any) =>
         !SYSTEM_COLUMNS.has(col.key) &&
@@ -121,12 +119,18 @@ export async function GET(request: Request) {
       );
 
       if (productCols.length === 0) continue;
-      brandNames.push(brandName);
 
       const retailerCol = columns.find(
         (col: any) => col.name === 'Chain Name' || col.name === 'Customer' || col.name === 'Customer Name' || col.name === 'Retailer Name' || col.key === 'name'
       );
       if (!retailerCol) continue;
+
+      // Cells are keyed by brand name, so two scorecards with the same title
+      // would overwrite each other — give later ones a numbered name.
+      const baseName = sc.title || 'Untitled';
+      let brandName = baseName;
+      for (let n = 2; brandNames.includes(brandName); n++) brandName = `${baseName} (${n})`;
+      brandNames.push(brandName);
 
       for (const row of rows) {
         const retailer = String(row[retailerCol.key] || '').trim();

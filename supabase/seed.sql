@@ -9,7 +9,7 @@ VALUES (
   'dev@test.local',
   crypt('devpassword', gen_salt('bf')),
   now(), now(), now(),
-  '{"provider":"email","providers":["email"]}',
+  '{"provider":"email","providers":["email"],"role":"ADMIN"}',
   '{"name":"Dev User","role":"ADMIN"}'
 ) ON CONFLICT DO NOTHING;
 

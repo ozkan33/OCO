@@ -110,6 +110,26 @@ export default function PortalSettingsPage() {
           </div>
 
           <div className="px-6 py-5">
+            <div className="flex items-start justify-between gap-4 pb-5 mb-5 border-b border-slate-100">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">Two-Factor Authentication</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Required for every account. Recognized devices are not asked for a code for 90 days.</p>
+              </div>
+              <div className="flex-shrink-0 flex flex-col gap-2">
+                <a
+                  href="/auth/change-password?action=reenroll&next=/portal/settings"
+                  className="px-3 py-1.5 text-xs font-medium text-center text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  New authenticator
+                </a>
+                <a
+                  href="/auth/change-password?action=recovery-codes&next=/portal/settings"
+                  className="px-3 py-1.5 text-xs font-medium text-center text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  New recovery codes
+                </a>
+              </div>
+            </div>
             {!passkeySupported ? (
               <div className="text-sm text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-4 py-3.5">
                 Biometric sign-in isn&apos;t available on this device or browser. Install the PWA on your phone or use a modern browser to enable Face ID, Touch ID, or Windows Hello.

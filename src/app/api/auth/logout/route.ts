@@ -1,19 +1,13 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
+import { clearProof } from '../../../../../lib/mfa/session';
 
 export async function POST(request: Request) {
-  // Revoke the session on Supabase so the token can't be reused even if stolen
+  // Revoke this session on Supabase so the token can't be reused even if stolen
   try {
     const cookieHeader = request.headers.get('Cookie') ?? '';
     const accessToken = cookieHeader.match(/supabase-access-token=([^;]+)/)?.[1] ?? null;
-
-    if (accessToken) {
-      const { data: { user } } = await supabaseAdmin.auth.getUser(accessToken);
-      if (user?.id) {
-        // Invalidates all sessions for this user on the Supabase side
-        await supabaseAdmin.auth.admin.signOut(user.id);
-      }
-    }
+    if (accessToken) await supabaseAdmin.auth.admin.signOut(accessToken, 'local');
   } catch {
     // Non-fatal — always clear cookies regardless of Supabase call result
   }
@@ -31,7 +25,9 @@ export async function POST(request: Request) {
   response.cookies.set('supabase-access-token',  '', clear);
   response.cookies.set('supabase-refresh-token', '', clear);
   response.cookies.set('supabase-user',          '', clear);
-  response.cookies.set('2fa_verified',           '', clear);
+  // The trusted_device cookie is deliberately kept: it is what lets this
+  // browser skip the code prompt at the next sign-in.
+  clearProof(response);
 
   return response;
 }

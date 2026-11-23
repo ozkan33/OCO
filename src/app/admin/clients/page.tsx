@@ -35,6 +35,7 @@ export default function ClientsPage() {
   const [scorecards, setScorecards] = useState<Scorecard[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState<string | null>(null);
+  const [twoFaReset, setTwoFaReset] = useState<'idle' | 'confirm' | 'working' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
 
   // Form state (shared between create and edit)
@@ -316,6 +317,7 @@ export default function ClientsPage() {
     setEditResetPassword(false);
     setEditNewPassword('');
     setShowPassword(false);
+    setTwoFaReset('idle');
     setError(null);
     setShowEditModal(bu.id);
   };
@@ -352,6 +354,16 @@ export default function ClientsPage() {
       setShowEditModal(null); resetForm();
     } catch { setError('Update failed.'); }
     setSubmitting(false);
+  };
+
+  const handleReset2FA = async () => {
+    if (!showEditModal) return;
+    if (twoFaReset !== 'confirm') { setTwoFaReset('confirm'); return; }
+    setTwoFaReset('working');
+    try {
+      const res = await fetch(`/api/admin/brand-users/${showEditModal}/reset-2fa`, { method: 'POST', credentials: 'include' });
+      setTwoFaReset(res.ok ? 'done' : 'error');
+    } catch { setTwoFaReset('error'); }
   };
 
   const handleDelete = async (id: string) => {
@@ -1081,6 +1093,26 @@ export default function ClientsPage() {
                     </div>
                     <p className="text-xs text-amber-600 mt-2">User will be forced to change this password on next login.</p>
                   </div>
+                )}
+              </div>
+
+              {/* Reset 2FA */}
+              <div className="border border-slate-200 rounded-lg px-4 py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-700">Reset two-factor authentication</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {twoFaReset === 'done'
+                      ? 'Done. The user is signed out everywhere and must set up a new authenticator at next sign-in.'
+                      : twoFaReset === 'error'
+                      ? 'Reset failed. Please try again.'
+                      : 'For a lost phone with no recovery codes. Removes their authenticator, recovery codes, trusted devices and passkeys.'}
+                  </p>
+                </div>
+                {twoFaReset !== 'done' && (
+                  <button type="button" onClick={handleReset2FA} disabled={twoFaReset === 'working'}
+                    className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50">
+                    {twoFaReset === 'confirm' ? 'Confirm reset' : twoFaReset === 'working' ? 'Resetting...' : 'Reset 2FA'}
+                  </button>
                 )}
               </div>
 

@@ -32,9 +32,9 @@ export async function POST(request: Request) {
     response.cookies.set('supabase-user', JSON.stringify({
       id:    user.id,
       email: user.email,
-      role:  user.user_metadata?.role ?? 'VENDOR',
+      role:  user.app_metadata?.role ?? 'VENDOR',
       brand: user.user_metadata?.brand ?? null,
-      must_change_password: user.user_metadata?.must_change_password ?? false,
+      must_change_password: user.app_metadata?.must_change_password ?? false,
     }), cookieOptions);
 
     return response;

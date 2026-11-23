@@ -41,7 +41,7 @@ export async function GET(request: Request) {
         const { data: { user: authUser } } = await supabaseAdmin.auth.admin.getUserById(uid as string);
         if (authUser) {
           userMap[uid as string] = {
-            role: authUser.user_metadata?.role || 'UNKNOWN',
+            role: authUser.app_metadata?.role || 'UNKNOWN',
             name: authUser.user_metadata?.name || authUser.user_metadata?.display_name || authUser.email?.split('@')[0] || '',
           };
         }

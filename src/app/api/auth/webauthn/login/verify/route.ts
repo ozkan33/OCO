@@ -4,6 +4,7 @@ import { verifyAuthenticationResponse } from '@simplewebauthn/server';
 import { supabaseAdmin } from '../../../../../../../lib/supabaseAdmin';
 import { logger } from '../../../../../../../lib/logger';
 import { getLandingPath, getRoleFromUser } from '../../../../../../../lib/rbac';
+import { issueProof, sessionIdFromToken } from '../../../../../../../lib/mfa/session';
 import { RP_ID, RP_ORIGIN } from '@/lib/webauthn/config';
 import {
   challengeCookieOptions,
@@ -178,16 +179,16 @@ export async function POST(request: Request) {
     JSON.stringify({
       id: otpData.user.id,
       email: otpData.user.email,
-      role: otpData.user.user_metadata?.role ?? 'VENDOR',
+      role: otpData.user.app_metadata?.role ?? 'VENDOR',
       brand: otpData.user.user_metadata?.brand ?? null,
-      must_change_password: otpData.user.user_metadata?.must_change_password ?? false,
+      must_change_password: otpData.user.app_metadata?.must_change_password ?? false,
     }),
     sessionCookieOpts,
   );
 
-  // Spec non-negotiable #6: WebAuthn is full MFA. Same cookie semantics as the
-  // TOTP verify route — 7-day session-scoped 2fa_verified flag.
-  res.cookies.set('2fa_verified', 'true', sessionCookieOpts);
+  // Spec non-negotiable #6: WebAuthn (with user verification) is full MFA, so
+  // it earns the same proof as a TOTP code, bound to the session just minted.
+  await issueProof(res, otpData.user, sessionIdFromToken(otpData.session.access_token), 'webauthn');
 
   return res;
 }

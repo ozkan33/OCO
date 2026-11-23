@@ -6,15 +6,32 @@ import { getUserFromToken } from '../../../../../../lib/apiAuth';
 import { features } from '../../../../../../lib/features';
 import { decryptSecretDetailed, encryptSecret, signDeviceToken, TotpDecryptError } from '../../../../../../lib/crypto';
 import { logger } from '../../../../../../lib/logger';
+import { getProof, getSessionId, issueProof, refreshSessionCookies, sessionCookieOpts } from '../../../../../../lib/mfa/session';
+import { isFreshFactor } from '../../../../../../lib/mfa/proof';
+import {
+  TRUSTED_DEVICE_TTL_S, hashDeviceToken, lockMessage, lockedForSeconds, logMfaEvent,
+  registerFailure, replaceRecoveryCodes, setAppMetadata,
+} from '../../../../../../lib/mfa/state';
 
-// POST /api/auth/2fa/verify - Verify TOTP code (during setup or login)
+function deviceNameFromUA(ua: string): string {
+  if (ua.includes('iPhone')) return 'iPhone';
+  if (ua.includes('iPad')) return 'iPad';
+  if (ua.includes('Android')) return 'Android';
+  if (ua.includes('Windows')) return 'Windows PC';
+  if (ua.includes('Mac')) return 'Mac';
+  if (ua.includes('Linux')) return 'Linux PC';
+  return 'Unknown Device';
+}
+
+// POST /api/auth/2fa/verify - Verify a TOTP code.
+//   • Sign-in / step-up: checks the active secret and issues the MFA proof.
+//   • Enrollment: checks the pending secret, activates it, returns recovery codes.
 export async function POST(request: Request) {
   if (!features.ENABLE_2FA) return NextResponse.json({ success: true, verified: true, skipped: true });
   try {
-    // ── Step 1: Authenticate the user via session cookie ──────────────────────
     let user;
     try {
-      user = await getUserFromToken(request);
+      user = await getUserFromToken(request, { aal: 1 });
     } catch (authErr) {
       logger.warn('2FA verify: session auth failed —', authErr instanceof Error ? authErr.message : authErr);
       return NextResponse.json(
@@ -23,36 +40,53 @@ export async function POST(request: Request) {
       );
     }
 
-    // ── Step 2: Validate the TOTP code input ─────────────────────────────────
-    const { code, trustDevice } = await request.json();
+    const { code, trustDevice, enroll } = await request.json();
 
-    if (!code || typeof code !== 'string' || code.length !== 6) {
+    if (!code || typeof code !== 'string' || !/^\d{6}$/.test(code)) {
       return NextResponse.json({ error: 'Invalid code. Enter the 6-digit code from your authenticator.' }, { status: 400 });
     }
 
-    // ── Step 3: Look up the stored TOTP secret ───────────────────────────────
-    const { data: totpData, error: totpErr } = await supabaseAdmin
+    const { data: row, error: rowErr } = await supabaseAdmin
       .from('user_totp_secrets')
-      .select('encrypted_secret, is_enabled')
+      .select('encrypted_secret, pending_secret, is_enabled, locked_until')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
 
-    if (totpErr || !totpData) {
-      logger.warn('2FA verify: no TOTP secret found for user', user.id);
+    if (rowErr || !row) {
+      logger.warn('2FA verify: no TOTP row for user', user.id);
       return NextResponse.json({ error: '2FA not set up. Please set up 2FA first.' }, { status: 400 });
     }
 
-    // ── Step 4: Decrypt and verify ───────────────────────────────────────────
+    const lockedFor = lockedForSeconds(row.locked_until);
+    if (lockedFor > 0) {
+      return NextResponse.json({ error: lockMessage(lockedFor), code: 'LOCKED' }, { status: 429 });
+    }
+
+    // Enrollment when nothing is active yet, or when the caller explicitly asks
+    // to activate a pending replacement.
+    const enrolling = !!row.pending_secret && (!row.is_enabled || enroll === true);
+    if (enrolling && row.is_enabled && !isFreshFactor(await getProof(request, user))) {
+      return NextResponse.json(
+        { error: 'Confirm a code from your current authenticator first.', code: 'STEP_UP_REQUIRED' },
+        { status: 403 },
+      );
+    }
+
+    const stored: string | null = enrolling ? row.pending_secret : row.encrypted_secret;
+    if (!stored) {
+      return NextResponse.json({ error: '2FA not set up. Please set up 2FA first.' }, { status: 400 });
+    }
+
     let secret: string;
     let needsRewrap = false;
     try {
-      ({ secret, needsRewrap } = decryptSecretDetailed(totpData.encrypted_secret));
+      ({ secret, needsRewrap } = decryptSecretDetailed(stored));
     } catch (decryptErr) {
       if (decryptErr instanceof TotpDecryptError) {
         logger.error('2FA verify: secret unreadable under all known keys for user', user.id);
         return NextResponse.json(
           {
-            error: 'Your 2FA enrollment is unreadable on this server. Reset 2FA and re-enroll.',
+            error: 'Your authenticator enrollment cannot be read on this server. Use a recovery code, or ask your administrator to reset your 2FA.',
             code: 'TOTP_UNREADABLE',
           },
           { status: 409 },
@@ -62,116 +96,104 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unable to verify code. Please try again.' }, { status: 500 });
     }
 
-    // otplib v13 defaults epochTolerance to 0 (no clock-skew window), which makes
-    // verification fail whenever the code crosses a 30-second period boundary between
-    // the phone generating it and the server checking it. Allow ±30s (one period) —
-    // the standard window used by most 2FA implementations.
+    // otplib v13 defaults epochTolerance to 0; allow ±30s (one period) of clock skew.
     const result = await verifyTOTP({ token: code, secret, epochTolerance: 30 });
 
-    if (!result.valid) {
-      return NextResponse.json({ error: 'Invalid code. Please try again.' }, { status: 400 });
-    }
+    const fail = async (reason: string) => {
+      const nowLocked = await registerFailure(user.id);
+      await logMfaEvent(user.id, nowLocked > 0 ? 'totp_locked' : 'totp_failed', request, { reason });
+      return nowLocked > 0
+        ? NextResponse.json({ error: lockMessage(nowLocked), code: 'LOCKED' }, { status: 429 })
+        : NextResponse.json({ error: 'Invalid code. Please try again.' }, { status: 400 });
+    };
 
-    // Re-encrypt under the current primary key when the stored ciphertext was legacy /
-    // encrypted under a deprecated key. Completes the migration transparently on the
-    // next successful verify, so users don't have to re-enroll after key rotation.
-    if (needsRewrap) {
-      await supabaseAdmin
+    if (!result.valid) return fail('invalid');
+
+    const step: number = (result as { timeStep?: number }).timeStep ?? Math.floor(Date.now() / 30000);
+    const nextSecret = needsRewrap ? encryptSecret(secret) : stored;
+    const success = { last_used_step: step, failed_attempts: 0, locked_until: null };
+    let recoveryCodes: string[] | undefined;
+
+    if (enrolling) {
+      const { error: actErr } = await supabaseAdmin
         .from('user_totp_secrets')
-        .update({ encrypted_secret: encryptSecret(secret) })
+        .update({
+          ...success,
+          encrypted_secret: nextSecret,
+          pending_secret: null,
+          is_enabled: true,
+          verified_at: new Date().toISOString(),
+        })
         .eq('user_id', user.id);
-    }
+      if (actErr) {
+        logger.error('2FA verify: activation failed —', actErr.message);
+        return NextResponse.json({ error: 'Could not finish 2FA setup. Please try again.' }, { status: 500 });
+      }
 
-    // ── Step 5: If first verification (setup), enable 2FA ────────────────────
-    if (!totpData.is_enabled) {
-      await supabaseAdmin
-        .from('user_totp_secrets')
-        .update({ is_enabled: true, verified_at: new Date().toISOString() })
-        .eq('user_id', user.id);
-
-      // Update profile — clear must_enroll_2fa now that the user has a working
-      // authenticator. Until this point middleware keeps forcing /auth/change-password.
       await supabaseAdmin
         .from('brand_user_profiles')
         .update({ totp_enabled: true, must_enroll_2fa: false })
         .eq('id', user.id);
-
-      // Update user metadata — both flags in one write. must_enroll_2fa is the
-      // middleware-side gate; totp_enabled is what the login page uses to decide
-      // whether to prompt for the 6-digit code on subsequent sign-ins.
-      await supabaseAdmin.auth.admin.updateUserById(user.id, {
-        user_metadata: {
-          ...user.user_metadata,
-          totp_enabled: true,
-          must_enroll_2fa: false,
-        },
-      });
+      await setAppMetadata(user.id, { mfa_enrolled: true });
+      recoveryCodes = await replaceRecoveryCodes(user.id);
+      await logMfaEvent(user.id, row.is_enabled ? 'reenrolled' : 'enrolled', request);
+    } else {
+      // A code is accepted once: the update only lands if this time step is
+      // newer than the last accepted one.
+      const { data: claimed, error: claimErr } = await supabaseAdmin
+        .from('user_totp_secrets')
+        .update({ ...success, ...(needsRewrap ? { encrypted_secret: nextSecret } : {}) })
+        .eq('user_id', user.id)
+        .or(`last_used_step.is.null,last_used_step.lt.${step}`)
+        .select('user_id');
+      if (claimErr) {
+        logger.error('2FA verify: step claim failed —', claimErr.message);
+        return NextResponse.json({ error: 'Unable to verify code. Please try again.' }, { status: 500 });
+      }
+      if (!claimed || claimed.length === 0) {
+        await logMfaEvent(user.id, 'totp_replay', request);
+        return NextResponse.json(
+          { error: 'That code was already used. Wait for the next code and try again.' },
+          { status: 400 },
+        );
+      }
+      await logMfaEvent(user.id, 'totp_verified', request);
     }
 
-    const response: any = { success: true, verified: true };
+    const body: Record<string, unknown> = { success: true, verified: true };
+    if (recoveryCodes) body.recoveryCodes = recoveryCodes;
 
-    // ── Step 6: Trust this device if requested ───────────────────────────────
+    let trusted: { signedToken: string } | null = null;
     if (trustDevice && features.ENABLE_TRUSTED_DEVICES) {
-      const deviceToken = crypto.randomBytes(32).toString('hex');
-      const ua = request.headers.get('user-agent') || 'Unknown';
-      const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown';
-
-      // Parse a friendly device name from user agent
-      let deviceName = 'Unknown Device';
-      if (ua.includes('Windows')) deviceName = 'Windows PC';
-      else if (ua.includes('Mac')) deviceName = 'Mac';
-      else if (ua.includes('iPhone')) deviceName = 'iPhone';
-      else if (ua.includes('Android')) deviceName = 'Android';
-      else if (ua.includes('iPad')) deviceName = 'iPad';
-      else if (ua.includes('Linux')) deviceName = 'Linux PC';
-
-      // Sign the token BEFORE inserting — if signing fails (missing JWT_SECRET), the row would be
-      // an orphan that check-trusted can never validate. Fail fast instead.
-      let signedToken: string;
       try {
-        signedToken = signDeviceToken(deviceToken);
-      } catch (signErr) {
-        logger.error('2FA verify: signDeviceToken failed —', signErr);
-        const res = NextResponse.json({ ...response, trustDeviceError: 'Could not save trusted device; you may need to re-verify next time.' });
-        res.cookies.set('2fa_verified', 'true', {
-          httpOnly: true, secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 7,
+        const deviceToken = crypto.randomBytes(32).toString('hex');
+        const signedToken = signDeviceToken(deviceToken);
+        const ua = request.headers.get('user-agent') || 'Unknown';
+        const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown';
+        const { error: insertErr } = await supabaseAdmin.from('trusted_devices').insert({
+          user_id: user.id,
+          token_hash: hashDeviceToken(deviceToken),
+          device_name: deviceNameFromUA(ua),
+          user_agent: ua.substring(0, 500),
+          ip_address: ip,
+          expires_at: new Date(Date.now() + TRUSTED_DEVICE_TTL_S * 1000).toISOString(),
         });
-        return res;
+        if (insertErr) throw new Error(insertErr.message);
+        trusted = { signedToken };
+        await logMfaEvent(user.id, 'device_trusted', request);
+      } catch (trustErr) {
+        logger.error('2FA verify: could not trust device —', trustErr instanceof Error ? trustErr.message : trustErr);
+        body.trustDeviceError = 'Could not save trusted device; you may need to re-verify next time.';
       }
-
-      const { error: insertErr } = await supabaseAdmin.from('trusted_devices').insert({
-        user_id: user.id,
-        device_token: deviceToken,
-        device_name: deviceName,
-        user_agent: ua.substring(0, 500),
-        ip_address: ip,
-        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days
-      });
-
-      if (insertErr) {
-        logger.error('2FA verify: trusted_devices insert failed —', insertErr.message);
-        const res = NextResponse.json({ ...response, trustDeviceError: 'Could not save trusted device; you may need to re-verify next time.' });
-        res.cookies.set('2fa_verified', 'true', {
-          httpOnly: true, secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 7,
-        });
-        return res;
-      }
-
-      const res = NextResponse.json(response);
-      const cookieOpts = { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' as const, path: '/' };
-      res.cookies.set('trusted_device', signedToken, { ...cookieOpts, maxAge: 30 * 24 * 60 * 60 });
-      res.cookies.set('2fa_verified', 'true', { ...cookieOpts, maxAge: 60 * 60 * 24 * 7 }); // 7 day session
-      return res;
     }
 
-    // No trusted device — set session-level 2FA verified cookie
-    const res = NextResponse.json(response);
-    res.cookies.set('2fa_verified', 'true', {
-      httpOnly: true, secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 7, // 7 days
-    });
+    const res = NextResponse.json(body);
+    await issueProof(res, user, getSessionId(request), 'totp');
+    if (trusted) {
+      res.cookies.set('trusted_device', trusted.signedToken, { ...sessionCookieOpts, maxAge: TRUSTED_DEVICE_TTL_S });
+    }
+    // Enrollment changed app_metadata; middleware reads it from the token.
+    if (enrolling) await refreshSessionCookies(request, res);
     return res;
   } catch (err) {
     logger.error('2FA verify: unexpected error —', err);

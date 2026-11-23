@@ -8,7 +8,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   try {
     const user = await getUserFromToken(request);
     const role = getRoleFromUser(user);
-    if (!hasCapability(role, Capability.SCORECARD_READ)) {
+    if (!hasCapability(role, Capability.SCORECARD_READ) || !hasCapability(role, Capability.ADMIN_ACCESS)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const { id } = await params;

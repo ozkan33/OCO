@@ -41,8 +41,8 @@ async function status() {
 
   // Count auth users by role
   const { data: users } = await db.auth.admin.listUsers();
-  const admins = users?.users?.filter(u => u.user_metadata?.role === 'ADMIN') || [];
-  const brands = users?.users?.filter(u => u.user_metadata?.role === 'BRAND') || [];
+  const admins = users?.users?.filter(u => u.app_metadata?.role === 'ADMIN') || [];
+  const brands = users?.users?.filter(u => u.app_metadata?.role === 'BRAND') || [];
   console.log(`\n  Auth users: ${users?.users?.length || 0} total (${admins.length} admin, ${brands.length} brand)`);
   console.log('');
 }
@@ -70,7 +70,7 @@ async function clean() {
 
   // Delete brand users from auth
   const { data: users } = await db.auth.admin.listUsers();
-  const brandUsers = users?.users?.filter(u => u.user_metadata?.role === 'BRAND') || [];
+  const brandUsers = users?.users?.filter(u => u.app_metadata?.role === 'BRAND') || [];
   for (const u of brandUsers) {
     await db.auth.admin.deleteUser(u.id);
     console.log(`  ✓ Deleted auth user: ${u.email}`);
