@@ -113,7 +113,7 @@ async function roleFromCookie(request: Request): Promise<string | null> {
   if (!token) return null;
   try {
     const { data } = await supabaseAdmin.auth.getUser(token);
-    return (data.user?.user_metadata?.role as string) ?? null;
+    return (data.user?.app_metadata?.role as string) ?? null;
   } catch {
     return null;
   }

@@ -328,7 +328,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const readerRole = getRoleFromUser(user);
-  if (!hasCapability(readerRole, Capability.MARKET_VISITS_READ)) {
+  if (!hasCapability(readerRole, Capability.MARKET_VISITS_READ) || !hasCapability(readerRole, Capability.ADMIN_ACCESS)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

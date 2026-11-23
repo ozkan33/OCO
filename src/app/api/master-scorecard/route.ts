@@ -144,7 +144,7 @@ export async function GET(request: Request) {
   try {
     const user = await getUserFromToken(request);
     const role = getRoleFromUser(user);
-    if (!hasCapability(role, Capability.MASTER_SCORECARD_READ)) {
+    if (!hasCapability(role, Capability.MASTER_SCORECARD_READ) || !hasCapability(role, Capability.ADMIN_ACCESS)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

@@ -57,6 +57,7 @@ async function main() {
 
   const { data: created } = await admin.auth.admin.createUser({
     email: testEmail, password: tempPassword, email_confirm: true,
+    app_metadata: { role: 'BRAND' },
     user_metadata: { role: 'BRAND', brand: 'Test Brand', name: 'Test User', must_change_password: false },
   });
   const userId = created.user.id;

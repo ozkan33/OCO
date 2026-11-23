@@ -4,10 +4,13 @@ import { getUserFromToken } from '../../../../../../lib/apiAuth';
 import { features } from '../../../../../../lib/features';
 import { verifyDeviceToken } from '../../../../../../lib/crypto';
 import { logger } from '../../../../../../lib/logger';
+import { getSessionId, issueProof, sessionCookieOpts } from '../../../../../../lib/mfa/session';
+import { hashDeviceToken } from '../../../../../../lib/mfa/state';
 
-// GET /api/auth/2fa/check-trusted — check if the current device has a valid trusted_device cookie
-// Fails closed: any unexpected error returns { trusted: false } (200), never a 500. The login flow
-// treats trusted=false as "show the 2FA prompt", which is the safe default.
+// GET /api/auth/2fa/check-trusted — if this browser holds a trusted-device token
+// that belongs to the signed-in user, issue the MFA proof without a code prompt.
+// Fails closed: any unexpected error returns { trusted: false } (200), which the
+// sign-in flow treats as "show the 2FA prompt".
 export async function GET(request: NextRequest) {
   if (!features.ENABLE_2FA) return NextResponse.json({ trusted: true });
   if (!features.ENABLE_TRUSTED_DEVICES) return NextResponse.json({ trusted: false });
@@ -15,10 +18,14 @@ export async function GET(request: NextRequest) {
   try {
     let user;
     try {
-      user = await getUserFromToken(request);
+      user = await getUserFromToken(request, { aal: 1 });
     } catch (err) {
       logger.warn('check-trusted: session auth failed —', err instanceof Error ? err.message : err);
       return NextResponse.json({ trusted: false, reason: 'no_session' });
+    }
+
+    if (user.app_metadata?.mfa_enrolled !== true) {
+      return NextResponse.json({ trusted: false, reason: 'not_enrolled' });
     }
 
     const signedToken = request.cookies.get('trusted_device')?.value || '';
@@ -31,14 +38,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ trusted: false, reason: 'bad_signature' });
     }
 
-    const dotIndex = signedToken.lastIndexOf('.');
-    const rawToken = signedToken.substring(0, dotIndex);
+    const rawToken = signedToken.substring(0, signedToken.lastIndexOf('.'));
 
     const { data, error } = await supabaseAdmin
       .from('trusted_devices')
       .select('id, expires_at')
       .eq('user_id', user.id)
-      .eq('device_token', rawToken)
+      .eq('token_hash', hashDeviceToken(rawToken))
       .maybeSingle();
 
     if (error) {
@@ -50,7 +56,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ trusted: false, reason: 'not_in_db' });
     }
 
-    if (new Date(data.expires_at) < new Date()) {
+    const remainingS = Math.floor((new Date(data.expires_at).getTime() - Date.now()) / 1000);
+    if (remainingS <= 0) {
       await supabaseAdmin.from('trusted_devices').delete().eq('id', data.id);
       return NextResponse.json({ trusted: false, reason: 'expired' });
     }
@@ -64,13 +71,9 @@ export async function GET(request: NextRequest) {
       });
 
     const res = NextResponse.json({ trusted: true });
-    res.cookies.set('2fa_verified', 'true', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-    });
+    await issueProof(res, user, getSessionId(request), 'trusted_device');
+    // Keep the cookie alive for as long as the server-side record is.
+    res.cookies.set('trusted_device', signedToken, { ...sessionCookieOpts, maxAge: remainingS });
     return res;
   } catch (err) {
     logger.error('check-trusted: unexpected error —', err);

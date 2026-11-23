@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../../../lib/apiAuth';
+import { revokeUserAccess } from '../../../../../../../lib/mfa/state';
 
 // POST /api/admin/brand-users/[id]/reset-password - Admin resets a brand user's password
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -17,9 +18,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 });
     }
 
-    // Supabase's admin API replaces user_metadata wholesale. Fetch the
-    // existing metadata and merge so we don't strip role/brand/totp_enabled
-    // and silently disable middleware's 2FA + role-based routing.
     const { data: { user: target }, error: fetchError } = await supabaseAdmin.auth.admin.getUserById(id);
     if (fetchError || !target) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -27,15 +25,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const { error } = await supabaseAdmin.auth.admin.updateUserById(id, {
       password: newPassword,
-      user_metadata: {
-        ...(target.user_metadata ?? {}),
-        must_change_password: true,
-      },
+      app_metadata: { must_change_password: true },
     });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Whoever knew the old password is signed out everywhere.
+    await revokeUserAccess(id);
 
     // Update profile
     await supabaseAdmin

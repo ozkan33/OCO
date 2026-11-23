@@ -23,5 +23,11 @@ JWT_SECRET=your_jwt_secret_here
 # Rotating this value will invalidate all existing 2FA enrollments — users must re-enroll.
 TOTP_ENCRYPTION_KEY=your_64_char_hex_key_here
 
+# Optional. Signs the "second factor verified" cookie and hashes recovery codes.
+# Falls back to JWT_SECRET when unset. Decide before go-live and do not change it
+# afterwards: changing it (or JWT_SECRET, when this is unset) signs everyone out of
+# 2FA and invalidates every saved recovery code.
+# MFA_PROOF_SECRET=
+
 # Database URL (PostgreSQL connection string from Supabase dashboard > Settings > Database)
 DATABASE_URL=your_database_url_here 

@@ -47,7 +47,13 @@ export async function GET(request: Request) {
       .limit(50);
 
     if (role === Role.BRAND) {
-      const brandName = user.user_metadata?.brand;
+      // Brand comes from the server-owned profile, never user_metadata (user-writable).
+      const { data: profile } = await supabaseAdmin
+        .from('brand_user_profiles')
+        .select('brand_name')
+        .eq('id', user.id)
+        .maybeSingle();
+      const brandName = profile?.brand_name;
       if (!brandName) {
         return NextResponse.json([]);
       }

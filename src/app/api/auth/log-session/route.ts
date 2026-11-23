@@ -7,7 +7,7 @@ import { features } from '../../../../../lib/features';
 export async function POST(request: Request) {
   if (!features.ENABLE_LOGIN_TRACKING) return NextResponse.json({ success: true, skipped: true });
   try {
-    const user = await getUserFromToken(request);
+    const user = await getUserFromToken(request, { aal: 1 });
     const { action } = await request.json();
     const ua = request.headers.get('user-agent') || '';
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown';
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
         ip_address: ip,
         user_agent: ua.substring(0, 500),
         device_trusted: hasTrustedCookie,
-        two_factor_used: !!user.user_metadata?.totp_enabled,
+        two_factor_used: user.app_metadata?.mfa_enrolled === true,
       });
     } else if (action === 'logout') {
       // Update the most recent session for this user with logout time

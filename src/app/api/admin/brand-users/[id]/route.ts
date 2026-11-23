@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../../lib/apiAuth';
 import { updateBrandUserSchema } from '../../../../../../lib/schemas';
+import { revokeUserAccess } from '../../../../../../lib/mfa/state';
 
 // PUT /api/admin/brand-users/[id] - Update a brand user
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -47,6 +48,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       await supabaseAdmin.auth.admin.updateUserById(id, { ban_duration: 'none' });
     } else if (isActive === false) {
       await supabaseAdmin.auth.admin.updateUserById(id, { ban_duration: '876000h' });
+      await revokeUserAccess(id);
     }
 
     // Update scorecard assignments if provided
@@ -136,6 +138,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       // Soft delete — deactivate and ban
       await supabaseAdmin.from('brand_user_profiles').update({ is_active: false }).eq('id', id);
       await supabaseAdmin.auth.admin.updateUserById(id, { ban_duration: '876000h' });
+      // A ban only stops new tokens; this cuts off the ones already issued.
+      await revokeUserAccess(id);
     }
 
     return NextResponse.json({ success: true });

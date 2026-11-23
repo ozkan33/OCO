@@ -6,14 +6,20 @@ import { getUserFromToken } from '../../../../../../lib/apiAuth';
 import { features } from '../../../../../../lib/features';
 import { encryptSecret } from '../../../../../../lib/crypto';
 import { logger } from '../../../../../../lib/logger';
+import { getProof } from '../../../../../../lib/mfa/session';
+import { isFreshFactor } from '../../../../../../lib/mfa/proof';
+import { logMfaEvent, recoveryCodesRemaining } from '../../../../../../lib/mfa/state';
 
-// POST /api/auth/2fa/setup - Generate TOTP secret and QR code
+// POST /api/auth/2fa/setup - Start (re-)enrollment: generate a pending TOTP secret.
+// The pending secret never replaces the active one until /verify confirms a code
+// from it. If a factor is already active, the caller must have passed a second
+// factor in the last 10 minutes — a password alone cannot swap the authenticator.
 export async function POST(request: Request) {
   if (!features.ENABLE_2FA) return NextResponse.json({ enabled: false, skipped: true });
 
   let user;
   try {
-    user = await getUserFromToken(request);
+    user = await getUserFromToken(request, { aal: 1 });
   } catch (authErr) {
     logger.warn('2FA setup POST: auth failed —', authErr instanceof Error ? authErr.message : authErr);
     return NextResponse.json(
@@ -22,10 +28,21 @@ export async function POST(request: Request) {
     );
   }
 
-  // Encrypt the secret up-front so we can distinguish a server-config failure
-  // (TOTP_ENCRYPTION_KEY missing/invalid in prod) from a transient DB failure.
-  // The original catch-all returned a generic 500 that the UI rendered as
-  // "Failed to set up 2FA", which left admins with nothing to act on.
+  const { data: existing } = await supabaseAdmin
+    .from('user_totp_secrets')
+    .select('is_enabled')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (existing?.is_enabled && !isFreshFactor(await getProof(request, user))) {
+    return NextResponse.json(
+      { error: 'Confirm a code from your current authenticator first.', code: 'STEP_UP_REQUIRED' },
+      { status: 403 },
+    );
+  }
+
+  // Encrypt up-front so a server-config failure (TOTP_ENCRYPTION_KEY missing)
+  // is distinguishable from a transient DB failure.
   let secret: string;
   let ciphertext: string;
   try {
@@ -46,26 +63,19 @@ export async function POST(request: Request) {
   }
 
   try {
-    const email = user.email || 'user';
-    const otpauth = generateURI({ issuer: '3Brothers Marketing', label: email, secret });
-
-    // Generate QR code as data URL
+    const otpauth = generateURI({ issuer: '3Brothers Marketing', label: user.email || 'user', secret });
     const qrDataUrl = await QRCode.toDataURL(otpauth, { width: 256, margin: 2 });
 
-    // Store the secret encrypted at rest
     const { error: upsertError } = await supabaseAdmin
       .from('user_totp_secrets')
-      .upsert({
-        user_id: user.id,
-        encrypted_secret: ciphertext,
-        is_enabled: false,
-        created_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' });
+      .upsert({ user_id: user.id, pending_secret: ciphertext }, { onConflict: 'user_id' });
 
     if (upsertError) {
       logger.error('2FA setup POST: upsert failed —', upsertError.message);
       return NextResponse.json({ error: 'Failed to save 2FA secret. Please try again.' }, { status: 500 });
     }
+
+    await logMfaEvent(user.id, existing?.is_enabled ? 'reenroll_started' : 'enroll_started', request);
 
     return NextResponse.json({
       qrCode: qrDataUrl,
@@ -78,67 +88,20 @@ export async function POST(request: Request) {
   }
 }
 
-// DELETE /api/auth/2fa/setup - Disable 2FA for current user (requires password)
-export async function DELETE(request: Request) {
-  if (!features.ENABLE_2FA) return NextResponse.json({ enabled: false });
-  try {
-    const user = await getUserFromToken(request);
-
-    // Require password verification before disabling 2FA
-    const { password } = await request.json().catch(() => ({ password: null }));
-    if (!password) {
-      return NextResponse.json({ error: 'Password is required to disable 2FA' }, { status: 400 });
-    }
-
-    // Verify the password using Supabase auth
-    const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } },
-    );
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email: user.email!,
-      password,
-    });
-    if (authError) {
-      return NextResponse.json({ error: 'Incorrect password' }, { status: 403 });
-    }
-
-    // Remove TOTP secret
-    await supabaseAdmin
-      .from('user_totp_secrets')
-      .delete()
-      .eq('user_id', user.id);
-
-    // Remove trusted devices
-    await supabaseAdmin
-      .from('trusted_devices')
-      .delete()
-      .eq('user_id', user.id);
-
-    // Update user metadata
-    await supabaseAdmin.auth.admin.updateUserById(user.id, {
-      user_metadata: { ...user.user_metadata, totp_enabled: false },
-    });
-
-    // Update brand_user_profiles if exists (PK is `id`, referencing auth.users.id)
-    await supabaseAdmin
-      .from('brand_user_profiles')
-      .update({ totp_enabled: false })
-      .eq('id', user.id);
-
-    return NextResponse.json({ success: true, enabled: false });
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+// DELETE /api/auth/2fa/setup - 2FA is mandatory for every role, so it cannot be
+// switched off. Replacing the authenticator goes through POST (with step-up).
+export async function DELETE() {
+  return NextResponse.json(
+    { error: 'Two-factor authentication is required and cannot be disabled. You can set up a new authenticator instead.' },
+    { status: 403 },
+  );
 }
 
-// GET /api/auth/2fa/setup - Check if 2FA is enabled for current user
+// GET /api/auth/2fa/setup - 2FA status for the current user
 export async function GET(request: Request) {
   if (!features.ENABLE_2FA) return NextResponse.json({ enabled: false });
   try {
-    const user = await getUserFromToken(request);
+    const user = await getUserFromToken(request, { aal: 1 });
 
     const { data } = await supabaseAdmin
       .from('user_totp_secrets')
@@ -149,6 +112,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       enabled: data?.is_enabled || false,
       verifiedAt: data?.verified_at || null,
+      recoveryCodesRemaining: data?.is_enabled ? await recoveryCodesRemaining(user.id) : 0,
     });
   } catch (err) {
     logger.warn('2FA setup GET: auth failed —', err instanceof Error ? err.message : err);

@@ -9,9 +9,11 @@ export function getRoleFromMetadata(metadata: unknown): Role | null {
   return isRole(upper) ? upper : null;
 }
 
-export function getRoleFromUser(user: { user_metadata?: Record<string, unknown> | null } | null | undefined): Role | null {
+// Role lives in app_metadata: user_metadata is writable by the user themselves
+// via the public Supabase auth API, so it must never decide authorization.
+export function getRoleFromUser(user: { app_metadata?: Record<string, unknown> | null } | null | undefined): Role | null {
   if (!user) return null;
-  return getRoleFromMetadata(user.user_metadata);
+  return getRoleFromMetadata(user.app_metadata);
 }
 
 export function hasCapability(role: Role | null | undefined, cap: Capability): boolean {
