@@ -87,9 +87,10 @@ export async function PUT(
     // Sync note changes to auto-generated comments linked by market_visit_id.
     // Using the id avoids the same-day prefix-match bug where two visits on
     // the same date clobbered each other's auto-comment text.
-    if (body.note !== undefined) {
+    // The comment text embeds the date and store, so those edits resync it too.
+    if (body.note !== undefined || body.store_name !== undefined || body.visit_date !== undefined) {
       try {
-        const newText = `[Market Visit — ${updated.visit_date} · ${updated.store_name || ''}] ${body.note}`;
+        const newText = `[Market Visit — ${updated.visit_date} · ${updated.store_name || ''}] ${updated.note || ''}`;
         const { data: updatedComments, error: syncErr } = await supabaseAdmin
           .from('comments')
           .update({ text: newText, updated_at: new Date().toISOString() })
@@ -101,7 +102,9 @@ export async function PUT(
         // Notify brand users that the note was edited. Mirrors POST fan-out
         // but only on parent-row comments — subgrid comments share the same
         // text and would just duplicate the notification per store.
-        const parentComments = (updatedComments || []).filter((c) => !c.parent_row_id);
+        const parentComments = body.note !== undefined
+          ? (updatedComments || []).filter((c) => !c.parent_row_id)
+          : [];
         if (parentComments.length > 0) {
           const actor = auth.user!;
           const adminName = actor.user_metadata?.name || actor.email?.split('@')[0] || 'Admin';

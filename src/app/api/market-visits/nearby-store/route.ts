@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../lib/apiAuth';
 import { logger } from '../../../../../lib/logger';
+import { Capability, getRoleFromUser, hasCapability } from '../../../../../lib/rbac';
 
 // GET /api/market-visits/nearby-store?lat=..&lng=..&radius_m=..
 // Finds the closest previously-visited store (by any admin) within radius.
@@ -15,7 +16,7 @@ export async function GET(request: Request) {
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  if (user.user_metadata?.role !== 'ADMIN') {
+  if (!hasCapability(getRoleFromUser(user), Capability.MARKET_VISITS_CREATE)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

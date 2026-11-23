@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../../../../../../lib/supabaseAdmin';
 import { getUserFromToken } from '../../../../../../lib/apiAuth';
 import { updateBrandUserSchema } from '../../../../../../lib/schemas';
 import { revokeUserAccess } from '../../../../../../lib/mfa/state';
+import { resolveBrandScorecardId } from '../../../../../../lib/brandScorecards';
 
 // PUT /api/admin/brand-users/[id] - Update a brand user
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -53,44 +54,34 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 
     // Update scorecard assignments if provided
     if (scorecardAssignments !== undefined) {
-      // Delete existing assignments
-      await supabaseAdmin.from('brand_user_assignments').delete().eq('user_id', id);
+      const brand = brandName || (await supabaseAdmin.from('brand_user_profiles').select('brand_name').eq('id', id).single()).data?.brand_name;
 
-      // Insert new assignments with validated scorecard IDs
-      if (scorecardAssignments.length > 0) {
-        const brand = brandName || (await supabaseAdmin.from('brand_user_profiles').select('brand_name').eq('id', id).single()).data?.brand_name;
-
-        // Fetch all admin's scorecards to validate IDs and resolve mismatches
-        const { data: adminScorecards } = await supabaseAdmin
-          .from('user_scorecards')
-          .select('id, title, data')
-          .eq('user_id', admin.id);
-
-        const rows = scorecardAssignments.map(a => {
-          let resolvedId = a.scorecardId;
-
-          // Check if this ID matches a real scorecard with data
-          const directMatch = (adminScorecards || []).find((sc: any) => sc.id === a.scorecardId);
-          if (!directMatch || !directMatch.data?.rows?.length) {
-            // ID doesn't match or scorecard is empty — find the real one by product columns
-            const realMatch = (adminScorecards || []).find((sc: any) => {
-              if (!sc.data?.rows?.length) return false; // skip empty scorecards
-              const scCols = (sc.data?.columns || []).filter((c: any) => c.isDefault !== true).map((c: any) => c.key);
-              return a.productColumns.length > 0 && a.productColumns.some((pc: string) => scCols.includes(pc));
-            });
-            if (realMatch) resolvedId = realMatch.id;
-          }
-
-          return {
-            user_id: id,
-            brand_name: brand || '',
-            scorecard_id: resolvedId,
-            product_columns: a.productColumns,
-            assigned_by: admin.id,
-          };
+      // Resolve every id BEFORE touching the existing assignments, so a bad
+      // id leaves the user's current access intact instead of wiping it.
+      const rows = [];
+      for (const a of scorecardAssignments) {
+        const resolvedId = await resolveBrandScorecardId(a.scorecardId, brand);
+        if (!resolvedId) {
+          return NextResponse.json(
+            { error: 'One of the selected scorecards could not be found. Reload the page and try again.' },
+            { status: 400 },
+          );
+        }
+        rows.push({
+          user_id: id,
+          brand_name: brand || '',
+          scorecard_id: resolvedId,
+          product_columns: a.productColumns,
+          assigned_by: admin.id,
         });
+      }
 
-        await supabaseAdmin.from('brand_user_assignments').insert(rows);
+      await supabaseAdmin.from('brand_user_assignments').delete().eq('user_id', id);
+      if (rows.length > 0) {
+        const { error: assignErr } = await supabaseAdmin.from('brand_user_assignments').insert(rows);
+        if (assignErr) {
+          return NextResponse.json({ error: 'Failed to save scorecard access. Please try again.' }, { status: 500 });
+        }
       }
     }
 

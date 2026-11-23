@@ -187,21 +187,25 @@ export async function GET(request: Request) {
     for (const sc of scorecards) {
       const columns = sc.data?.columns || [];
       const rows = sc.data?.rows || [];
-      const brandName = sc.title || 'Untitled';
-
       // Find product columns (non-system, non-default)
       const productCols = columns.filter(
         (col: any) => !SYSTEM_COLUMNS.has(col.key) && !col.isDefault
       );
 
       if (productCols.length === 0) continue;
-      brandNames.push(brandName);
 
       // Find the retailer name column
       const retailerCol = columns.find(
         (col: any) => col.name === 'Chain Name' || col.name === 'Customer' || col.name === 'Customer Name' || col.name === 'Retailer Name' || col.key === 'name'
       );
       if (!retailerCol) continue;
+
+      // Cells are keyed by brand name, so two scorecards with the same title
+      // would overwrite each other — give later ones a numbered name.
+      const baseName = sc.title || 'Untitled';
+      let brandName = baseName;
+      for (let n = 2; brandNames.includes(brandName); n++) brandName = `${baseName} (${n})`;
+      brandNames.push(brandName);
 
       for (const row of rows) {
         const retailer = String(row[retailerCol.key] || '').trim();
