@@ -4,7 +4,7 @@ import { getUserFromToken } from '../../../../../../lib/apiAuth';
 import { features } from '../../../../../../lib/features';
 import { verifyDeviceToken } from '../../../../../../lib/crypto';
 import { logger } from '../../../../../../lib/logger';
-import { getSessionId, issueProof, sessionCookieOpts } from '../../../../../../lib/mfa/session';
+import { LEGACY_TRUSTED_DEVICE_COOKIE, getSessionId, issueProof, sessionCookieOpts, trustedDeviceCookie } from '../../../../../../lib/mfa/session';
 import { hashDeviceToken } from '../../../../../../lib/mfa/state';
 
 // GET /api/auth/2fa/check-trusted — if this browser holds a trusted-device token
@@ -28,7 +28,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ trusted: false, reason: 'not_enrolled' });
     }
 
-    const signedToken = request.cookies.get('trusted_device')?.value || '';
+    // The shared pre-per-user cookie is still honoured (and migrated below).
+    const cookieName = trustedDeviceCookie(user.id);
+    const legacyToken = request.cookies.get(LEGACY_TRUSTED_DEVICE_COOKIE)?.value || '';
+    const signedToken = request.cookies.get(cookieName)?.value || legacyToken;
     if (!signedToken) {
       return NextResponse.json({ trusted: false, reason: 'no_cookie' });
     }
@@ -73,7 +76,10 @@ export async function GET(request: NextRequest) {
     const res = NextResponse.json({ trusted: true });
     await issueProof(res, user, getSessionId(request), 'trusted_device');
     // Keep the cookie alive for as long as the server-side record is.
-    res.cookies.set('trusted_device', signedToken, { ...sessionCookieOpts, maxAge: remainingS });
+    res.cookies.set(cookieName, signedToken, { ...sessionCookieOpts, maxAge: remainingS });
+    if (signedToken === legacyToken) {
+      res.cookies.set(LEGACY_TRUSTED_DEVICE_COOKIE, '', { ...sessionCookieOpts, maxAge: 0 });
+    }
     return res;
   } catch (err) {
     logger.error('check-trusted: unexpected error —', err);

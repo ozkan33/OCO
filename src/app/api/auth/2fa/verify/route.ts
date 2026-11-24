@@ -6,7 +6,7 @@ import { getUserFromToken } from '../../../../../../lib/apiAuth';
 import { features } from '../../../../../../lib/features';
 import { decryptSecretDetailed, encryptSecret, signDeviceToken, TotpDecryptError } from '../../../../../../lib/crypto';
 import { logger } from '../../../../../../lib/logger';
-import { getProof, getSessionId, issueProof, refreshSessionCookies, sessionCookieOpts } from '../../../../../../lib/mfa/session';
+import { getProof, getSessionId, issueProof, refreshSessionCookies, sessionCookieOpts, trustedDeviceCookie } from '../../../../../../lib/mfa/session';
 import { isFreshFactor } from '../../../../../../lib/mfa/proof';
 import {
   TRUSTED_DEVICE_TTL_S, hashDeviceToken, lockMessage, lockedForSeconds, logMfaEvent,
@@ -195,7 +195,7 @@ export async function POST(request: Request) {
     const res = NextResponse.json(body);
     await issueProof(res, user, getSessionId(request), 'totp');
     if (trusted) {
-      res.cookies.set('trusted_device', trusted.signedToken, { ...sessionCookieOpts, maxAge: TRUSTED_DEVICE_TTL_S });
+      res.cookies.set(trustedDeviceCookie(user.id), trusted.signedToken,{ ...sessionCookieOpts, maxAge: TRUSTED_DEVICE_TTL_S });
     }
     // Enrollment changed app_metadata; middleware reads it from the token.
     if (enrolling) await refreshSessionCookies(request, res);

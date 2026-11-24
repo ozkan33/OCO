@@ -15,6 +15,13 @@ export const sessionCookieOpts = {
   maxAge: 60 * 60 * 24 * 7,
 };
 
+// One cookie per account: several accounts can be trusted in the same browser
+// without overwriting each other's token.
+export const LEGACY_TRUSTED_DEVICE_COOKIE = 'trusted_device';
+export function trustedDeviceCookie(userId: string): string {
+  return `trusted_device_${userId}`;
+}
+
 export function readCookie(request: Request, name: string): string | null {
   const header = request.headers.get('cookie') ?? request.headers.get('Cookie') ?? '';
   const m = header.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
