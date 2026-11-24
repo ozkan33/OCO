@@ -140,12 +140,17 @@ export async function POST(request: Request) {
     } else {
       // A code is accepted once: the update only lands if this time step is
       // newer than the last accepted one.
-      const { data: claimed, error: claimErr } = await supabaseAdmin
-        .from('user_totp_secrets')
-        .update({ ...success, ...(needsRewrap ? { encrypted_secret: nextSecret } : {}) })
-        .eq('user_id', user.id)
-        .or(`last_used_step.is.null,last_used_step.lt.${step}`)
-        .select('user_id');
+      // Two plain conditional updates rather than one .or() filter: PostgREST
+      // rejects an or-filter on this UPDATE ("column … does not exist").
+      const patch = { ...success, ...(needsRewrap ? { encrypted_secret: nextSecret } : {}) };
+      const claim = (first: boolean) => {
+        const q = supabaseAdmin.from('user_totp_secrets').update(patch).eq('user_id', user.id);
+        return (first ? q.is('last_used_step', null) : q.lt('last_used_step', step)).select('user_id');
+      };
+      let { data: claimed, error: claimErr } = await claim(true);
+      if (!claimErr && (!claimed || claimed.length === 0)) {
+        ({ data: claimed, error: claimErr } = await claim(false));
+      }
       if (claimErr) {
         logger.error('2FA verify: step claim failed —', claimErr.message);
         return NextResponse.json({ error: 'Unable to verify code. Please try again.' }, { status: 500 });
