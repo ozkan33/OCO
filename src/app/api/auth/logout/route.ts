@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   response.cookies.set('supabase-access-token',  '', clear);
   response.cookies.set('supabase-refresh-token', '', clear);
   response.cookies.set('supabase-user',          '', clear);
-  // The trusted_device cookie is deliberately kept: it is what lets this
+  // The trusted_device_<userId> cookies are deliberately kept: they are what let this
   // browser skip the code prompt at the next sign-in.
   clearProof(response);
 

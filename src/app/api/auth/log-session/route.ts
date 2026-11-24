@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const { action } = await request.json();
     const ua = request.headers.get('user-agent') || '';
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown';
-    const hasTrustedCookie = (request.headers.get('cookie') || '').includes('trusted_device=');
+    const hasTrustedCookie = (request.headers.get('cookie') || '').includes(`trusted_device_${user.id}=`);
 
     // Skip localhost/dev sessions so the admin Activity dashboard only reflects real user traffic.
     if (ip === '::1' || ip === '127.0.0.1' || ip === 'unknown') {
