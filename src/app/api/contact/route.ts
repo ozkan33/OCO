@@ -33,6 +33,7 @@ export async function POST(request: Request) {
         distribution: parsed.distribution,
         challenge: parsed.challenge,
         heard_about: parsed.heardAbout,
+        website: parsed.website,
         message: parsed.message,
       });
 
@@ -62,6 +63,7 @@ export async function POST(request: Request) {
           ['Current Distribution', parsed.distribution || '—'],
           ['Biggest Challenge', parsed.challenge || '—'],
           ['How did you hear about us?', parsed.heardAbout || '—'],
+          ['Website', parsed.website || '—'],
           ['Anything else?', parsed.message || '—'],
         ];
         const html = `

@@ -473,7 +473,7 @@ export default function ClientsPage() {
     <div className="min-h-screen bg-slate-50">
       <AdminHeader />
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Client Management</h1>
@@ -485,16 +485,16 @@ export default function ClientsPage() {
         </div>
 
         {/* Users table */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 bg-slate-50">
+              <tr className="border-b border-slate-100 bg-slate-50 whitespace-nowrap">
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Brand</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Contact</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Email</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Scorecards</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Status</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Last Login</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Weekly Summary</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Actions</th>
               </tr>
             </thead>
@@ -514,7 +514,6 @@ export default function ClientsPage() {
                 });
                 const brandCounts = new Map<string, number>();
                 sorted.forEach(u => brandCounts.set(u.brand_name, (brandCounts.get(u.brand_name) || 0) + 1));
-                const seenBrands = new Set<string>();
                 const fmtRelative = (iso: string) => {
                   const then = new Date(iso).getTime();
                   const now = Date.now();
@@ -532,8 +531,6 @@ export default function ClientsPage() {
                   return `${months}mo ago`;
                 };
                 return sorted.map(bu => {
-                  const isAnchor = !seenBrands.has(bu.brand_name);
-                  if (isAnchor) seenBrands.add(bu.brand_name);
                   const brandUserCount = brandCounts.get(bu.brand_name) || 1;
                   const isShared = brandUserCount > 1;
                   const isThisBrandRegenerating = regeneratingBrand === bu.brand_name;
@@ -557,9 +554,11 @@ export default function ClientsPage() {
                   return (
                 <Fragment key={bu.id}>
                   <tr className="border-b border-slate-50 hover:bg-slate-50/50">
-                    <td className="px-4 py-3 font-semibold text-slate-900">{bu.brand_name}</td>
-                    <td className="px-4 py-3 text-slate-700">{bu.contact_name}</td>
-                    <td className="px-4 py-3 text-slate-500">{bu.email}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-900 whitespace-nowrap">{bu.brand_name || <span className="font-normal text-slate-300">—</span>}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="font-medium text-slate-800">{bu.contact_name}</div>
+                      <div className="text-xs text-slate-500">{bu.email}</div>
+                    </td>
                     <td className="px-4 py-3 text-slate-500">{bu.assignments?.length || 0}</td>
                     <td className="px-4 py-3">
                       {bu.is_active
@@ -568,9 +567,39 @@ export default function ClientsPage() {
                           : <span className="text-xs font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-full">Active</span>
                         : <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Inactive</span>}
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-400">{bu.last_login ? new Date(bu.last_login).toLocaleDateString() : 'Never'}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex flex-col items-end gap-0.5">
+                    <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{bu.last_login ? new Date(bu.last_login).toLocaleDateString() : 'Never'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex flex-col items-start gap-1.5">
+                          <span
+                            className={`text-xs ${
+                              summaryStatus === 'manual' ? 'text-purple-600 font-medium'
+                              : summaryStatus === 'never' ? 'text-amber-600 font-medium'
+                              : 'text-slate-500'
+                            }`}
+                            title={summaryTooltip}
+                          >
+                            {summaryRelative}
+                            {summaryStatus === 'manual' ? ' (manual)' : ''}
+                          </span>
+                          <button
+                            onClick={() => toggleBrandEmails(bu.brand_name, bu.weekly_email_enabled === false)}
+                            disabled={togglingBrand === bu.brand_name}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-colors disabled:opacity-50 ${
+                              bu.weekly_email_enabled === false ? 'bg-rose-50 text-rose-600 hover:bg-rose-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                            }`}
+                            title={bu.weekly_email_enabled === false
+                              ? `Weekly "Week in Review" emails are OFF for ${bu.brand_name}. No Monday auto-send or manual send will go out to this brand. Click to turn on.`
+                              : `Weekly "Week in Review" emails are ON for ${bu.brand_name} (Monday auto-send). Click to turn off.`}
+                            aria-label={`Weekly emails for ${bu.brand_name} are ${bu.weekly_email_enabled === false ? 'off' : 'on'}. Click to turn ${bu.weekly_email_enabled === false ? 'on' : 'off'}.`}
+                          >
+                            {togglingBrand === bu.brand_name
+                              ? <FiRefreshCw className="w-3 h-3 animate-spin" />
+                              : bu.weekly_email_enabled === false ? <FiBellOff className="w-3 h-3" /> : <FiBell className="w-3 h-3" />}
+                            {bu.weekly_email_enabled === false ? 'Emails off' : 'Emails on'}
+                          </button>
+                        </div>
+                    </td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1">
                         <button onClick={() => viewSessions(bu.id)} className={`transition-colors p-1.5 rounded-md ${selectedUserSessions === bu.id ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-blue-600 hover:bg-slate-100'}`} title="Login History"><FiClock className="w-4 h-4" /></button>
                         <button
@@ -616,42 +645,6 @@ export default function ClientsPage() {
                         }
                         <button onClick={() => handlePermanentDelete(bu)} className="text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors p-1.5 rounded-md" title="Delete permanently"><FiTrash2 className="w-4 h-4" /></button>
                         </div>
-                        {isAnchor && (
-                          <>
-                            <div
-                              className="hidden sm:flex items-center gap-1 pr-1.5 text-[10px] leading-none text-slate-400"
-                              title={summaryTooltip}
-                            >
-                              <span className="uppercase tracking-wide text-slate-300">AI&nbsp;summary</span>
-                              <span aria-hidden="true" className="text-slate-200">·</span>
-                              <span className={
-                                summaryStatus === 'manual' ? 'text-purple-600 font-medium'
-                                : summaryStatus === 'never' ? 'text-amber-600 font-medium'
-                                : 'text-slate-500'
-                              }>
-                                {summaryRelative}
-                                {summaryStatus === 'manual' ? ' (manual)' : ''}
-                              </span>
-                            </div>
-                            <button
-                              onClick={() => toggleBrandEmails(bu.brand_name, bu.weekly_email_enabled === false)}
-                              disabled={togglingBrand === bu.brand_name}
-                              className={`flex items-center gap-1 pr-1.5 text-[10px] leading-none font-medium transition-colors disabled:opacity-50 ${
-                                bu.weekly_email_enabled === false ? 'text-rose-500 hover:text-rose-600' : 'text-emerald-600 hover:text-emerald-700'
-                              }`}
-                              title={bu.weekly_email_enabled === false
-                                ? `Weekly "Week in Review" emails are OFF for ${bu.brand_name}. No Monday auto-send or manual send will go out to this brand. Click to turn on.`
-                                : `Weekly "Week in Review" emails are ON for ${bu.brand_name} (Monday auto-send). Click to turn off.`}
-                              aria-label={`Weekly emails for ${bu.brand_name} are ${bu.weekly_email_enabled === false ? 'off' : 'on'}. Click to turn ${bu.weekly_email_enabled === false ? 'on' : 'off'}.`}
-                            >
-                              {togglingBrand === bu.brand_name
-                                ? <FiRefreshCw className="w-3 h-3 animate-spin" />
-                                : bu.weekly_email_enabled === false ? <FiBellOff className="w-3 h-3" /> : <FiBell className="w-3 h-3" />}
-                              {bu.weekly_email_enabled === false ? 'Emails off' : 'Emails on'}
-                            </button>
-                          </>
-                        )}
-                      </div>
                     </td>
                   </tr>
                   {selectedUserSessions === bu.id && (

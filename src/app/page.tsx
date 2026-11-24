@@ -89,7 +89,7 @@ function getBrandUrl(label: string): string {
 
 export default function LandingPage() {
   const router = useRouter();
-  const [form, setForm] = useState({ name: '', email: '', product: '', category: '', distribution: '', challenge: '', heardAbout: '', message: '' });
+  const [form, setForm] = useState({ name: '', email: '', product: '', category: '', distribution: '', challenge: '', heardAbout: '', website: '', message: '' });
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [clientLogos, setClientLogos] = useState<{ src: string; alt: string; url: string }[]>([]);
@@ -160,7 +160,7 @@ export default function LandingPage() {
         return;
       }
       setSent(true);
-      setForm({ name: '', email: '', product: '', category: '', distribution: '', challenge: '', heardAbout: '', message: '' });
+      setForm({ name: '', email: '', product: '', category: '', distribution: '', challenge: '', heardAbout: '', website: '', message: '' });
     } catch {
       alert('Network error. Please check your connection and try again.');
     } finally {
@@ -690,6 +690,24 @@ export default function LandingPage() {
                   <option value="Existing client">Existing client</option>
                   <option value="Other">Other</option>
                 </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-slate-700">
+                  Website
+                  <span className="text-slate-400 font-normal ml-1.5">Optional</span>
+                </label>
+                <input
+                  type="text"
+                  inputMode="url"
+                  autoComplete="url"
+                  name="website"
+                  value={form.website}
+                  onChange={handleChange}
+                  placeholder="yourbrand.com"
+                  maxLength={255}
+                  className="border border-slate-200 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                />
               </div>
 
               {/* Row 5: Optional notes */}

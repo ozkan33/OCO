@@ -99,5 +99,6 @@ export const contactSubmissionSchema = z.object({
   distribution: z.string().max(255).optional().default(''),
   challenge: z.string().max(255).optional().default(''),
   heardAbout: z.string().max(255).optional().default(''),
+  website: z.string().trim().max(255).optional().default(''),
   message: z.string().max(5000).optional().default(''),
 });
