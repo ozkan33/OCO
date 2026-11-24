@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { contactOptions } from './constants';
+import { useContactOptions } from './contactOptionsStore';
 import type { CellPosition } from './types';
 
 interface ContactPickerCardProps {
@@ -13,6 +13,8 @@ interface ContactPickerCardProps {
 }
 
 export default function ContactPickerCard({ position, value, onSelect, onClose }: ContactPickerCardProps) {
+  // Built-in contacts plus the ones Admins add on /admin/config.
+  const { options: contactOptions } = useContactOptions();
   const [focusedIdx, setFocusedIdx] = useState(() =>
     contactOptions.findIndex(opt => opt.value === value)
   );
@@ -28,14 +30,15 @@ export default function ContactPickerCard({ position, value, onSelect, onClose }
         setFocusedIdx(idx => (idx - 1 + contactOptions.length) % contactOptions.length);
         e.preventDefault();
       } else if (e.key === 'Enter') {
-        onSelect(contactOptions[focusedIdx].value);
+        const opt = contactOptions[focusedIdx];
+        if (opt) onSelect(opt.value);
       } else if (e.key === 'Escape') {
         onClose();
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [focusedIdx, onSelect, onClose]);
+  }, [focusedIdx, onSelect, onClose, contactOptions]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {

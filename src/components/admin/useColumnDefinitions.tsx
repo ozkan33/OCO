@@ -913,8 +913,11 @@ export function useColumnDefinitions({
 
   // 3. Add ContactLabel and ContactDropdownEditCell
   function ContactLabel({ value }: { value: string }) {
-    const selected = contactOptions.find(opt => opt.value === value);
-    if (!selected) return <span className="text-slate-300 text-xs">—</span>;
+    if (!value) return <span className="text-slate-300 text-xs">—</span>;
+    // A name not in the list (still loading, or added elsewhere) shows as a
+    // plain chip rather than looking empty.
+    const selected = contactOptions.find(opt => opt.value === value)
+      ?? { label: value, bg: '#f1f5f9', color: '#475569' };
     return (
       <div
         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium"
