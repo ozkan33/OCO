@@ -13,6 +13,7 @@ import MasterScorecard from './MasterScorecard';
 import StatusPickerCard from './StatusPickerCard';
 import PriorityPickerCard from './PriorityPickerCard';
 import ContactPickerCard from './ContactPickerCard';
+import { useContactOptions } from './contactOptionsStore';
 import CategoryReviewDatePickerCard from './CategoryReviewDatePickerCard';
 import {
   AddColumnModal,
@@ -298,6 +299,8 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
 
   // 2. Add state for Contact picker
   const [contactPicker, setContactPicker] = React.useState<PickerState | null>(null);
+  // Loads Admin-added 3B Contact names and re-renders the grid when they arrive.
+  useContactOptions();
 
   // 3. Add state for CategoryReviewDatePicker
   const [categoryReviewDatePicker, setCategoryReviewDatePicker] = React.useState<PickerState | null>(null);
@@ -848,7 +851,6 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
     if (scorecard) {
       setEditingScoreCard(scorecard);
       setLastSelectedScorecardId(scorecard.id);
-      loadScorecardComments(scorecard.id);
     } else {
       setEditingScoreCard(null);
     }
@@ -860,6 +862,9 @@ export default function AdminDataGrid({ userRole, navigateToRef, refreshComments
   // reloads comments only when rows were actually created.
   useEffect(() => {
     if (!selectedCategory || !isScorecard(selectedCategory)) return;
+    // Load here rather than in handleCategoryChange: the initial mount and the
+    // mid-switch path set selectedCategory directly and would skip the load.
+    void loadScorecardComments(selectedCategory);
     void backfillMarketVisitComments(selectedCategory);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- backfill is stable; isScorecard depends on scorecards array which changes on every save
   }, [selectedCategory]);
