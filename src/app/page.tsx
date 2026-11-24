@@ -567,8 +567,9 @@ export default function LandingPage() {
               {/* Row 1: Name + Email */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-slate-700">Name</label>
+                  <label htmlFor="contact-name" className="text-sm font-medium text-slate-700">Name</label>
                   <input
+                    id="contact-name"
                     type="text"
                     name="name"
                     value={form.name}
@@ -579,8 +580,9 @@ export default function LandingPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-slate-700">Email</label>
+                  <label htmlFor="contact-email" className="text-sm font-medium text-slate-700">Email</label>
                   <input
+                    id="contact-email"
                     type="email"
                     name="email"
                     value={form.email}
@@ -595,8 +597,9 @@ export default function LandingPage() {
               {/* Row 2: Product + Category */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-slate-700">Product / Brand</label>
+                  <label htmlFor="contact-product" className="text-sm font-medium text-slate-700">Product / Brand</label>
                   <input
+                    id="contact-product"
                     type="text"
                     name="product"
                     value={form.product}
@@ -607,8 +610,9 @@ export default function LandingPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-slate-700">Category</label>
+                  <label htmlFor="contact-category" className="text-sm font-medium text-slate-700">Category</label>
                   <select
+                    id="contact-category"
                     name="category"
                     value={form.category}
                     onChange={handleChange}
@@ -633,8 +637,9 @@ export default function LandingPage() {
               {/* Row 3: Distribution + Challenge */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-slate-700">Current Distribution</label>
+                  <label htmlFor="contact-distribution" className="text-sm font-medium text-slate-700">Current Distribution</label>
                   <select
+                    id="contact-distribution"
                     name="distribution"
                     value={form.distribution}
                     onChange={handleChange}
@@ -648,8 +653,9 @@ export default function LandingPage() {
                   </select>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-slate-700">Biggest Challenge</label>
+                  <label htmlFor="contact-challenge" className="text-sm font-medium text-slate-700">Biggest Challenge</label>
                   <select
+                    id="contact-challenge"
                     name="challenge"
                     value={form.challenge}
                     onChange={handleChange}
@@ -669,11 +675,12 @@ export default function LandingPage() {
 
               {/* Row 4: How did you hear about us? */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-slate-700">
+                <label htmlFor="contact-heard-about" className="text-sm font-medium text-slate-700">
                   How did you hear about us?
                   <span className="text-slate-400 font-normal ml-1.5">Optional</span>
                 </label>
                 <select
+                  id="contact-heard-about"
                   name="heardAbout"
                   value={form.heardAbout}
                   onChange={handleChange}
@@ -693,11 +700,12 @@ export default function LandingPage() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-slate-700">
+                <label htmlFor="contact-website" className="text-sm font-medium text-slate-700">
                   Website
                   <span className="text-slate-400 font-normal ml-1.5">Optional</span>
                 </label>
                 <input
+                  id="contact-website"
                   type="text"
                   inputMode="url"
                   autoComplete="url"
@@ -712,11 +720,12 @@ export default function LandingPage() {
 
               {/* Row 5: Optional notes */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-slate-700">
+                <label htmlFor="contact-message" className="text-sm font-medium text-slate-700">
                   Anything else?
                   <span className="text-slate-400 font-normal ml-1.5">Optional</span>
                 </label>
                 <textarea
+                  id="contact-message"
                   name="message"
                   value={form.message}
                   onChange={handleChange}
